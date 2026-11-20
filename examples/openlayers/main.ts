@@ -15,6 +15,14 @@ import '../../src/index.css';
 import 'ol/ol.css';
 import { dockAgentPanel } from '../shared/dock-panel';
 import '../shared/dock-panel.css';
+import { applyExamplePageLocale, resolveExamplesLocale } from '../shared/locale';
+
+// Follow the language chosen on the examples homepage (localStorage).
+const locale = resolveExamplesLocale();
+applyExamplePageLocale(locale, {
+  en: 'maplibre-gl-geoagent - OpenLayers Example',
+  zh: 'maplibre-gl-geoagent - OpenLayers 示例',
+});
 
 // A plain OpenLayers map — no MapLibre anywhere. The GeoAgent tools run
 // through the openlayers-engine compatibility shim
@@ -60,6 +68,7 @@ const openLayersNamespace = {
 
 const geoAgent = new GeoAgentControl({
   title: 'GeoAgent (OpenLayers)',
+  locale,
   collapsed: false,
   allowCodeExecutionDefault: true,
   allowDestructiveToolsDefault: true,

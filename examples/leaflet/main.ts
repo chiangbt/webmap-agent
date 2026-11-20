@@ -4,6 +4,14 @@ import '../../src/index.css';
 import 'leaflet/dist/leaflet.css';
 import { dockAgentPanel } from '../shared/dock-panel';
 import '../shared/dock-panel.css';
+import { applyExamplePageLocale, resolveExamplesLocale } from '../shared/locale';
+
+// Follow the language chosen on the examples homepage (localStorage).
+const locale = resolveExamplesLocale();
+applyExamplePageLocale(locale, {
+  en: 'maplibre-gl-geoagent - Leaflet Example',
+  zh: 'maplibre-gl-geoagent - Leaflet 示例',
+});
 
 // A plain Leaflet map — no MapLibre anywhere. The GeoAgent tools run through
 // the leaflet-engine compatibility shim (mapEngine: { kind: "leaflet" }).
@@ -19,6 +27,7 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 const geoAgent = new GeoAgentControl({
   title: 'GeoAgent (Leaflet)',
+  locale,
   collapsed: false,
   allowCodeExecutionDefault: true,
   allowDestructiveToolsDefault: true,

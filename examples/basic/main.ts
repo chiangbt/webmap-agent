@@ -7,8 +7,16 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import 'maplibre-gl-layer-control/style.css';
 import { dockAgentPanel } from '../shared/dock-panel';
 import '../shared/dock-panel.css';
+import { applyExamplePageLocale, resolveExamplesLocale } from '../shared/locale';
 // ESO/S. Brunier milky way panorama (CC BY 4.0), equirectangular 4096x2048.
 import milkywayUrl from '../assets/milkyway.jpg';
+
+// Follow the language chosen on the examples homepage (localStorage).
+const locale = resolveExamplesLocale();
+applyExamplePageLocale(locale, {
+  en: 'maplibre-gl-geoagent - Basic Example',
+  zh: 'maplibre-gl-geoagent - 基础示例',
+});
 
 const map = new maplibregl.Map({
   container: 'map',
@@ -57,6 +65,7 @@ map.on('load', () => {
 
   const geoAgent = new GeoAgentControl({
     title: 'GeoAgent',
+    locale,
     collapsed: false,
     allowCodeExecutionDefault: true,
     allowDestructiveToolsDefault: true,

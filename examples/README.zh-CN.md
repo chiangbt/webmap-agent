@@ -10,6 +10,10 @@
 自适应，地图占据其余空间（`examples/shared/dock-panel.ts` +
 `dock-panel.css`）。由于面板在侧栏中始终可见，浮动切换按钮已被移除。
 
+所有示例均跟随示例首页选择的语言：首页的 中文/English 下拉框会把选择保存在
+`localStorage`（`geoagent.locale`），每个示例页读取该选择并通过 `locale`
+选项传给 Agent 面板（`examples/shared/locale.ts`）。
+
 ## 基础示例
 
 一个原生 TypeScript 示例，演示将 `GeoAgentControl` 添加到 MapLibre 地图。

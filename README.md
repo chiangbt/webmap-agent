@@ -141,6 +141,15 @@ default without calling a provider model-list endpoint. For
 `OpenAI-Compatible (Custom)`, there is no universal latest model, so enter the
 model ID exposed by that endpoint.
 
+### Language
+
+Set the `locale` option to `'zh-CN'` to render every panel label, status badge,
+button, and runtime message in Chinese; the default `'en'` keeps English. Brand
+names and technical terms stay identical across locales. The examples homepage
+provides a language dropdown that persists the choice in `localStorage`
+(`geoagent.locale`), and every example page follows that choice — see
+`examples/shared/locale.ts`.
+
 ## Options
 
 | Option                         | Type                                                           | Default               |
@@ -152,6 +161,7 @@ model ID exposed by that endpoint.
 | `panelMinWidth`                | `number`                                                       | `320`                 |
 | `panelMaxWidth`                | `number`                                                       | `720`                 |
 | `className`                    | `string`                                                       | `''`                  |
+| `locale`                       | `'en' \| 'zh-CN'`                                              | `'en'`                |
 | `defaultProvider`              | `GeoAgentProviderId`                                           | `'openai-responses'`  |
 | `defaultModel`                 | `string \| Partial<Record<GeoAgentProviderId, string>>`        | provider default      |
 | `storagePrefix`                | `string`                                                       | `'geoagent.maplibre'` |

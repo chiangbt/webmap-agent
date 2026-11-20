@@ -11,6 +11,11 @@ left sidebar whose width adapts to the panel, and the map fills the remaining
 space (`examples/shared/dock-panel.ts` + `dock-panel.css`). The floating
 toggle button is removed because the panel is always visible in the sidebar.
 
+All examples follow the language chosen on the examples homepage: the
+homepage's 中文/English dropdown persists the choice in `localStorage`
+(`geoagent.locale`), and each page passes it to the Agent panel as the
+`locale` option (`examples/shared/locale.ts`).
+
 ## Basic Example
 
 A vanilla TypeScript example showing the `GeoAgentControl` added to a MapLibre map.

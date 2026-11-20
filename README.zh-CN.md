@@ -138,6 +138,13 @@ API key 只在你提交时（按回车或焦点移出输入框）写入 `session
 模型列表接口。`OpenAI-Compatible (Custom)` 没有通用的最新模型，请填写该
 端点暴露的模型 ID。
 
+### 语言
+
+将 `locale` 选项设为 `'zh-CN'` 即可以中文渲染面板的全部文案（标签、状态徽章、
+按钮与运行时消息），默认 `'en'` 为英文。品牌名与技术术语在两种语言下保持一致。
+示例首页提供中英文下拉框，选择保存在 `localStorage`（`geoagent.locale`），
+各示例页会读取该选择并跟随显示，参见 `examples/shared/locale.ts`。
+
 ## 配置项
 
 | 选项                           | 类型                                                           | 默认值              |
@@ -149,6 +156,7 @@ API key 只在你提交时（按回车或焦点移出输入框）写入 `session
 | `panelMinWidth`                | `number`                                                       | `320`               |
 | `panelMaxWidth`                | `number`                                                       | `720`               |
 | `className`                    | `string`                                                       | `''`                |
+| `locale`                       | `'en' \| 'zh-CN'`                                              | `'en'`              |
 | `defaultProvider`              | `GeoAgentProviderId`                                           | `'openai-responses'`|
 | `defaultModel`                 | `string \| Partial<Record<GeoAgentProviderId, string>>`        | provider 默认值     |
 | `storagePrefix`                | `string`                                                       | `'geoagent.maplibre'`|

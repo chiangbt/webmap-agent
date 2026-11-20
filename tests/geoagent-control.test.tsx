@@ -1506,3 +1506,173 @@ describe("MapLibreAgentTools native tools", () => {
     ).rejects.toThrow(/disabled/);
   });
 });
+
+describe("GeoAgentControl locale", () => {
+  function removeStoredSettings(prefix: string): void {
+    sessionStorage.removeItem(`${prefix}.openai-responses.api_key`);
+    sessionStorage.removeItem(`${prefix}.anthropic.api_key`);
+    sessionStorage.removeItem(`${prefix}.provider`);
+    sessionStorage.removeItem(`${prefix}.model.openai-responses`);
+    sessionStorage.removeItem(`${prefix}.model.anthropic`);
+  }
+
+  it("renders English panel strings by default", () => {
+    const storagePrefix = "geoagent.locale.en";
+    removeStoredSettings(storagePrefix);
+    const map = new MockMap();
+    const control = new GeoAgentControl({ storagePrefix });
+    map.controlStack.appendChild(control.onAdd(map as never));
+
+    expect(
+      map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-send")
+        ?.textContent,
+    ).toBe("Send");
+    expect(
+      map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-cancel")
+        ?.textContent,
+    ).toBe("Cancel");
+    expect(
+      map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-copy")
+        ?.textContent,
+    ).toBe("Copy Markdown");
+    expect(
+      map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-clear")
+        ?.textContent,
+    ).toBe("Clear");
+    expect(
+      map.mapContainer.querySelector<HTMLElement>(".geoagent-settings summary")
+        ?.textContent,
+    ).toBe("Provider & model");
+    // Without credentials the prompt shows the localized locked hint.
+    expect(
+      map.mapContainer.querySelector<HTMLTextAreaElement>(".geoagent-prompt")
+        ?.placeholder,
+    ).toBe("Add your OpenAI API Key to start.");
+
+    control.onRemove();
+    map.cleanup();
+  });
+
+  it("renders Chinese panel strings with locale zh-CN", () => {
+    const storagePrefix = "geoagent.locale.zh";
+    removeStoredSettings(storagePrefix);
+    const map = new MockMap();
+    const control = new GeoAgentControl({
+      storagePrefix,
+      locale: "zh-CN",
+      defaultProvider: "anthropic",
+      apiKeys: { anthropic: "test-anthropic-key" },
+    });
+    map.controlStack.appendChild(control.onAdd(map as never));
+
+    const status =
+      map.mapContainer.querySelector<HTMLSpanElement>(".geoagent-status")!;
+    expect(status.textContent).toBe("就绪");
+    expect(status.className).toContain("connected");
+
+    // The mount log is localized and configured hosts get the ready variant.
+    expect(
+      map.mapContainer.querySelector<HTMLElement>(
+        ".geoagent-entry .geoagent-text",
+      )?.textContent,
+    ).toBe("浏览器端 Strands MapLibre 智能体已就绪。");
+
+    expect(
+      map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-send")
+        ?.textContent,
+    ).toBe("发送");
+    expect(
+      map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-cancel")
+        ?.textContent,
+    ).toBe("取消");
+    expect(
+      map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-copy")
+        ?.textContent,
+    ).toBe("复制 Markdown");
+    expect(
+      map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-clear")
+        ?.textContent,
+    ).toBe("清空");
+    expect(
+      map.mapContainer.querySelector<HTMLElement>(".geoagent-settings summary")
+        ?.textContent,
+    ).toBe("模型与提供商");
+    expect(
+      map.mapContainer.querySelector<HTMLElement>(".geoagent-api-key-label")
+        ?.textContent,
+    ).toBe("Anthropic API 密钥");
+    expect(
+      map.mapContainer.querySelector<HTMLTextAreaElement>(".geoagent-prompt")
+        ?.placeholder,
+    ).toBe("为旧金山添加一个红色标记并缩放到该位置。");
+
+    control.onRemove();
+    map.cleanup();
+  });
+
+  it("keeps the zh-CN idle badge round-trip working without label matching", () => {
+    const storagePrefix = "geoagent.locale.zh.flow";
+    removeStoredSettings(storagePrefix);
+    const map = new MockMap();
+    const control = new GeoAgentControl({ storagePrefix, locale: "zh-CN" });
+    map.controlStack.appendChild(control.onAdd(map as never));
+
+    const status =
+      map.mapContainer.querySelector<HTMLSpanElement>(".geoagent-status")!;
+    expect(status.textContent).toBe("需要配置");
+    expect(status.className).toContain("setup");
+
+    // Typing without committing must not flip the badge.
+    const apiKeyInput =
+      map.mapContainer.querySelector<HTMLInputElement>(".geoagent-api-key")!;
+    apiKeyInput.value = "sk-test";
+    apiKeyInput.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(status.textContent).toBe("需要配置");
+    expect(status.className).not.toContain("connected");
+
+    apiKeyInput.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+    expect(status.textContent).toBe("就绪");
+    expect(status.className).toContain("connected");
+    expect(
+      map.mapContainer.querySelector<HTMLElement>(".geoagent-config-note")
+        ?.textContent,
+    ).toBe("API 密钥已保存。");
+
+    // Clearing the key drops the badge back to setup in Chinese.
+    apiKeyInput.value = "";
+    apiKeyInput.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(status.textContent).toBe("需要配置");
+    expect(status.className).toContain("setup");
+
+    control.onRemove();
+    map.cleanup();
+  });
+
+  it("localizes runtime log messages and role labels in zh-CN", () => {
+    const storagePrefix = "geoagent.locale.zh.log";
+    removeStoredSettings(storagePrefix);
+    const map = new MockMap();
+    const control = new GeoAgentControl({ storagePrefix, locale: "zh-CN" });
+    map.controlStack.appendChild(control.onAdd(map as never));
+
+    map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-clear")!
+      .click();
+    const entries = Array.from(
+      map.mapContainer.querySelectorAll<HTMLElement>(
+        ".geoagent-entry .geoagent-text",
+      ),
+    ).map((el) => el.textContent ?? "");
+    expect(entries.at(-1)).toBe("对话已清空。");
+    const roles = Array.from(
+      map.mapContainer.querySelectorAll<HTMLElement>(
+        ".geoagent-entry .geoagent-role",
+      ),
+    ).map((el) => el.textContent ?? "");
+    expect(roles.at(-1)).toBe("系统");
+
+    control.onRemove();
+    map.cleanup();
+  });
+});

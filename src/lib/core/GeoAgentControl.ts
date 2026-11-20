@@ -7,6 +7,7 @@ import {
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import type { IControl, Map as MapLibreMap } from 'maplibre-gl';
+import { t, type GeoAgentMessageKey } from '../i18n';
 import {
   DEFAULT_BASEMAPS,
   MapLibreAgentTools,
@@ -22,18 +23,6 @@ import type {
 
 const DEFAULT_PROVIDER: GeoAgentProviderId = 'openai-responses';
 const DEFAULT_STORAGE_PREFIX = 'geoagent.maplibre';
-
-const DEFAULT_PROMPT_PLACEHOLDER =
-  'Add a red marker for San Francisco and zoom to it.';
-
-// Status badge labels that represent an idle (not mid-run) state. The idle
-// status is recomputed from the current configuration, so it may flip between
-// these as the user fills in or clears credentials. Transient statuses (Running,
-// Cancelled, Error, Copied) are intentionally excluded so they are not clobbered
-// by configuration changes.
-const STATUS_READY = 'Ready';
-const STATUS_SETUP = 'Setup required';
-const IDLE_STATUS_LABELS = new Set<string>([STATUS_READY, STATUS_SETUP]);
 
 const BASE_PROVIDER_CONFIGS: Record<
   GeoAgentProviderId,
@@ -247,12 +236,18 @@ export class GeoAgentControl implements IControl {
   // Whether the agent was configured at the last control refresh, used to fold
   // the settings section away the first time setup completes.
   private wasConfigured = false;
+  // Kind of the currently displayed idle status badge ('connected' | 'setup'),
+  // or null while a transient status (Running, Cancelled, Error, Copied) is
+  // shown. Tracked by kind instead of comparing badge text so the idle status
+  // keeps working in every locale.
+  private idleStatusKind: 'connected' | 'setup' | null = null;
 
   constructor(options: GeoAgentControlOptions = {}) {
     this.options = {
       collapsed: options.collapsed ?? true,
       position: options.position ?? 'top-right',
       title: options.title ?? 'GeoAgent',
+      locale: options.locale ?? 'en',
       panelWidth: options.panelWidth ?? 390,
       panelMinWidth: options.panelMinWidth ?? 320,
       panelMaxWidth: options.panelMaxWidth ?? 720,
@@ -480,6 +475,38 @@ export class GeoAgentControl implements IControl {
     handlers.forEach((handler) => handler(eventData));
   }
 
+  /** Localized UI string for this control's locale. */
+  private tr(key: GeoAgentMessageKey, params?: Record<string, string | number>): string {
+    return t(this.options.locale, key, params);
+  }
+
+  /** Display label for a chat log role, honoring the control's locale. */
+  private roleLabel(role: string): string {
+    const known: Record<string, GeoAgentMessageKey> = {
+      system: 'roleSystem',
+      user: 'roleUser',
+      assistant: 'roleAssistant',
+      tool: 'roleTool',
+      error: 'roleError',
+    };
+    const key = known[role];
+    return key ? this.tr(key) : markdownHeading(role);
+  }
+
+  /** Localized API key field label for a provider. */
+  private localizedApiKeyLabel(providerId: GeoAgentProviderId): string {
+    const key: GeoAgentMessageKey = providerId === 'anthropic'
+      ? 'keyLabelAnthropic'
+      : providerId === 'google'
+        ? 'keyLabelGemini'
+        : providerId === 'bedrock'
+          ? 'keyLabelBedrock'
+          : providerId === 'openai-compatible'
+            ? 'keyLabelGeneric'
+            : 'keyLabelOpenAI';
+    return this.tr(key);
+  }
+
   private providerConfigs(): Record<GeoAgentProviderId, GeoAgentProviderConfig> {
     return {
       'openai-responses': this.providerConfig('openai-responses'),
@@ -593,13 +620,14 @@ export class GeoAgentControl implements IControl {
 
     const status = document.createElement('span');
     status.className = 'geoagent-status connected';
-    status.textContent = 'Ready';
+    status.textContent = this.tr('statusReady');
+    this.idleStatusKind = 'connected';
 
     const closeButton = document.createElement('button');
     closeButton.className = 'geoagent-icon-button';
     closeButton.type = 'button';
-    closeButton.title = 'Close';
-    closeButton.setAttribute('aria-label', 'Close');
+    closeButton.title = this.tr('closeButtonLabel');
+    closeButton.setAttribute('aria-label', this.tr('closeButtonLabel'));
     closeButton.innerHTML = `
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M18 6 6 18"></path>
@@ -615,29 +643,29 @@ export class GeoAgentControl implements IControl {
     content.className = 'geoagent-panel-content';
     content.innerHTML = `
       <details class="geoagent-settings">
-        <summary>Provider &amp; model</summary>
+        <summary>${this.tr('settingsSummary')}</summary>
         <div class="geoagent-settings-grid">
           <label>
-            Provider
+            ${this.tr('providerLabel')}
             <select class="geoagent-provider"></select>
           </label>
           <label>
-            <span class="geoagent-api-key-label">API Key</span>
+            <span class="geoagent-api-key-label">${this.tr('apiKeyLabelGeneric')}</span>
             <input class="geoagent-api-key" type="password" autocomplete="off" placeholder="sk-..." />
           </label>
           <label class="geoagent-base-url-row" hidden>
-            API Base URL
+            ${this.tr('baseUrlLabel')}
             <input class="geoagent-base-url" autocomplete="off" placeholder="https://host/v1" />
           </label>
           <label class="geoagent-bedrock-region-row" hidden>
-            Region
+            ${this.tr('regionLabel')}
             <input class="geoagent-bedrock-region" autocomplete="off" placeholder="us-west-2" />
           </label>
           <label class="geoagent-model-cell">
-            Model
+            ${this.tr('modelLabel')}
             <div class="geoagent-model-row">
               <input class="geoagent-model-id" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${this.modelListId}" />
-              <button class="geoagent-load-models secondary" type="button">Use latest</button>
+              <button class="geoagent-load-models secondary" type="button">${this.tr('useLatestButton')}</button>
             </div>
             <ul class="geoagent-model-suggestions" id="${this.modelListId}" role="listbox" hidden></ul>
           </label>
@@ -646,25 +674,25 @@ export class GeoAgentControl implements IControl {
       </details>
 
       <details class="geoagent-earth-engine">
-        <summary>Earth Engine</summary>
+        <summary>${this.tr('earthEngineSummary')}</summary>
         <input class="geoagent-ee-client-id" type="hidden" />
         <div class="geoagent-earth-engine-grid">
           <label>
-            Project ID
+            ${this.tr('earthEngineProjectLabel')}
             <input class="geoagent-ee-project-id" autocomplete="off" placeholder="Earth Engine project" />
           </label>
         </div>
         <div class="geoagent-earth-engine-status"></div>
       </details>
 
-      <div class="geoagent-toggle-row" aria-label="Agent permissions">
+      <div class="geoagent-toggle-row" aria-label="${this.tr('permissionRowLabel')}">
         <label class="geoagent-checkbox-row">
           <input class="geoagent-allow-code" type="checkbox" />
-          <span>MapLibre JS</span>
+          <span>${this.tr('permissionCodeLabel')}</span>
         </label>
         <label class="geoagent-checkbox-row">
           <input class="geoagent-allow-destructive" type="checkbox" />
-          <span>Layer removal</span>
+          <span>${this.tr('permissionDestructiveLabel')}</span>
         </label>
       </div>
 
@@ -672,14 +700,14 @@ export class GeoAgentControl implements IControl {
 
       <form class="geoagent-form">
         <label>
-          Prompt
-          <textarea class="geoagent-prompt" placeholder="Add a red marker for San Francisco and zoom to it."></textarea>
+          ${this.tr('promptLabel')}
+          <textarea class="geoagent-prompt" placeholder="${this.tr('promptPlaceholder')}"></textarea>
         </label>
         <div class="geoagent-actions">
-          <button class="geoagent-send" type="submit" disabled>Send</button>
-          <button class="geoagent-cancel secondary" type="button" disabled>Cancel</button>
-          <button class="geoagent-copy secondary" type="button">Copy Markdown</button>
-          <button class="geoagent-clear secondary" type="button">Clear</button>
+          <button class="geoagent-send" type="submit" disabled>${this.tr('sendButton')}</button>
+          <button class="geoagent-cancel secondary" type="button" disabled>${this.tr('cancelButton')}</button>
+          <button class="geoagent-copy secondary" type="button">${this.tr('copyMarkdownButton')}</button>
+          <button class="geoagent-clear secondary" type="button">${this.tr('clearButton')}</button>
         </div>
       </form>
     `;
@@ -806,17 +834,19 @@ export class GeoAgentControl implements IControl {
       | undefined;
     if (!oauthClientId && !accessToken) {
       this.ui.earthEngineStatus.textContent =
-        'OAuth Client ID or access token is not configured by this app. Set VITE_GEE_OAUTH_CLIENT_ID or provide earthEngine.accessToken before running Earth Engine tools.';
+        this.tr('eeStatusNoCredentials');
       return;
     }
     if (!projectId) {
-      this.ui.earthEngineStatus.textContent =
-        'Enter an Earth Engine project ID before running Earth Engine tools.';
+      this.ui.earthEngineStatus.textContent = this.tr('eeStatusNoProject');
       return;
     }
     this.ui.earthEngineStatus.textContent = earthEngine
-      ? `Initialized: ${earthEngine.initialized ? 'yes' : 'no'}; layers: ${earthEngine.layerCount ?? 0}.`
-      : 'Earth Engine tools configured.';
+      ? this.tr('eeStatusInitialized', {
+          initialized: earthEngine.initialized ? this.tr('eeYes') : this.tr('eeNo'),
+          count: earthEngine.layerCount ?? 0,
+        })
+      : this.tr('eeStatusConfigured');
   }
 
   private wireUiEvents(): void {
@@ -969,7 +999,7 @@ export class GeoAgentControl implements IControl {
       this.streamingAssistantTextEl = null;
       this.streamingAssistantText = '';
       this.invalidateAgent();
-      this.appendLog('system', 'Chat cleared.');
+      this.appendLog('system', this.tr('logChatCleared'));
     });
     ui.copyButton.addEventListener('click', () => {
       void this.copyConversationAsMarkdown();
@@ -1083,7 +1113,7 @@ export class GeoAgentControl implements IControl {
     const side = corner === 'bottom-left' ? 'bl' : 'br';
     handle.className = `geoagent-panel-resize-handle geoagent-panel-resize-handle-${side}`;
     handle.setAttribute('role', 'separator');
-    handle.setAttribute('aria-label', 'Resize GeoAgent panel');
+    handle.setAttribute('aria-label', this.tr('resizeHandleLabel'));
     handle.addEventListener('mousedown', (event) => this.startPanelResize(event, corner));
     return handle;
   }
@@ -1207,11 +1237,12 @@ export class GeoAgentControl implements IControl {
       storageGet(this.modelStorageKey(provider.id)) || provider.defaultModel;
     this.committedApiKey = storageGet(provider.storageKey) || initialApiKey;
     this.ui.providerSelect.value = provider.id;
-    this.ui.apiKeyLabel.textContent = provider.keyLabel;
+    this.ui.apiKeyLabel.textContent = this.localizedApiKeyLabel(provider.id);
     this.ui.apiKeyInput.placeholder = provider.keyPlaceholder;
     this.ui.apiKeyInput.value = this.committedApiKey;
     this.ui.modelIdInput.value = this.state.modelId;
-    this.ui.modelIdInput.placeholder = provider.defaultModel || 'Model name';
+    this.ui.modelIdInput.placeholder =
+      provider.defaultModel || this.tr('modelNamePlaceholder');
     this.state.baseUrl = this.initialBaseUrl(provider.id);
     this.ui.baseUrlInput.value = this.state.baseUrl;
     this.ui.baseUrlInput.placeholder = provider.baseUrlPlaceholder || 'https://host/v1';
@@ -1229,6 +1260,31 @@ export class GeoAgentControl implements IControl {
     }
     this.ui.status.textContent = text;
     this.ui.status.className = `geoagent-status ${kind}`.trim();
+  }
+
+  /**
+   * Render the idle status badge from the current configuration and record its
+   * kind. The idle status is recomputed from the configuration, so it flips
+   * between ready/setup as the user fills in or clears credentials.
+   */
+  private setIdleBadge(): void {
+    if (this.isConfigured()) {
+      this.setStatus(this.tr('statusReady'), 'connected');
+      this.idleStatusKind = 'connected';
+    } else {
+      this.setStatus(this.tr('statusSetup'), 'setup');
+      this.idleStatusKind = 'setup';
+    }
+  }
+
+  /**
+   * Render a transient status (Running, Cancelled, Error, Copied) and clear the
+   * idle-kind tracking so the badge is not clobbered by configuration changes
+   * until the next forced idle refresh.
+   */
+  private setTransientStatus(text: string, kind: string): void {
+    this.setStatus(text, kind);
+    this.idleStatusKind = null;
   }
 
   /**
@@ -1269,34 +1325,34 @@ export class GeoAgentControl implements IControl {
     }
     const missing: string[] = [];
     if (!this.committedApiKey.trim()) {
-      missing.push(this.currentProviderConfig().keyLabel);
+      missing.push(this.localizedApiKeyLabel(this.currentProviderId()));
     }
     if (
       this.currentProviderConfig().requiresBaseUrl &&
       !this.isValidBaseUrl(this.ui.baseUrlInput.value)
     ) {
-      missing.push('API base URL');
+      missing.push(this.tr('missingBaseUrl'));
     }
     if (!this.ui.modelIdInput.value.trim()) {
-      missing.push('model');
+      missing.push(this.tr('missingModel'));
     }
     if (
       this.state.providerId === 'bedrock' &&
       !this.ui.bedrockRegionInput.value.trim()
     ) {
-      missing.push('region');
+      missing.push(this.tr('missingRegion'));
     }
     return missing.join(', ');
   }
 
   private readyLogMessage(): string {
     if (this.isConfigured()) {
-      return 'Browser-only Strands MapLibre agent ready.';
+      return this.tr('logReady');
     }
     const missing = this.missingConfigSummary();
     return missing
-      ? `Browser-only Strands MapLibre agent loaded. Add your ${missing} to start.`
-      : 'Browser-only Strands MapLibre agent loaded.';
+      ? this.tr('logLoadedWithMissing', { missing })
+      : this.tr('logLoaded');
   }
 
   /**
@@ -1312,14 +1368,10 @@ export class GeoAgentControl implements IControl {
     if (!this.ui || (this.state.busy && !force)) {
       return;
     }
-    if (!force && !IDLE_STATUS_LABELS.has(this.ui.status.textContent ?? '')) {
+    if (!force && this.idleStatusKind === null) {
       return;
     }
-    if (this.isConfigured()) {
-      this.setStatus(STATUS_READY, 'connected');
-    } else {
-      this.setStatus(STATUS_SETUP, 'setup');
-    }
+    this.setIdleBadge();
   }
 
   private appendLog(role: string, text: string, markdown = text): HTMLDivElement {
@@ -1332,7 +1384,7 @@ export class GeoAgentControl implements IControl {
     entry.dataset.markdown = markdown;
     const roleEl = document.createElement('div');
     roleEl.className = 'geoagent-role';
-    roleEl.textContent = role;
+    roleEl.textContent = this.roleLabel(role);
     const textEl = document.createElement('div');
     textEl.className = 'geoagent-text';
     textEl.textContent = text;
@@ -1406,7 +1458,7 @@ export class GeoAgentControl implements IControl {
       document.execCommand('copy');
       textarea.remove();
     }
-    this.setStatus('Copied', 'connected');
+    this.setTransientStatus(this.tr('statusCopied'), 'connected');
     window.setTimeout(() => this.applyIdleStatus(true), 1200);
   }
 
@@ -1421,7 +1473,7 @@ export class GeoAgentControl implements IControl {
     this.ui.prompt.disabled = this.state.busy || blocked;
     this.ui.prompt.placeholder = blocked
       ? this.blockedPromptHint(configured)
-      : DEFAULT_PROMPT_PLACEHOLDER;
+      : this.tr('promptPlaceholder');
     this.ui.sendButton.disabled =
       this.state.busy || !this.ui.prompt.value.trim() || blocked;
     if (!blocked) {
@@ -1429,8 +1481,8 @@ export class GeoAgentControl implements IControl {
     } else {
       const missing = this.missingConfigSummary();
       this.ui.sendButton.title = missing
-        ? `Add your ${missing} to send a prompt.`
-        : 'Configuration required to send a prompt.';
+        ? this.tr('hintAddMissingToSend', { missing })
+        : this.tr('hintConfigRequiredToSend');
     }
     this.ui.loadModelsButton.disabled =
       this.state.busy || !this.currentProviderConfig().defaultModel;
@@ -1452,8 +1504,8 @@ export class GeoAgentControl implements IControl {
   private blockedPromptHint(configured: boolean): string {
     const missing = configured ? '' : this.missingConfigSummary();
     return missing
-      ? `Add your ${missing} to start.`
-      : 'Configure a provider to start.';
+      ? this.tr('hintAddMissingToStart', { missing })
+      : this.tr('hintConfigureProvider');
   }
 
   /** React to an in-progress edit of the API key without committing it. */
@@ -1463,7 +1515,7 @@ export class GeoAgentControl implements IControl {
     }
     const value = this.ui.apiKeyInput.value.trim();
     if (value && value !== this.committedApiKey) {
-      this.showConfigNote('Press Enter to save your API key.', 'info', false);
+      this.showConfigNote(this.tr('notePressEnterToSaveKey'), 'info', false);
     } else if (!value) {
       this.hideConfigNote();
     }
@@ -1485,7 +1537,7 @@ export class GeoAgentControl implements IControl {
     }
     this.invalidateAgent();
     if (apiKey) {
-      this.showConfigNote('API key saved.', 'success', true);
+      this.showConfigNote(this.tr('noteApiKeySaved'), 'success', true);
     } else {
       this.hideConfigNote();
     }
@@ -1534,17 +1586,17 @@ export class GeoAgentControl implements IControl {
     }
     const latestModel = this.currentProviderConfig().defaultModel;
     if (!latestModel) {
-      this.showConfigNote(
-        'Enter the model ID for this custom endpoint.',
-        'info',
-        true,
-      );
+      this.showConfigNote(this.tr('noteEnterCustomModelId'), 'info', true);
       return;
     }
     this.ui.modelIdInput.value = latestModel;
     this.ui.modelIdInput.dispatchEvent(new Event('input', { bubbles: true }));
     this.closeModelSuggestions();
-    this.showConfigNote(`Using latest model: ${latestModel}.`, 'success', true);
+    this.showConfigNote(
+      this.tr('noteUsingLatestModel', { model: latestModel }),
+      'success',
+      true,
+    );
   }
 
   private static readonly MAX_SUGGESTIONS = 100;
@@ -1730,8 +1782,8 @@ export class GeoAgentControl implements IControl {
     this.cancelRequested = true;
     this.activeAbortController?.abort();
     this.agent?.cancel();
-    this.setStatus('Cancelling', 'connected');
-    this.appendLog('system', 'Cancellation requested.');
+    this.setTransientStatus(this.tr('statusCancelling'), 'connected');
+    this.appendLog('system', this.tr('logCancelRequested'));
     this.updateControls();
   }
 
@@ -1803,16 +1855,20 @@ export class GeoAgentControl implements IControl {
     const bedrockRegion = this.ui.bedrockRegionInput.value.trim();
     const baseUrl = this.ui.baseUrlInput.value.trim();
     if (!apiKey) {
-      throw new Error(`${provider.keyLabel} is required.`);
+      throw new Error(
+        this.tr('errorApiKeyRequired', {
+          keyLabel: this.localizedApiKeyLabel(provider.id),
+        }),
+      );
     }
     if (!modelId) {
-      throw new Error('Model id is required.');
+      throw new Error(this.tr('errorModelIdRequired'));
     }
     if (provider.id === 'bedrock' && !bedrockRegion) {
-      throw new Error('Bedrock region is required.');
+      throw new Error(this.tr('errorBedrockRegionRequired'));
     }
     if (provider.requiresBaseUrl && !this.isValidBaseUrl(baseUrl)) {
-      throw new Error('A valid http(s) API base URL is required.');
+      throw new Error(this.tr('errorBaseUrlRequired'));
     }
 
     const signature = JSON.stringify({
@@ -1891,7 +1947,7 @@ export class GeoAgentControl implements IControl {
     }
 
     if (event.type === 'beforeToolCallEvent') {
-      this.appendLog('tool', `Running ${event.toolUse.name}`);
+      this.appendLog('tool', this.tr('logRunningTool', { tool: event.toolUse.name }));
       return undefined;
     }
 
@@ -1919,7 +1975,7 @@ export class GeoAgentControl implements IControl {
     this.cancelRequested = false;
     const abortController = new AbortController();
     this.activeAbortController = abortController;
-    this.setStatus('Running', 'connected');
+    this.setTransientStatus(this.tr('statusRunning'), 'connected');
     this.updateControls();
     this.emit('statechange');
     try {
@@ -1931,8 +1987,8 @@ export class GeoAgentControl implements IControl {
         finalAnswer = this.handleAgentStreamEvent(event) ?? finalAnswer;
       }
       const answer = abortController.signal.aborted
-        ? 'Cancelled.'
-        : finalAnswer || this.streamingAssistantText || 'Done.';
+        ? this.tr('answerCancelled')
+        : finalAnswer || this.streamingAssistantText || this.tr('answerDone');
       const assistantEl = this.getStreamingAssistantElement();
       if (assistantEl) {
         assistantEl.closest<HTMLElement>('.geoagent-entry')!.dataset.markdown = answer;
@@ -1941,18 +1997,18 @@ export class GeoAgentControl implements IControl {
         this.appendAssistantLog(answer);
       }
       if (abortController.signal.aborted) {
-        this.setStatus('Cancelled', 'connected');
+        this.setTransientStatus(this.tr('statusCancelled'), 'connected');
       } else {
         this.applyIdleStatus(true);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (abortController.signal.aborted) {
-        this.appendAssistantLog('Cancelled.');
-        this.setStatus('Cancelled', 'connected');
+        this.appendAssistantLog(this.tr('answerCancelled'));
+        this.setTransientStatus(this.tr('statusCancelled'), 'connected');
       } else {
         this.appendLog('error', message);
-        this.setStatus('Error', 'error');
+        this.setTransientStatus(this.tr('statusError'), 'error');
       }
     } finally {
       this.state.busy = false;

@@ -55,3 +55,5 @@ export type {
   GeoAgentProviderId,
   GeoAgentState,
 } from './lib/core/types';
+
+export type { GeoAgentLocale } from './lib/i18n';

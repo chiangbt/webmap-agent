@@ -1,4 +1,5 @@
 import type { Map, StyleSpecification } from 'maplibre-gl';
+import type { GeoAgentLocale } from '../i18n';
 import type { GeoAgentMapEngine } from './maplibre-tools';
 import type { EarthEngineOptions } from './earth-engine';
 
@@ -87,6 +88,14 @@ export interface GeoAgentControlOptions {
    * Custom CSS class name for the control button container.
    */
   className?: string;
+
+  /**
+   * Locale used for all panel UI strings (labels, buttons, status badges,
+   * log messages). Brand names and technical terms are kept identical across
+   * locales.
+   * @default 'en'
+   */
+  locale?: GeoAgentLocale;
 
   /**
    * Initial provider when there is no stored provider preference.

@@ -6,6 +6,14 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import 'maplibre-gl-layer-control/style.css';
 import { dockAgentPanel } from '../shared/dock-panel';
 import '../shared/dock-panel.css';
+import { applyExamplePageLocale, resolveExamplesLocale } from '../shared/locale';
+
+// Follow the language chosen on the examples homepage (localStorage).
+const locale = resolveExamplesLocale();
+applyExamplePageLocale(locale, {
+  en: 'maplibre-gl-geoagent - Earth Engine Example',
+  zh: 'maplibre-gl-geoagent - Earth Engine 示例',
+});
 
 const STORAGE_PREFIX = 'maplibre-gl-geoagent.ee-example';
 
@@ -55,6 +63,7 @@ map.on('load', () => {
   const projectId = projectValue(import.meta.env.VITE_GEE_PROJECT_ID);
   const geoAgent = new GeoAgentControl({
     title: 'GeoAgent + Earth Engine',
+    locale,
     collapsed: false,
     storagePrefix: STORAGE_PREFIX,
     allowCodeExecutionDefault: true,
