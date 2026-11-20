@@ -167,6 +167,12 @@ export interface GeoAgentControlOptions {
    * run through a compatibility shim (see `leaflet-engine.ts`) and the control
    * is mounted with `addGeoAgentToLeafletMap(control, map)` because Leaflet
    * has no `map.addControl` slot for foreign controls.
+   *
+   * An OpenLayers host passes `{ kind: "openlayers", namespace }` where
+   * `namespace` bundles the ol classes/helpers listed in
+   * `OpenLayersNamespace`; the tools run through a compatibility shim (see
+   * `openlayers-engine.ts`) and the control is mounted with
+   * `addGeoAgentToOpenLayersMap(control, map)`.
    */
   mapEngine?: GeoAgentMapEngine;
 }

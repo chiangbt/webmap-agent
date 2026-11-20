@@ -294,7 +294,23 @@ export class GeoAgentControl implements IControl {
 
   onAdd(map: MapLibreMap): HTMLElement {
     this.map = map;
-    this.mapContainer = map.getContainer();
+    // MapLibre/Mapbox/Leaflet hosts expose getContainer(); OpenLayers maps
+    // expose getTargetElement() instead — accept either so the expanded panel
+    // has a container to live in on every engine.
+    const containerSource = map as unknown as {
+      getContainer?(): HTMLElement | undefined;
+      getTargetElement?(): HTMLElement | null | undefined;
+    };
+    const mapContainer =
+      containerSource.getContainer?.() ??
+      containerSource.getTargetElement?.() ??
+      undefined;
+    if (!mapContainer) {
+      throw new Error(
+        'GeoAgentControl: the map exposes neither getContainer() nor getTargetElement(); cannot mount the agent panel.',
+      );
+    }
+    this.mapContainer = mapContainer;
     this.container = this.createContainer();
     this.panel = this.createPanel();
     this.mapContainer.appendChild(this.panel);

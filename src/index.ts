@@ -14,6 +14,7 @@ export {
   type GeoAgentMapEngine,
   type GeoAgentStyleSpecEngine,
   type GeoAgentLeafletEngine,
+  type GeoAgentOpenLayersEngine,
   type GeoAgentMarker,
   type GeoAgentPopup,
 } from './lib/core/maplibre-tools';
@@ -27,6 +28,17 @@ export {
   type LeafletControlAttachment,
   type LeafletMapLike,
 } from './lib/core/leaflet-engine';
+
+export {
+  OpenLayersMapShim,
+  addGeoAgentToOpenLayersMap,
+  createOpenLayersMapShim,
+  isOpenLayersMap,
+  isOpenLayersMapShim,
+  type OpenLayersControlAttachment,
+  type OpenLayersMapLike,
+  type OpenLayersNamespace,
+} from './lib/core/openlayers-engine';
 
 export type {
   EarthEngineOptions,

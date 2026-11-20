@@ -775,7 +775,10 @@ export const LEAFLET_BASEMAP_TILES: Record<
   },
 };
 
-export function resolveBasemapStyle(style: unknown): {
+export function resolveBasemapStyle(
+  style: unknown,
+  engineName = "Leaflet",
+): {
   url: string;
   attribution: string;
 } {
@@ -791,7 +794,7 @@ export function resolveBasemapStyle(style: unknown): {
       return { url: trimmed, attribution: "" };
     }
     throw new Error(
-      `The Leaflet engine cannot load basemap "${trimmed}". Pass an XYZ raster tile URL template (containing {z}/{x}/{y}), a built-in basemap name (${Object.keys(LEAFLET_BASEMAP_TILES).filter((key) => !key.startsWith("http")).join(", ")}), or a style document with a raster source. Vector styles require maplibre-gl or mapbox-gl.`,
+      `The ${engineName} engine cannot load basemap "${trimmed}". Pass an XYZ raster tile URL template (containing {z}/{x}/{y}), a built-in basemap name (${Object.keys(LEAFLET_BASEMAP_TILES).filter((key) => !key.startsWith("http")).join(", ")}), or a style document with a raster source. Vector styles require maplibre-gl or mapbox-gl.`,
     );
   }
   if (isRecord(style)) {
@@ -811,11 +814,11 @@ export function resolveBasemapStyle(style: unknown): {
       }
     }
     throw new Error(
-      "The Leaflet engine cannot load this style document: no raster source with a tiles URL was found. Vector styles require maplibre-gl or mapbox-gl.",
+      `The ${engineName} engine cannot load this style document: no raster source with a tiles URL was found. Vector styles require maplibre-gl or mapbox-gl.`,
     );
   }
   throw new Error(
-    `Unsupported style argument for the Leaflet engine: ${String(style)}`,
+    `Unsupported style argument for the ${engineName} engine: ${String(style)}`,
   );
 }
 
@@ -1662,14 +1665,7 @@ export class LeafletMapShim {
     feature: GeoJSON.Feature | undefined,
     zoom?: number,
   ): ExpressionContext {
-    return {
-      properties: (isRecord(feature?.properties)
-        ? feature?.properties
-        : {}) as Record<string, unknown>,
-      geometryType: normalizeGeometryType(String(feature?.geometry?.type ?? "")),
-      zoom: zoom ?? this.raw.getZoom(),
-      id: feature?.id,
-    };
+    return featureContextFor(feature, zoom ?? this.raw.getZoom());
   }
 
   private featurePassesFilter(
@@ -1705,16 +1701,7 @@ export class LeafletMapShim {
     context: ExpressionContext,
     fallback: number,
   ): number {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-    if (Array.isArray(value)) {
-      const evaluated = Number(evaluateExpression(value, context));
-      if (Number.isFinite(evaluated)) {
-        return evaluated;
-      }
-    }
-    return fallback;
+    return numberValueFrom(value, context, fallback);
   }
 
   private colorValue(
@@ -1722,33 +1709,11 @@ export class LeafletMapShim {
     context: ExpressionContext,
     fallback: string,
   ): string {
-    if (typeof value === "string" && value) {
-      return value;
-    }
-    if (Array.isArray(value)) {
-      const evaluated = evaluateExpression(value, context);
-      if (typeof evaluated === "string" && evaluated) {
-        return evaluated;
-      }
-      if (typeof evaluated === "number" && Number.isFinite(evaluated)) {
-        return String(evaluated);
-      }
-    }
-    return fallback;
+    return colorValueFrom(value, context, fallback);
   }
 
   private textFieldText(field: unknown, context: ExpressionContext): string {
-    if (typeof field === "string") {
-      return field.replace(/\{([^}]+)\}/g, (_match, key: string) => {
-        const value = context.properties?.[key.trim()];
-        return value == null ? "" : String(value);
-      });
-    }
-    if (Array.isArray(field)) {
-      const evaluated = evaluateExpression(field, context);
-      return evaluated == null ? "" : String(evaluated);
-    }
-    return "";
+    return textFieldTextFrom(field, context);
   }
 
   private pathStyleFor(
@@ -1859,128 +1824,25 @@ export class LeafletMapShim {
     y: number,
     zoom: number,
   ): boolean {
-    const geometry = feature.geometry;
-    if (!geometry || geometry.type === "GeometryCollection") {
-      return false;
-    }
-    const paint = isRecord(spec.paint) ? spec.paint : {};
-    const context = this.featureContext(feature, zoom);
-    const type = normalizeGeometryType(geometry.type);
-    const pointTolerance =
-      String(spec.type) === "circle"
-        ? this.numberValue(paint["circle-radius"], context, 5) + 4
-        : String(spec.type) === "symbol"
-          ? 14
-          : 10;
-    const lineTolerance =
-      this.numberValue(paint["line-width"], context, 1) / 2 + 4;
-
-    switch (type) {
-      case "Point":
-        return this.pointHits(
-          geometry.coordinates as [number, number],
-          x,
-          y,
-          pointTolerance,
-        );
-      case "MultiPoint":
-        return (geometry.coordinates as Array<[number, number]>).some(
-          (coordinate) =>
-            this.pointHits(coordinate, x, y, pointTolerance),
-        );
-      case "LineString":
-        return this.lineHits(
-          geometry.coordinates as Array<[number, number]>,
-          x,
-          y,
-          lineTolerance,
-        );
-      case "MultiLineString":
-        return (geometry.coordinates as Array<Array<[number, number]>>).some(
-          (line) => this.lineHits(line, x, y, lineTolerance),
-        );
-      case "Polygon":
-        return this.polygonHits(
-          geometry.coordinates as Array<Array<[number, number]>>,
-          spec,
-          x,
-          y,
-          lineTolerance,
-        );
-      case "MultiPolygon":
-        return (
-          geometry.coordinates as Array<Array<Array<[number, number]>>>
-        ).some((polygon) =>
-          this.polygonHits(polygon, spec, x, y, lineTolerance),
-        );
-      default:
-        return false;
-    }
+    return hitTestFeature(
+      spec,
+      feature,
+      x,
+      y,
+      (coordinate) => this.toPixel(coordinate),
+      this.featureContext(feature, zoom),
+    );
   }
 
   private toPixel(coordinate: [number, number]): LeafletPointLike {
     return this.raw.latLngToContainerPoint([coordinate[1], coordinate[0]]);
   }
 
-  private pointHits(
-    coordinate: [number, number],
-    x: number,
-    y: number,
-    tolerance: number,
-  ): boolean {
-    const pixel = this.toPixel(coordinate);
-    const dx = pixel.x - x;
-    const dy = pixel.y - y;
-    return dx * dx + dy * dy <= tolerance * tolerance;
-  }
 
-  private lineHits(
-    coordinates: Array<[number, number]>,
-    x: number,
-    y: number,
-    tolerance: number,
-  ): boolean {
-    if (coordinates.length < 2) {
-      return false;
-    }
-    for (let index = 0; index + 1 < coordinates.length; index += 1) {
-      const a = this.toPixel(coordinates[index]);
-      const b = this.toPixel(coordinates[index + 1]);
-      if (segmentDistance(x, y, a.x, a.y, b.x, b.y) <= tolerance) {
-        return true;
-      }
-    }
-    return false;
-  }
 
-  private polygonHits(
-    rings: Array<Array<[number, number]>>,
-    spec: Record<string, unknown>,
-    x: number,
-    y: number,
-    lineTolerance: number,
-  ): boolean {
-    if (rings.length === 0) {
-      return false;
-    }
-    if (String(spec.type) === "line") {
-      // Outline layers: hit the ring strokes, closed.
-      return rings.some((ring) =>
-        this.lineHits([...ring, ring[0]], x, y, lineTolerance),
-      );
-    }
-    const outer = rings[0].map((coordinate) => this.toPixel(coordinate));
-    if (!pointInRing(x, y, outer)) {
-      return false;
-    }
-    return !rings.slice(1).some((hole) =>
-      pointInRing(
-        x,
-        y,
-        hole.map((coordinate) => this.toPixel(coordinate)),
-      ),
-    );
-  }
+
+
+
 }
 
 function segmentDistance(
@@ -2019,6 +1881,171 @@ function pointInRing(
     }
   }
   return inside;
+}
+
+/**
+ * Builds the expression-evaluation context for one feature. Shared by the
+ * Leaflet and OpenLayers engines.
+ */
+export function featureContextFor(
+  feature: GeoJSON.Feature | undefined,
+  zoom: number,
+): ExpressionContext {
+  return {
+    properties: (isRecord(feature?.properties)
+      ? feature?.properties
+      : {}) as Record<string, unknown>,
+    geometryType: normalizeGeometryType(String(feature?.geometry?.type ?? "")),
+    zoom,
+    id: feature?.id,
+  };
+}
+
+export function numberValueFrom(
+  value: unknown,
+  context: ExpressionContext,
+  fallback: number,
+): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const evaluated = Number(evaluateExpression(value, context));
+    if (Number.isFinite(evaluated)) {
+      return evaluated;
+    }
+  }
+  return fallback;
+}
+
+export function colorValueFrom(
+  value: unknown,
+  context: ExpressionContext,
+  fallback: string,
+): string {
+  if (typeof value === "string" && value) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const evaluated = evaluateExpression(value, context);
+    if (typeof evaluated === "string" && evaluated) {
+      return evaluated;
+    }
+  }
+  return fallback;
+}
+
+export function textFieldTextFrom(
+  field: unknown,
+  context: ExpressionContext,
+): string {
+  if (typeof field === "string") {
+    return field.replace(/\{([^}]+)\}/g, (_match, key: string) => {
+      const value = context.properties?.[key.trim()];
+      return value == null ? "" : String(value);
+    });
+  }
+  if (Array.isArray(field)) {
+    const evaluated = evaluateExpression(field, context);
+    return evaluated == null ? "" : String(evaluated);
+  }
+  return "";
+}
+
+export type PixelProjector = (coordinate: [number, number]) => {
+  x: number;
+  y: number;
+};
+
+/**
+ * Pixel-accurate hit test of one GeoJSON feature against a container point,
+ * honoring the layer type's tolerances (circle radius, line width). Shared by
+ * both engines' query_rendered_features.
+ */
+export function hitTestFeature(
+  spec: Record<string, unknown>,
+  feature: GeoJSON.Feature,
+  x: number,
+  y: number,
+  toPixel: PixelProjector,
+  context: ExpressionContext,
+): boolean {
+  const geometry = feature.geometry;
+  if (!geometry || geometry.type === "GeometryCollection") {
+    return false;
+  }
+  const paint = isRecord(spec.paint) ? spec.paint : {};
+  const type = normalizeGeometryType(geometry.type);
+  const pointTolerance =
+    String(spec.type) === "circle"
+      ? numberValueFrom(paint["circle-radius"], context, 5) + 4
+      : String(spec.type) === "symbol"
+        ? 14
+        : 10;
+  const lineTolerance =
+    numberValueFrom(paint["line-width"], context, 1) / 2 + 4;
+
+  const pointHits = (coordinate: [number, number]): boolean => {
+    const pixel = toPixel(coordinate);
+    const dx = pixel.x - x;
+    const dy = pixel.y - y;
+    return dx * dx + dy * dy <= pointTolerance * pointTolerance;
+  };
+  const lineHits = (coordinates: Array<[number, number]>): boolean => {
+    if (coordinates.length < 2) {
+      return false;
+    }
+    for (let index = 0; index + 1 < coordinates.length; index += 1) {
+      const a = toPixel(coordinates[index]);
+      const b = toPixel(coordinates[index + 1]);
+      if (segmentDistance(x, y, a.x, a.y, b.x, b.y) <= lineTolerance) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const polygonHits = (rings: Array<Array<[number, number]>>): boolean => {
+    if (rings.length === 0) {
+      return false;
+    }
+    if (String(spec.type) === "line") {
+      return rings.some((ring) => lineHits([...ring, ring[0]]));
+    }
+    const outer = rings[0].map((coordinate) => toPixel(coordinate));
+    if (!pointInRing(x, y, outer)) {
+      return false;
+    }
+    return !rings.slice(1).some((hole) =>
+      pointInRing(
+        x,
+        y,
+        hole.map((coordinate) => toPixel(coordinate)),
+      ),
+    );
+  };
+
+  switch (type) {
+    case "Point":
+      return pointHits(geometry.coordinates as [number, number]);
+    case "MultiPoint":
+      return (geometry.coordinates as Array<[number, number]>).some(pointHits);
+    case "LineString":
+      return lineHits(geometry.coordinates as Array<[number, number]>);
+    case "MultiLineString":
+      return (geometry.coordinates as Array<Array<[number, number]>>).some(
+        lineHits,
+      );
+    case "Polygon":
+      return polygonHits(
+        geometry.coordinates as Array<Array<[number, number]>>,
+      );
+    case "MultiPolygon":
+      return (
+        geometry.coordinates as Array<Array<Array<[number, number]>>>
+      ).some(polygonHits);
+    default:
+      return false;
+  }
 }
 
 function extractLeafletPopup(popup: unknown): PopupLike | null {

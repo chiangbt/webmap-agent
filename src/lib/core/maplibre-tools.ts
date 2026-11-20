@@ -25,6 +25,11 @@ import {
   isLeafletMapShim,
   type LeafletMapLike,
 } from "./leaflet-engine";
+import {
+  createOpenLayersMapShim,
+  isOpenLayersMapShim,
+  type OpenLayersMapLike,
+} from "./openlayers-engine";
 
 export type JsonObject = Record<string, unknown>;
 export type BBox = [number, number, number, number];
@@ -94,9 +99,23 @@ export interface GeoAgentLeafletEngine {
   namespace: Record<string, unknown>;
 }
 
+export interface GeoAgentOpenLayersEngine {
+  kind: "openlayers";
+  /**
+   * An object with the ol classes/helpers the shim needs (Feature, Point,
+   * Overlay, VectorLayer, TileLayer, VectorSource, XYZ, GeoJSON, Style, Fill,
+   * Stroke, CircleStyle, Text, fromLonLat, toLonLat, transformExtent). The
+   * tools run through a compatibility shim (see openlayers-engine.ts) that
+   * materializes Style-Spec sources/layers as OpenLayers layers;
+   * `run_maplibre_script` hands user code the real ol Map and this namespace.
+   */
+  namespace: Record<string, unknown>;
+}
+
 export type GeoAgentMapEngine =
   | GeoAgentStyleSpecEngine
-  | GeoAgentLeafletEngine;
+  | GeoAgentLeafletEngine
+  | GeoAgentOpenLayersEngine;
 
 interface Overlay {
   kind: "geojson" | "raster" | "basemap" | "marker" | "native" | "gee";
@@ -457,21 +476,27 @@ export class MapLibreAgentTools {
   private readonly engine: GeoAgentMapEngine;
 
   constructor(
-    map: MapLibreMap | LeafletMapLike,
+    map: MapLibreMap | LeafletMapLike | OpenLayersMapLike,
     options: MapLibreAgentToolsOptions,
   ) {
     this.engine = options.mapEngine ?? MAPLIBRE_ENGINE;
-    // Leaflet hosts get a shim that presents the MapLibre API surface the
-    // tools speak (Style Spec sources/layers, events, queries) on top of a
-    // real L.Map. Style-Spec engines (maplibre-gl, mapbox-gl) are used as-is.
-    this.map = (
-      this.engine.kind === "leaflet"
-        ? createLeafletMapShim(
-            map as LeafletMapLike,
-            this.engine.namespace,
-          )
-        : map
-    ) as unknown as MapLibreMap;
+    // Leaflet and OpenLayers hosts get a shim that presents the MapLibre API
+    // surface the tools speak (Style Spec sources/layers, events, queries) on
+    // top of the real map. Style-Spec engines (maplibre-gl, mapbox-gl) are
+    // used as-is.
+    let resolvedMap: unknown = map;
+    if (this.engine.kind === "leaflet") {
+      resolvedMap = createLeafletMapShim(
+        map as LeafletMapLike,
+        this.engine.namespace,
+      );
+    } else if (this.engine.kind === "openlayers") {
+      resolvedMap = createOpenLayersMapShim(
+        map as OpenLayersMapLike,
+        this.engine.namespace,
+      );
+    }
+    this.map = resolvedMap as unknown as MapLibreMap;
     this.basemaps = { ...DEFAULT_BASEMAPS, ...options.basemaps };
     this.allowCodeExecution = options.allowCodeExecution;
     this.allowDestructiveTools = options.allowDestructiveTools;
@@ -2782,12 +2807,18 @@ export class MapLibreAgentTools {
     if (isLeafletMapShim(this.map)) {
       return this.map.createMarker(color) as unknown as GeoAgentMarker;
     }
+    if (isOpenLayersMapShim(this.map)) {
+      return this.map.createMarker(color) as unknown as GeoAgentMarker;
+    }
     const namespace = (this.engine as GeoAgentStyleSpecEngine).namespace;
     return new namespace.Marker({ color });
   }
 
   private createEnginePopup(): GeoAgentPopup {
     if (isLeafletMapShim(this.map)) {
+      return this.map.createPopup() as unknown as GeoAgentPopup;
+    }
+    if (isOpenLayersMapShim(this.map)) {
       return this.map.createPopup() as unknown as GeoAgentPopup;
     }
     const namespace = (this.engine as GeoAgentStyleSpecEngine).namespace;
@@ -2835,13 +2866,14 @@ export class MapLibreAgentTools {
     ) => Promise<unknown>;
     // Hand user code the engine actually drawing the map, so a script that
     // constructs a Marker or a LngLatBounds builds the right one. On a
-    // Leaflet host that means the real L.Map plus the L namespace — user
-    // scripts there write Leaflet code (L.circle(...).addTo(map)), not
-    // MapLibre code, and bypass the shim registry just like mapbox scripts
-    // bypass nothing (they ARE the escape hatch).
-    const scriptMap = isLeafletMapShim(this.map)
-      ? (this.map.getRawMap() as unknown as MapLibreMap)
-      : this.map;
+    // Leaflet host that means the real L.Map plus the L namespace; on an
+    // OpenLayers host the real ol/Map plus the ol namespace — user scripts
+    // there write native engine code, not MapLibre code, and bypass the shim
+    // registry (they ARE the escape hatch).
+    const scriptMap =
+      isLeafletMapShim(this.map) || isOpenLayersMapShim(this.map)
+        ? (this.map.getRawMap() as unknown as MapLibreMap)
+        : this.map;
     const result = await fn(
       scriptMap,
       this.engine.namespace as GeoAgentStyleSpecEngine["namespace"],

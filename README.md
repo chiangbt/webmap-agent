@@ -236,6 +236,81 @@ What works and what does not, by design:
   and `screenshot_map` report unsupported instead of failing silently.
 - Earth Engine tiles load as plain XYZ raster overlays.
 
+### Running on OpenLayers
+
+The same tools also run on a plain [OpenLayers](https://openlayers.org/) map.
+The package ships a second compatibility engine (`openlayers-engine.ts`): a
+shim that presents the MapLibre map API on top of a real `ol/Map` and
+materializes Style-Spec sources/layers as OpenLayers layers (one
+`VectorLayer` per Style-Spec layer with a style function that evaluates
+fill/line/circle/symbol paint and `["get", ...]`/`["step", ...]`/`["match", ...]`
+filters, `TileLayer` + `XYZ` for raster sources, and greedy pixel-grid
+clustering recomputed on `moveend` for `cluster: true` sources).
+
+The library itself never imports `ol`, so the host assembles a small
+namespace of ol classes once:
+
+```javascript
+import Map from 'ol/Map';
+import View from 'ol/View';
+import Feature from 'ol/Feature';
+import Overlay from 'ol/Overlay';
+import Point from 'ol/geom/Point';
+import TileLayer from 'ol/layer/Tile';
+import VectorLayer from 'ol/layer/Vector';
+import XYZ from 'ol/source/XYZ';
+import VectorSource from 'ol/source/Vector';
+import GeoJSON from 'ol/format/GeoJSON';
+import { Style, Fill, Stroke, Circle as CircleStyle, Text } from 'ol/style';
+import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
+import { GeoAgentControl, addGeoAgentToOpenLayersMap } from 'maplibre-gl-geoagent';
+import 'maplibre-gl-geoagent/dist/maplibre-gl-geoagent.css';
+import 'ol/ol.css';
+
+const map = new Map({
+  target: 'map',
+  layers: [
+    new TileLayer({
+      source: new XYZ({ url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png' }),
+    }),
+  ],
+  view: new View({ center: fromLonLat([-98.5795, 39.8283]), zoom: 4 }),
+});
+
+const agent = new GeoAgentControl({
+  mapEngine: {
+    kind: 'openlayers',
+    namespace: {
+      Feature, Point, Overlay, VectorLayer, TileLayer, VectorSource, XYZ,
+      GeoJSON, Style, Fill, Stroke, CircleStyle, Text,
+      fromLonLat, toLonLat, transformExtent,
+    },
+  },
+});
+
+// OpenLayers has no map.addControl slot for foreign controls, so mount it
+// through the helper — it attaches to the map viewport and returns
+// { remove() } for teardown.
+addGeoAgentToOpenLayersMap(agent, map, { position: 'top-left' });
+```
+
+What works and what does not, by design:
+
+- Camera (`set_center`, `fly_to`, `zoom_to_bounds`, `get_map_state`;
+  bearing maps to the view rotation, pitch is always 0), all
+  GeoJSON/raster/marker overlays (markers become `ol/Overlay` pins with
+  click-to-open popups), layer visibility/opacity, feature queries
+  (`query_rendered_features` does pixel-accurate hit tests, falling back to
+  pure Web Mercator math before the first rendered frame), basemap
+  switching (named MapLibre styles resolve to raster tile URLs), and
+  `run_maplibre_script` (user code receives the real `ol/Map` and the
+  namespace you supplied, so scripts there are OpenLayers scripts).
+- `set_projection` accepts `'mercator'` only; `add_terrain`,
+  `set_sky`/`clear_sky`, `fill-extrusion`/`heatmap` layers, vector tile
+  sources and `screenshot_map` report unsupported instead of failing
+  silently.
+- Earth Engine tiles load as plain XYZ raster overlays.
+
 ### Earth Engine Options
 
 ```typescript

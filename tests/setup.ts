@@ -16,6 +16,16 @@ if (
     ({ x: 0, y: 0, width: 0, height: 0 }) as DOMRect;
 }
 
+// jsdom has no ResizeObserver; ol/Map requires one to watch its target
+// element for size changes.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}
+
 // Cleanup after each test (for React component tests)
 afterEach(() => {
   cleanup();
