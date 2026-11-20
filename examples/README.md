@@ -6,9 +6,10 @@ This directory contains example implementations of `maplibre-gl-geoagent`.
 The examples add `maplibre-gl-layer-control` directly so the published
 GeoAgent library does not depend on that optional UI control.
 
-All examples use a side-by-side layout: the GeoAgent panel is docked on the
-left at 1/4 of the viewport width and the map fills the remaining space
-(`examples/shared/dock-panel.ts` + `dock-panel.css`).
+All examples use a side-by-side layout: the GeoAgent panel is docked into a
+left sidebar whose width adapts to the panel, and the map fills the remaining
+space (`examples/shared/dock-panel.ts` + `dock-panel.css`). The floating
+toggle button is removed because the panel is always visible in the sidebar.
 
 ## Basic Example
 

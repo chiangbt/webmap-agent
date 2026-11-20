@@ -6,8 +6,9 @@
 `maplibre-gl-layer-control`，以免已发布的 GeoAgent 库依赖这个可选的 UI
 控件。
 
-所有示例均采用左右布局：GeoAgent 面板固定在左侧，宽度为视口的 1/4，地图
-占据其余空间（`examples/shared/dock-panel.ts` + `dock-panel.css`）。
+所有示例均采用左右布局：GeoAgent 面板停靠在左侧侧栏中，侧栏宽度随面板
+自适应，地图占据其余空间（`examples/shared/dock-panel.ts` +
+`dock-panel.css`）。由于面板在侧栏中始终可见，浮动切换按钮已被移除。
 
 ## 基础示例
 

@@ -1,5 +1,6 @@
 /* Shared split layout for every example: the GeoAgent panel is docked into
-   a quarter-width sidebar on the left, the map fills the remaining space. */
+   a sidebar on the left whose width adapts to the panel, the map fills the
+   remaining space. */
 .geoagent-dock {
   display: flex;
   width: 100%;
@@ -8,15 +9,15 @@
 }
 
 .geoagent-sidebar {
-  flex: 0 0 25%;
-  width: 25%;
+  flex: 0 0 auto;
+  width: auto;
   height: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
-  padding: 8px;
+  gap: 0;
+  padding: 0;
   background: #f5f6f8;
   border-right: 1px solid #d8dce1;
   overflow: hidden;
@@ -30,9 +31,9 @@
 
 /* Overrides the floating placement of .geoagent-panel so it fills the
    sidebar column instead of hovering over the map. The !important
-   declarations beat the inline top/left/width styles written by the
-   control's updatePanelPosition(). Collapsing still hides the panel via
-   the missing .expanded class, leaving the toggle button in the sidebar. */
+   declarations beat the inline top/left styles written by the control's
+   updatePanelPosition(), while the panel's own inline width (panelWidth,
+   390px by default) is kept so the sidebar adapts to it. */
 .geoagent-panel-docked {
   position: static !important;
   top: auto !important;
@@ -41,22 +42,15 @@
   left: auto !important;
   flex: 1 1 auto;
   min-height: 0;
-  width: 100% !important;
-  max-width: none !important;
   height: auto !important;
   max-height: none !important;
   box-shadow: none !important;
+  border-radius: 0 !important;
   z-index: 1 !important;
 }
 
-/* The quarter-width sidebar is narrower than the floating panel default
-   (390px), so let the Send/Cancel/Copy/Clear row wrap instead of clipping. */
+/* Let the Send/Cancel/Copy/Clear row wrap instead of clipping when the
+   panel is narrower than the floating default. */
 .geoagent-panel-docked .geoagent-actions {
   flex-wrap: wrap;
-}
-
-/* Keep the collapse toggle a compact button at the top of the sidebar
-   instead of stretching it into a full-width bar. */
-.geoagent-sidebar > .geoagent-control {
-  align-self: flex-start;
 }
