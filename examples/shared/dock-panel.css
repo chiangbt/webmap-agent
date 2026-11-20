@@ -1,0 +1,62 @@
+/* Shared split layout for every example: the GeoAgent panel is docked into
+   a quarter-width sidebar on the left, the map fills the remaining space. */
+.geoagent-dock {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.geoagent-sidebar {
+  flex: 0 0 25%;
+  width: 25%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px;
+  background: #f5f6f8;
+  border-right: 1px solid #d8dce1;
+  overflow: hidden;
+}
+
+.geoagent-map-host {
+  flex: 1 1 auto;
+  height: 100%;
+  position: relative;
+}
+
+/* Overrides the floating placement of .geoagent-panel so it fills the
+   sidebar column instead of hovering over the map. The !important
+   declarations beat the inline top/left/width styles written by the
+   control's updatePanelPosition(). Collapsing still hides the panel via
+   the missing .expanded class, leaving the toggle button in the sidebar. */
+.geoagent-panel-docked {
+  position: static !important;
+  top: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: auto !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100% !important;
+  max-width: none !important;
+  height: auto !important;
+  max-height: none !important;
+  box-shadow: none !important;
+  z-index: 1 !important;
+}
+
+/* The quarter-width sidebar is narrower than the floating panel default
+   (390px), so let the Send/Cancel/Copy/Clear row wrap instead of clipping. */
+.geoagent-panel-docked .geoagent-actions {
+  flex-wrap: wrap;
+}
+
+/* Keep the collapse toggle a compact button at the top of the sidebar
+   instead of stretching it into a full-width bar. */
+.geoagent-sidebar > .geoagent-control {
+  align-self: flex-start;
+}

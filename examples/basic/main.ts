@@ -5,6 +5,8 @@ import { GeoAgentControl } from '../../src/index';
 import '../../src/index.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import 'maplibre-gl-layer-control/style.css';
+import { dockAgentPanel } from '../shared/dock-panel';
+import '../shared/dock-panel.css';
 // ESO/S. Brunier milky way panorama (CC BY 4.0), equirectangular 4096x2048.
 import milkywayUrl from '../assets/milkyway.jpg';
 
@@ -62,6 +64,9 @@ map.on('load', () => {
   });
 
   map.addControl(geoAgent, 'top-left');
+
+  // Split layout: dock the agent panel into the left sidebar (25% wide).
+  dockAgentPanel(map.getContainer(), document.getElementById('sidebar')!);
 
   geoAgent.on('statechange', (event) => {
     console.log('GeoAgent state changed:', event.state);

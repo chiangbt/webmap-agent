@@ -13,6 +13,8 @@ import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
 import { GeoAgentControl, addGeoAgentToOpenLayersMap } from '../../src/index';
 import '../../src/index.css';
 import 'ol/ol.css';
+import { dockAgentPanel } from '../shared/dock-panel';
+import '../shared/dock-panel.css';
 
 // A plain OpenLayers map — no MapLibre anywhere. The GeoAgent tools run
 // through the openlayers-engine compatibility shim
@@ -72,6 +74,9 @@ const geoAgent = new GeoAgentControl({
 // OpenLayers has no map.addControl slot for foreign controls, so the control
 // is attached through the helper, which mounts it into the map viewport.
 const attachment = addGeoAgentToOpenLayersMap(geoAgent, map, { position: 'top-left' });
+
+// Split layout: dock the agent panel into the left sidebar (25% wide).
+dockAgentPanel(map.getTargetElement()!, document.getElementById('sidebar')!);
 
 geoAgent.on('statechange', (event) => {
   console.log('GeoAgent state changed:', event.state);

@@ -7,11 +7,14 @@ import { GeoAgentControlReact, useGeoAgentState } from '../../src/react';
 import '../../src/index.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import 'maplibre-gl-layer-control/style.css';
+import { dockAgentPanel } from '../shared/dock-panel';
+import '../shared/dock-panel.css';
 // ESO/S. Brunier milky way panorama (CC BY 4.0), equirectangular 4096x2048.
 import milkywayUrl from '../assets/milkyway.jpg';
 
 function App() {
   const mapContainer = useRef<HTMLDivElement>(null);
+  const sidebar = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<Map | null>(null);
   const { state, setState } = useGeoAgentState({ collapsed: false });
 
@@ -68,9 +71,18 @@ function App() {
     };
   }, []);
 
+  // Split layout: once the React wrapper has added the control, dock the
+  // agent panel into the left sidebar (25% wide).
+  useEffect(() => {
+    if (map && sidebar.current) {
+      dockAgentPanel(map.getContainer(), sidebar.current);
+    }
+  }, [map]);
+
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
+    <div className="geoagent-dock">
+      <div ref={sidebar} className="geoagent-sidebar" />
+      <div ref={mapContainer} className="geoagent-map-host" />
       {map && (
         <GeoAgentControlReact
           map={map}

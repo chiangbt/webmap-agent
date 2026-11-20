@@ -4,6 +4,8 @@ import { GeoAgentControl } from '../../src/index';
 import '../../src/index.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import 'maplibre-gl-layer-control/style.css';
+import { dockAgentPanel } from '../shared/dock-panel';
+import '../shared/dock-panel.css';
 
 const STORAGE_PREFIX = 'maplibre-gl-geoagent.ee-example';
 
@@ -66,4 +68,7 @@ map.on('load', () => {
   });
 
   map.addControl(geoAgent, 'top-left');
+
+  // Split layout: dock the agent panel into the left sidebar (25% wide).
+  dockAgentPanel(map.getContainer(), document.getElementById('sidebar')!);
 });

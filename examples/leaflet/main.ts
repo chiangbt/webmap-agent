@@ -2,6 +2,8 @@ import L from 'leaflet';
 import { GeoAgentControl, addGeoAgentToLeafletMap } from '../../src/index';
 import '../../src/index.css';
 import 'leaflet/dist/leaflet.css';
+import { dockAgentPanel } from '../shared/dock-panel';
+import '../shared/dock-panel.css';
 
 // A plain Leaflet map — no MapLibre anywhere. The GeoAgent tools run through
 // the leaflet-engine compatibility shim (mapEngine: { kind: "leaflet" }).
@@ -28,6 +30,9 @@ const geoAgent = new GeoAgentControl({
 // Leaflet has no map.addControl slot for foreign controls, so the control is
 // attached through the helper, which mounts it into Leaflet's corner DOM.
 const attachment = addGeoAgentToLeafletMap(geoAgent, map, { position: 'topleft' });
+
+// Split layout: dock the agent panel into the left sidebar (25% wide).
+dockAgentPanel(map.getContainer(), document.getElementById('sidebar')!);
 
 geoAgent.on('statechange', (event) => {
   console.log('GeoAgent state changed:', event.state);
