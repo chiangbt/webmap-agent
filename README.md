@@ -1,5 +1,7 @@
 # maplibre-gl-geoagent
 
+**[English](README.md) | [简体中文](README.zh-CN.md)**
+
 A browser-only GeoAgent control for MapLibre GL JS. The control implements
 MapLibre's `IControl` interface and embeds a Strands TypeScript agent that can
 inspect and operate on the live map through dedicated browser tools.

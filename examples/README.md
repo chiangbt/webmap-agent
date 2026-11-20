@@ -1,14 +1,22 @@
 # Examples
 
+**[English](README.md) | [简体中文](README.zh-CN.md)**
+
 This directory contains example implementations of `maplibre-gl-geoagent`.
 The examples add `maplibre-gl-layer-control` directly so the published
 GeoAgent library does not depend on that optional UI control.
+
+All examples use a side-by-side layout: the GeoAgent panel is docked on the
+left at 1/4 of the viewport width and the map fills the remaining space
+(`examples/shared/dock-panel.ts` + `dock-panel.css`).
 
 ## Basic Example
 
 A vanilla TypeScript example showing the `GeoAgentControl` added to a MapLibre map.
 It enables MapLibre JavaScript and layer removal by default while keeping the
-permission checkboxes hidden.
+permission checkboxes hidden. The map starts in globe projection with the
+`@geoql/maplibre-gl-starfield` skybox (an ESO Milky Way panorama, CC BY 4.0)
+underneath the basemap.
 
 ```bash
 npm run dev
@@ -53,6 +61,35 @@ npm run dev
 ```
 
 Open <http://localhost:5173/examples/react/>.
+
+## Leaflet Example
+
+A vanilla TypeScript example running the same agent tools on a plain
+[Leaflet](https://leafletjs.com/) map. It passes
+`mapEngine: { kind: 'leaflet', namespace: L }` to `GeoAgentControl` and mounts
+the control with `addGeoAgentToLeafletMap`. See the "Running on Leaflet"
+section in the root README for the supported command set.
+
+```bash
+npm run dev
+```
+
+Open <http://localhost:5173/examples/leaflet/>.
+
+## OpenLayers Example
+
+A vanilla TypeScript example running the same agent tools on a plain
+[OpenLayers](https://openlayers.org/) map. It assembles the ol class namespace
+(`Feature`, `VectorLayer`, `GeoJSON`, style classes, projection helpers),
+passes `mapEngine: { kind: 'openlayers', namespace }`, and mounts the control
+with `addGeoAgentToOpenLayersMap`. See the "Running on OpenLayers" section in
+the root README for the supported command set.
+
+```bash
+npm run dev
+```
+
+Open <http://localhost:5173/examples/openlayers/>.
 
 ## Build
 
