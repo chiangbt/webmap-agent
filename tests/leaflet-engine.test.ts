@@ -1,0 +1,360 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import L from 'leaflet';
+import {
+  MapLibreAgentTools,
+  type GeoAgentMapEngine,
+} from '../src/lib/core/maplibre-tools';
+import {
+  computeClusteredFeatures,
+  createLeafletMapShim,
+  evaluateExpression,
+  isLeafletMap,
+  isLeafletMapShim,
+  normalizeFeatureCollection,
+  normalizeGeometryType,
+  resolveBasemapStyle,
+} from '../src/lib/core/leaflet-engine';
+
+function leafletEngine(): GeoAgentMapEngine {
+  return { kind: 'leaflet', namespace: L as unknown as Record<string, unknown> };
+}
+
+function tools(map: unknown, mapEngine?: GeoAgentMapEngine): MapLibreAgentTools {
+  return new MapLibreAgentTools(map as never, {
+    allowCodeExecution: () => true,
+    allowDestructiveTools: () => true,
+    mapEngine: mapEngine ?? leafletEngine(),
+  });
+}
+
+describe('leaflet pure helpers', () => {
+  it('normalizes geometry types like MapLibre ["geometry-type"]', () => {
+    expect(normalizeGeometryType('MultiPolygon')).toBe('Polygon');
+    expect(normalizeGeometryType('MultiLineString')).toBe('LineString');
+    expect(normalizeGeometryType('MultiPoint')).toBe('Point');
+    expect(normalizeGeometryType('Point')).toBe('Point');
+    expect(normalizeGeometryType('Polygon')).toBe('Polygon');
+  });
+
+  it('normalizes loose GeoJSON input into a FeatureCollection', () => {
+    const fc = normalizeFeatureCollection({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [1, 2] },
+      properties: { a: 1 },
+    });
+    expect(fc.type).toBe('FeatureCollection');
+    expect(fc.features).toHaveLength(1);
+    const bare = normalizeFeatureCollection({
+      type: 'Point',
+      coordinates: [3, 4],
+    });
+    expect(bare.features[0]?.geometry?.type).toBe('Point');
+  });
+
+  it('evaluates the MapLibre expression subset used by the tools', () => {
+    const context = {
+      properties: { pop: 42, kind: 'city' },
+      geometryType: 'Point',
+      zoom: 5,
+    };
+    expect(evaluateExpression(['get', 'pop'], context)).toBe(42);
+    expect(evaluateExpression(['geometry-type'], context)).toBe('Point');
+    expect(evaluateExpression(['zoom'], context)).toBe(5);
+    expect(
+      evaluateExpression(['==', ['get', 'kind'], 'city'], context),
+    ).toBe(true);
+    expect(
+      evaluateExpression(
+        ['step', ['get', 'pop'], '#aaa', 10, '#bbb', 100, '#ccc'],
+        context,
+      ),
+    ).toBe('#bbb');
+    expect(
+      evaluateExpression(
+        ['match', ['get', 'kind'], ['city', 'town'], '#111', '#222'],
+        context,
+      ),
+    ).toBe('#111');
+    expect(evaluateExpression(['has', 'pop'], context)).toBe(true);
+    expect(evaluateExpression(['literal', [1, 2]], context)).toEqual([1, 2]);
+    expect(
+      evaluateExpression(['coalesce', ['get', 'missing'], 'fallback'], context),
+    ).toBe('fallback');
+    // legacy filters: string first operand selects the property directly
+    expect(evaluateExpression(['==', 'kind', 'city'], context)).toBe(true);
+    expect(evaluateExpression(['!=', 'kind', 'city'], context)).toBe(false);
+    expect(evaluateExpression(['!has', 'missing'], context)).toBe(true);
+    // non-expressions pass through
+    expect(evaluateExpression('#ff0000', context)).toBe('#ff0000');
+  });
+
+  it('clusters points greedily and stamps point_count', () => {
+    const features = [0, 1, 2, 3, 4].map((i) => ({
+      type: 'Feature' as const,
+      geometry: {
+        type: 'Point' as const,
+        coordinates: [i * 0.001, i * 0.001],
+      },
+      properties: { id: i },
+    }));
+    const clustered = computeClusteredFeatures(features, 500, () => ({
+      x: 0,
+      y: 0,
+    }));
+    expect(clustered).toHaveLength(1);
+    expect(clustered[0]?.properties?.point_count).toBe(5);
+    expect(clustered[0]?.properties?.point_count_abbreviated).toBe('5');
+    const far = computeClusteredFeatures(
+      [
+        {
+          type: 'Feature' as const,
+          geometry: { type: 'Point' as const, coordinates: [0, 0] },
+          properties: {},
+        },
+        {
+          type: 'Feature' as const,
+          geometry: { type: 'Point' as const, coordinates: [90, -80] },
+          properties: {},
+        },
+      ],
+      20,
+      (lat, lng) => ({ x: lng * 100, y: lat * 100 }),
+    );
+    expect(far).toHaveLength(2);
+  });
+
+  it('resolves basemap aliases to raster tile URLs', () => {
+    const dark = resolveBasemapStyle('dark');
+    expect(dark.url).toMatch(/cartocdn/);
+    const liberty = resolveBasemapStyle('liberty');
+    expect(liberty.url).toMatch(/\{z\}/);
+    const direct = resolveBasemapStyle(
+      'https://example.com/tiles/{z}/{x}/{y}.png',
+    );
+    expect(direct.url).toBe('https://example.com/tiles/{z}/{x}/{y}.png');
+  });
+
+  it('detects leaflet maps and shims', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const map = L.map(container, { center: [0, 0], zoom: 1 });
+    try {
+      expect(isLeafletMap(map)).toBe(true);
+      expect(isLeafletMap({})).toBe(false);
+      expect(isLeafletMap(map)).toBe(true);
+      const shim = createLeafletMapShim(map as never, L as never);
+      expect(isLeafletMapShim(shim)).toBe(true);
+      expect(isLeafletMapShim(map)).toBe(false);
+    } finally {
+      map.remove();
+      container.remove();
+    }
+  });
+});
+
+describe('MapLibreAgentTools on a real Leaflet map (jsdom)', () => {
+  let container: HTMLDivElement;
+  let map: L.Map;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    map = L.map(container, {
+      center: [39.8283, -98.5795],
+      zoom: 4,
+      zoomControl: false,
+      attributionControl: false,
+    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    map.remove();
+    container.remove();
+  });
+
+  it('reports map state through the shim', async () => {
+    const agent = tools(map);
+    const state = (await agent.runCommand('get_map_state')) as {
+      center: [number, number];
+      zoom: number;
+      projection: string;
+    };
+    expect(state.center[0]).toBeCloseTo(-98.5795, 3);
+    expect(state.center[1]).toBeCloseTo(39.8283, 3);
+    expect(state.zoom).toBe(4);
+    expect(state.projection).toBe('mercator');
+  });
+
+  it('adds raster basemaps and switches named styles', async () => {
+    const agent = tools(map);
+    const message = (await agent.runCommand('add_basemap', {
+      provider: 'google_satellite',
+    })) as string;
+    expect(message).toContain('Added basemap');
+    const listed = (await agent.runCommand('list_layers')) as Array<{
+      id: string;
+      user_added: boolean;
+    }>;
+    expect(listed.some((layer) => layer.user_added)).toBe(true);
+
+    await agent.runCommand('change_basemap', { style: 'dark' });
+    await vi.runAllTimersAsync();
+    const after = (await agent.runCommand('list_layers')) as Array<{
+      id: string;
+      user_added: boolean;
+    }>;
+    // the basemap overlay survived the style swap
+    expect(after.some((layer) => layer.user_added)).toBe(true);
+  });
+
+  it('adds GeoJSON data as fill/line/point layers and queries features', async () => {
+    const agent = tools(map);
+    const data = {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [-99.5, 39.0],
+                [-97.5, 39.0],
+                [-97.5, 40.5],
+                [-99.5, 40.5],
+                [-99.5, 39.0],
+              ],
+            ],
+          },
+          properties: { name: 'box' },
+        },
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: [-98.5795, 39.8283],
+          },
+          properties: { name: 'center-dot' },
+        },
+      ],
+    };
+    await agent.runCommand('add_geojson_data', { data, name: 'demo' });
+    const listed = (await agent.runCommand('list_layers')) as Array<{
+      id: string;
+      type: string;
+    }>;
+    const ids = listed.map((layer) => layer.id);
+    expect(ids.some((id) => id.endsWith('-fill'))).toBe(true);
+    expect(ids.some((id) => id.endsWith('-point'))).toBe(true);
+
+    // add_geojson_data zooms to the data bounds; put the view back so the
+    // map center (container point 0,0 in jsdom's zero-size viewport) is
+    // exactly where the point feature sits.
+    await agent.runCommand('set_center', {
+      lat: 39.8283,
+      lon: -98.5795,
+      zoom: 4,
+    });
+    const hit = (await agent.runCommand('query_rendered_features', {
+      x: 0,
+      y: 0,
+    })) as Array<{ properties: Record<string, unknown> }>;
+    const names = hit.map((f) => f.properties?.name);
+    expect(names).toContain('center-dot');
+    expect(names).toContain('box');
+  });
+
+  it('toggles layer visibility through the registry', async () => {
+    const agent = tools(map);
+    await agent.runCommand('add_geojson_data', {
+      data: {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [0, 0] },
+            properties: {},
+          },
+        ],
+      },
+      name: 'vis',
+    });
+    await agent.runCommand('set_layer_visibility', {
+      name: 'vis',
+      visible: false,
+    });
+    const listed = (await agent.runCommand('list_layers')) as Array<{
+      id: string;
+      visible: boolean;
+    }>;
+    const hidden = listed.filter((layer) => layer.id.startsWith('vis'));
+    expect(hidden.length).toBeGreaterThan(0);
+    expect(hidden.every((layer) => !layer.visible)).toBe(true);
+  });
+
+  it('adds markers through the shim marker adapter', async () => {
+    const agent = tools(map);
+    const message = (await agent.runCommand('add_marker', {
+      lat: 39,
+      lon: -98,
+      popup: 'hello',
+      name: 'pin',
+    })) as string;
+    expect(message).toContain('Added marker pin');
+    let markerCount = 0;
+    map.eachLayer((layer) => {
+      if (layer instanceof L.Marker) {
+        markerCount += 1;
+      }
+    });
+    expect(markerCount).toBe(1);
+  });
+
+  it('removes named overlays', async () => {
+    const agent = tools(map);
+    await agent.runCommand('add_geojson_data', {
+      data: {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [10, 10] },
+            properties: {},
+          },
+        ],
+      },
+      name: 'temp',
+    });
+    await agent.runCommand('remove_layer', { name: 'temp' });
+    const state = (await agent.runCommand('get_map_state')) as {
+      user_layers: string[];
+    };
+    expect(state.user_layers).not.toContain('temp');
+  });
+
+  it('hands run_maplibre_script the raw Leaflet map and the L namespace', async () => {
+    const agent = tools(map);
+    const result = (await agent.runCommand('run_maplibre_script', {
+      code: 'return { isLeaflet: typeof map.eachLayer === "function", hasNamespace: typeof maplibregl.map === "function", center: map.getCenter().lat };',
+    })) as { result: Record<string, unknown> };
+    expect(result.result.isLeaflet).toBe(true);
+    expect(result.result.hasNamespace).toBe(true);
+    expect(result.result.center).toBeCloseTo(39.8283, 3);
+  });
+
+  it('reports unsupported capabilities explicitly instead of failing silently', async () => {
+    const agent = tools(map);
+    await expect(
+      agent.runCommand('set_projection', { projection: 'globe' }),
+    ).rejects.toThrow(/not supported/);
+    await expect(
+      agent.runCommand('add_terrain', { url: 'https://example.com/{z}/{x}/{y}.png' }),
+    ).rejects.toThrow(/Terrain/);
+    await expect(agent.runCommand('screenshot_map')).rejects.toThrow();
+    await expect(
+      agent.runCommand('set_sky', { sky: { 'sky-color': '#000' } }),
+    ).rejects.toThrow(/Sky is not supported/);
+  });
+});

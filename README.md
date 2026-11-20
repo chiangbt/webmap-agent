@@ -190,6 +190,52 @@ One tool stays MapLibre-only either way: `set_sky` / `clear_sky` call
 `map.setSky`, which mapbox-gl does not have (it draws sky through a style
 layer). It reports that rather than failing silently.
 
+### Running on Leaflet
+
+The same tools also run on a plain [Leaflet](https://leafletjs.com/) map.
+Leaflet has no Style Spec, so the package ships a compatibility engine
+(`leaflet-engine.ts`): a shim that presents the MapLibre map API on top of a
+real `L.Map` and materializes Style-Spec sources/layers as Leaflet layers
+(GeoJSON/vector layers per Style-Spec layer, tile layers for raster sources,
+per-layer panes for z-order and visibility, an expression evaluator for
+`["get", ...]`/`["step", ...]`/`["match", ...]` filters and paint, and greedy
+pixel-grid clustering for `cluster: true` sources).
+
+```javascript
+import L from 'leaflet';
+import { GeoAgentControl, addGeoAgentToLeafletMap } from 'maplibre-gl-geoagent';
+import 'maplibre-gl-geoagent/dist/maplibre-gl-geoagent.css';
+import 'leaflet/dist/leaflet.css';
+
+const map = L.map('map').setView([39.8283, -98.5795], 4);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+}).addTo(map);
+
+const agent = new GeoAgentControl({
+  mapEngine: { kind: 'leaflet', namespace: L },
+});
+
+// Leaflet has no map.addControl slot for foreign controls, so mount it
+// through the helper — it attaches to Leaflet's corner DOM and returns
+// { remove() } for teardown.
+addGeoAgentToLeafletMap(agent, map, { position: 'topleft' });
+```
+
+What works and what does not, by design:
+
+- Camera (`set_center`, `fly_to`, `zoom_to_bounds`, `get_map_state`), all
+  GeoJSON/raster/marker overlays, layer visibility/opacity, feature queries
+  (`query_rendered_features` does pixel-accurate hit tests), basemap
+  switching (named MapLibre styles resolve to raster tile URLs — vector
+  styles cannot render in Leaflet), and `run_maplibre_script` (user code
+  receives the real `L.Map` and the `L` namespace, so scripts there are
+  Leaflet scripts).
+- `set_projection` accepts `'mercator'` only (Leaflet is Web Mercator);
+  `add_terrain`, `set_sky`/`clear_sky`, `fill-extrusion`/`heatmap` layers
+  and `screenshot_map` report unsupported instead of failing silently.
+- Earth Engine tiles load as plain XYZ raster overlays.
+
 ### Earth Engine Options
 
 ```typescript

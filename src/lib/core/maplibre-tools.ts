@@ -20,6 +20,11 @@ import {
   parseBbox,
   type EarthEngineOptions,
 } from "./earth-engine";
+import {
+  createLeafletMapShim,
+  isLeafletMapShim,
+  type LeafletMapLike,
+} from "./leaflet-engine";
 
 export type JsonObject = Record<string, unknown>;
 export type BBox = [number, number, number, number];
@@ -63,8 +68,8 @@ export interface GeoAgentPopup {
  * Defaults to `maplibre-gl`. A host rendering with Mapbox GL JS passes
  * `{ kind: "mapbox", namespace: mapboxgl }`.
  */
-export interface GeoAgentMapEngine {
-  /** Which library {@link namespace} is. */
+export interface GeoAgentStyleSpecEngine {
+  /** Which Style-Spec library {@link namespace} is. */
   kind: "maplibre" | "mapbox";
   /**
    * The library's own namespace. `Marker` and `Popup` are what the tools
@@ -77,6 +82,21 @@ export interface GeoAgentMapEngine {
     [key: string]: unknown;
   };
 }
+
+export interface GeoAgentLeafletEngine {
+  kind: "leaflet";
+  /**
+   * The Leaflet factory object (`L` from `import L from "leaflet"`). The tools
+   * run through a compatibility shim (see leaflet-engine.ts) that materializes
+   * Style-Spec sources/layers as Leaflet layers; `run_maplibre_script` hands
+   * user code the real Leaflet map and this namespace.
+   */
+  namespace: Record<string, unknown>;
+}
+
+export type GeoAgentMapEngine =
+  | GeoAgentStyleSpecEngine
+  | GeoAgentLeafletEngine;
 
 interface Overlay {
   kind: "geojson" | "raster" | "basemap" | "marker" | "native" | "gee";
@@ -423,7 +443,7 @@ export interface MapLibreAgentToolsOptions {
 /** The default engine: this package's own `maplibre-gl`. */
 const MAPLIBRE_ENGINE: GeoAgentMapEngine = {
   kind: "maplibre",
-  namespace: maplibregl as unknown as GeoAgentMapEngine["namespace"],
+  namespace: maplibregl as unknown as GeoAgentStyleSpecEngine["namespace"],
 };
 
 export class MapLibreAgentTools {
@@ -436,9 +456,22 @@ export class MapLibreAgentTools {
   private readonly earthEngine?: EarthEngineService;
   private readonly engine: GeoAgentMapEngine;
 
-  constructor(map: MapLibreMap, options: MapLibreAgentToolsOptions) {
-    this.map = map;
+  constructor(
+    map: MapLibreMap | LeafletMapLike,
+    options: MapLibreAgentToolsOptions,
+  ) {
     this.engine = options.mapEngine ?? MAPLIBRE_ENGINE;
+    // Leaflet hosts get a shim that presents the MapLibre API surface the
+    // tools speak (Style Spec sources/layers, events, queries) on top of a
+    // real L.Map. Style-Spec engines (maplibre-gl, mapbox-gl) are used as-is.
+    this.map = (
+      this.engine.kind === "leaflet"
+        ? createLeafletMapShim(
+            map as LeafletMapLike,
+            this.engine.namespace,
+          )
+        : map
+    ) as unknown as MapLibreMap;
     this.basemaps = { ...DEFAULT_BASEMAPS, ...options.basemaps };
     this.allowCodeExecution = options.allowCodeExecution;
     this.allowDestructiveTools = options.allowDestructiveTools;
@@ -2723,17 +2756,17 @@ export class MapLibreAgentTools {
     this.removeOverlay(name);
     // The host's engine, not this package's maplibre-gl: MapLibre's Marker
     // reads `map._camera.transform` on every position update and throws on a
-    // mapbox-gl map.
-    const marker = new this.engine.namespace.Marker({
-      color: stringArg(args, "color", "#3388ff"),
-    })
+    // mapbox-gl map. Leaflet goes through the shim's own marker adapter.
+    const marker = this.createEngineMarker(
+      stringArg(args, "color", "#3388ff"),
+    )
       .setLngLat([numberArg(args, "lon"), numberArg(args, "lat")])
       .addTo(this.map);
     marker.getElement().title =
       stringArg(args, "tooltip") || stringArg(args, "popup") || name;
     const popup = stringArg(args, "popup");
     if (popup) {
-      marker.setPopup(new this.engine.namespace.Popup().setText(popup));
+      marker.setPopup(this.createEnginePopup().setText(popup));
     }
     this.overlays.set(name, {
       kind: "marker",
@@ -2743,6 +2776,22 @@ export class MapLibreAgentTools {
       layerIds: [],
     });
     return name;
+  }
+
+  private createEngineMarker(color: string): GeoAgentMarker {
+    if (isLeafletMapShim(this.map)) {
+      return this.map.createMarker(color) as unknown as GeoAgentMarker;
+    }
+    const namespace = (this.engine as GeoAgentStyleSpecEngine).namespace;
+    return new namespace.Marker({ color });
+  }
+
+  private createEnginePopup(): GeoAgentPopup {
+    if (isLeafletMapShim(this.map)) {
+      return this.map.createPopup() as unknown as GeoAgentPopup;
+    }
+    const namespace = (this.engine as GeoAgentStyleSpecEngine).namespace;
+    return new namespace.Popup();
   }
 
   private async runMapLibreScript(args: JsonObject): Promise<JsonObject> {
@@ -2781,12 +2830,23 @@ export class MapLibreAgentTools {
       `"use strict"; return (async () => {\n${code}\n})()`,
     ) as (
       map: MapLibreMap,
-      mapEngineApi: GeoAgentMapEngine["namespace"],
+      mapEngineApi: GeoAgentStyleSpecEngine["namespace"],
       helpersArg: Record<string, unknown>,
     ) => Promise<unknown>;
     // Hand user code the engine actually drawing the map, so a script that
-    // constructs a Marker or a LngLatBounds builds the right one.
-    const result = await fn(this.map, this.engine.namespace, helpers);
+    // constructs a Marker or a LngLatBounds builds the right one. On a
+    // Leaflet host that means the real L.Map plus the L namespace — user
+    // scripts there write Leaflet code (L.circle(...).addTo(map)), not
+    // MapLibre code, and bypass the shim registry just like mapbox scripts
+    // bypass nothing (they ARE the escape hatch).
+    const scriptMap = isLeafletMapShim(this.map)
+      ? (this.map.getRawMap() as unknown as MapLibreMap)
+      : this.map;
+    const result = await fn(
+      scriptMap,
+      this.engine.namespace as GeoAgentStyleSpecEngine["namespace"],
+      helpers,
+    );
     return {
       success: true,
       message: description || "MapLibre script executed.",

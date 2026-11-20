@@ -16,6 +16,7 @@ export default defineConfig({
         basic: resolve(__dirname, 'examples/basic/index.html'),
         earthEngine: resolve(__dirname, 'examples/earth-engine/index.html'),
         react: resolve(__dirname, 'examples/react/index.html'),
+        leaflet: resolve(__dirname, 'examples/leaflet/index.html'),
       },
     },
   },

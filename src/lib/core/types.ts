@@ -162,6 +162,11 @@ export interface GeoAgentControlOptions {
    * {@link GeoAgentMapEngine}. Defaults to `maplibre-gl`, so existing hosts
    * need not set it; a host rendering with Mapbox GL JS passes
    * `{ kind: "mapbox", namespace: mapboxgl }`.
+   *
+   * A Leaflet host passes `{ kind: "leaflet", namespace: L }`; the tools then
+   * run through a compatibility shim (see `leaflet-engine.ts`) and the control
+   * is mounted with `addGeoAgentToLeafletMap(control, map)` because Leaflet
+   * has no `map.addControl` slot for foreign controls.
    */
   mapEngine?: GeoAgentMapEngine;
 }
