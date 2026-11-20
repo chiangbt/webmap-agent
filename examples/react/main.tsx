@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import maplibregl, { type Map } from 'maplibre-gl';
 import { LayerControl } from 'maplibre-gl-layer-control';
+import { MaplibreStarfieldLayer } from '@geoql/maplibre-gl-starfield';
 import { GeoAgentControlReact, useGeoAgentState } from '../../src/react';
 import '../../src/index.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import 'maplibre-gl-layer-control/style.css';
+// ESO/S. Brunier milky way panorama (CC BY 4.0), equirectangular 4096x2048.
+import milkywayUrl from '../assets/milkyway.jpg';
 
 function App() {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -18,8 +21,11 @@ function App() {
     const mapInstance = new maplibregl.Map({
       container: mapContainer.current,
       style: 'https://tiles.openfreemap.org/styles/liberty',
-      center: [-98.5795, 39.8283],
-      zoom: 3,
+      // Tilted/rotated initial view so the milky way band of the skybox is
+      // visible around the globe right after load.
+      center: [-85, 32],
+      zoom: 2.5,
+      bearing: 150,
       maxPitch: 85,
       canvasContextAttributes: { preserveDrawingBuffer: true },
     });
@@ -29,6 +35,20 @@ function App() {
     mapInstance.addControl(new maplibregl.GlobeControl(), 'top-right');
     mapInstance.on('load', () => {
       mapInstance.setProjection({ type: 'globe' });
+
+      // Starfield background: milky way panorama skybox + point stars,
+      // inserted below every other layer so the globe renders in front.
+      mapInstance.addLayer(
+        new MaplibreStarfieldLayer({
+          galaxyTextureUrl: milkywayUrl,
+          // The ESO panorama is a real dark-sky photograph; the plugin
+          // default (0.35) renders it almost black, 1.5 makes the band show.
+          galaxyBrightness: 1.5,
+          starCount: 4000,
+          starSize: 2.0,
+        }),
+        mapInstance.getStyle().layers[0]?.id,
+      );
 
       mapInstance.addControl(
         new LayerControl({

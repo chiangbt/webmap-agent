@@ -107,12 +107,14 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
+    "@geoql/maplibre-gl-starfield": "^0.1.4",
     "@google/earthengine": "^1.7.25",
     "@google/genai": "^1.52.0",
     "@strands-agents/sdk": "^1.1.0",
     "dompurify": "^3.4.2",
     "marked": "^18.0.3",
     "openai": "^6.37.0",
+    "three": "^0.187.0",
     "zod": "^4.1.12"
   }
 }
