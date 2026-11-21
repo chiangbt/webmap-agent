@@ -43,7 +43,7 @@ export function ExampleShell({ title, children }: ExampleShellProps) {
         </div>
         <Button asChild variant="ghost" size="icon-sm" aria-label="GitHub">
           <a
-            href="https://github.com/opengeos/maplibre-gl-geoagent"
+            href="https://gitea.geoportal.cn/AI/webmap-agent"
             target="_blank"
             rel="noreferrer"
           >

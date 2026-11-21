@@ -1,7 +1,7 @@
 {
-  "name": "maplibre-gl-geoagent",
+  "name": "web-geoagent",
   "version": "0.6.1",
-  "description": "A browser-only GeoAgent MapLibre GL JS control with Strands agent tools",
+  "description": "A browser-only GeoAgent control for web maps (MapLibre GL JS, Leaflet, OpenLayers) with Strands agent tools",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -27,7 +27,7 @@
         "default": "./dist/react.cjs"
       }
     },
-    "./style.css": "./dist/maplibre-gl-geoagent.css"
+    "./style.css": "./dist/web-geoagent.css"
   },
   "files": [
     "dist",
@@ -52,6 +52,8 @@
   "keywords": [
     "maplibre",
     "maplibre-gl",
+    "leaflet",
+    "openlayers",
     "geoagent",
     "agent",
     "control",
@@ -62,7 +64,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/opengeos/maplibre-gl-geoagent.git"
+    "url": "https://gitea.geoportal.cn/AI/webmap-agent.git"
   },
   "peerDependencies": {
     "maplibre-gl": ">=3.0.0",

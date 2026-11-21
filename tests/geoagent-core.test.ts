@@ -72,7 +72,7 @@ describe('GeoAgentCore configuration state', () => {
     core.commitApiKey('sk-half-typed');
     expect(core.isConfigured()).toBe(true);
     expect(
-      sessionStorage.getItem('geoagent.maplibre.openai-responses.api_key'),
+      sessionStorage.getItem('web-geoagent.openai-responses.api_key'),
     ).toBe('sk-half-typed');
     core.dispose();
     mapContext.cleanup();
@@ -90,7 +90,7 @@ describe('GeoAgentCore configuration state', () => {
     core.setBaseUrl('https://llm.example.com/v1');
     expect(core.isConfigured()).toBe(true);
     expect(
-      sessionStorage.getItem('geoagent.maplibre.baseUrl.openai-compatible'),
+      sessionStorage.getItem('web-geoagent.baseUrl.openai-compatible'),
     ).toBe('https://llm.example.com/v1');
     core.dispose();
   });
@@ -216,7 +216,7 @@ describe('GeoAgentCore status', () => {
     expect(eeCore.getEarthEngineStatusText()).toContain('project ID');
     eeCore.setEarthEngineSettings({ projectId: 'my-project' });
     expect(
-      sessionStorage.getItem('geoagent.maplibre.earthEngine.projectId'),
+      sessionStorage.getItem('web-geoagent.earthEngine.projectId'),
     ).toBe('my-project');
     expect(eeCore.getEarthEngineStatusText()).toContain('configured');
     eeCore.dispose();

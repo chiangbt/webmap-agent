@@ -772,7 +772,7 @@ describe("GeoAgentControl", () => {
 
     expect(control.getState().baseUrl).toBe("https://gateway.example.com");
     expect(
-      sessionStorage.getItem("geoagent.maplibre.baseUrl.anthropic-compatible"),
+      sessionStorage.getItem("web-geoagent.baseUrl.anthropic-compatible"),
     ).toBe("https://gateway.example.com");
 
     providerSelect!.value = "anthropic";

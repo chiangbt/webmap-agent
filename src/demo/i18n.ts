@@ -23,8 +23,8 @@ export const HOMEPAGE_I18N: Record<
   }
 > = {
   en: {
-    title: 'maplibre-gl-geoagent Examples',
-    subtitle: 'A browser-only GeoAgent control for MapLibre maps.',
+    title: 'web-geoagent Examples',
+    subtitle: 'A browser-only GeoAgent for web maps (MapLibre, Leaflet, OpenLayers).',
     basicTitle: 'Basic Example',
     basicDesc: 'Use the vanilla `GeoAgentControl` with a MapLibre map.',
     reactTitle: 'React Example',
@@ -42,8 +42,8 @@ export const HOMEPAGE_I18N: Record<
     language: 'Language',
   },
   'zh-CN': {
-    title: 'maplibre-gl-geoagent 示例',
-    subtitle: '一个纯浏览器端运行的 MapLibre GeoAgent 控件。',
+    title: 'web-geoagent 示例',
+    subtitle: '一个纯浏览器端运行的 Web 地图 GeoAgent（MapLibre、Leaflet、OpenLayers）。',
     basicTitle: '基础示例',
     basicDesc: '在 MapLibre 地图上使用原生 `GeoAgentControl`。',
     reactTitle: 'React 示例',

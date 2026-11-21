@@ -145,7 +145,7 @@ describe('GeoAgentPanel configuration flow', () => {
       expect(screen.getByTestId('geoagent-status').textContent).toBe('Ready');
     });
     expect(
-      sessionStorage.getItem('geoagent.maplibre.openai-responses.api_key'),
+      sessionStorage.getItem('web-geoagent.openai-responses.api_key'),
     ).toBe('sk-panel-test');
     expect(prompt.disabled).toBe(false);
     cleanup();
@@ -236,7 +236,7 @@ describe('GeoAgentPanel conversation flow', () => {
     cleanup();
     core.commitApiKey('sk-later');
     expect(
-      sessionStorage.getItem('geoagent.maplibre.openai-responses.api_key'),
+      sessionStorage.getItem('web-geoagent.openai-responses.api_key'),
     ).toBe('sk-later');
     core.dispose();
   });

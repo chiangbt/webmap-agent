@@ -1,7 +1,7 @@
 /* Demo site styling: Tailwind CSS 4 + shadcn/ui design tokens.
    This is the style entry for the demo chrome (homepage + example shells).
    The GeoAgent React panel brings its own stylesheet through the
-   `maplibre-gl-geoagent/react` module; no library panel overrides are needed
+   `web-geoagent/react` module; no library panel overrides are needed
    here because the panel renders directly into the example sidebar. */
 @import 'tailwindcss';
 @import 'tw-animate-css';

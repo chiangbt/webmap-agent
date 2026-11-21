@@ -84,7 +84,7 @@ export function App() {
         <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-4xl leading-tight font-semibold tracking-tight">
-              maplibre-gl-geoagent
+              web-geoagent
             </h1>
             <p className="mt-2.5 text-lg text-muted-foreground">{t.subtitle}</p>
           </div>
@@ -124,7 +124,7 @@ export function App() {
         <footer className="mt-8 flex items-center gap-2 text-muted-foreground">
           <Button asChild variant="link" className="h-auto p-0 font-semibold">
             <a
-              href="https://github.com/opengeos/maplibre-gl-geoagent"
+              href="https://gitea.geoportal.cn/AI/webmap-agent"
               target="_blank"
               rel="noreferrer"
             >
@@ -134,7 +134,7 @@ export function App() {
           <span>·</span>
           <Button asChild variant="link" className="h-auto p-0 font-semibold">
             <a
-              href="https://www.npmjs.com/package/maplibre-gl-geoagent"
+              href="https://www.npmjs.com/package/web-geoagent"
               target="_blank"
               rel="noreferrer"
             >

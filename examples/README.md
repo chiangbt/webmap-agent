@@ -2,7 +2,7 @@
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-This directory contains example implementations of `maplibre-gl-geoagent`.
+This directory contains example implementations of `web-geoagent`.
 The examples add `maplibre-gl-layer-control` directly so the published
 GeoAgent library does not depend on that optional UI control.
 

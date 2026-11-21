@@ -16,8 +16,8 @@ import milkywayUrl from '../assets/milkyway.jpg';
 // Follow the language chosen on the examples homepage (localStorage).
 const locale = resolveExamplesLocale();
 applyExamplePageLocale(locale, {
-  en: 'maplibre-gl-geoagent - Basic Example',
-  zh: 'maplibre-gl-geoagent - 基础示例',
+  en: 'web-geoagent - Basic Example',
+  zh: 'web-geoagent - 基础示例',
 });
 
 function BasicExample() {

@@ -18,7 +18,7 @@
  * Nothing here imports "ol"; hosts pass their own namespace:
  *
  *   import Map from "ol/Map";
- *   import { GeoAgentControl, addGeoAgentToOpenLayersMap } from "maplibre-gl-geoagent";
+ *   import { GeoAgentControl, addGeoAgentToOpenLayersMap } from "web-geoagent";
  *   new GeoAgentControl({ mapEngine: { kind: "openlayers", namespace } })
  *   addGeoAgentToOpenLayersMap(control, map); // OpenLayers has no addControl slot
  */

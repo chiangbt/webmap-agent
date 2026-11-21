@@ -21,7 +21,7 @@ import type {
 } from './types';
 
 const DEFAULT_PROVIDER: GeoAgentProviderId = 'openai-responses';
-const DEFAULT_STORAGE_PREFIX = 'geoagent.maplibre';
+const DEFAULT_STORAGE_PREFIX = 'web-geoagent';
 
 const BASE_PROVIDER_CONFIGS: Record<
   GeoAgentProviderId,
@@ -70,7 +70,7 @@ const BASE_PROVIDER_CONFIGS: Record<
   },
 };
 
-const BROWSER_MAPLIBRE_SYSTEM_PROMPT = `You are an AI assistant embedded in a browser web app with direct access to a live MapLibre map through dedicated browser tools.
+const BROWSER_MAPLIBRE_SYSTEM_PROMPT = `You are an AI assistant embedded in a browser web app with direct access to a live web map through dedicated browser tools.
 
 Workflow guidance:
 - Use browser map tools for map navigation, layer inspection, marker creation, GeoJSON display, layer visibility, feature queries, and screenshots.
@@ -1112,7 +1112,7 @@ export class GeoAgentCore {
     const systemPrompt = systemPromptParts.join('\n\n');
     const model = await this.createProviderModel(provider.id, modelId, apiKey, baseUrl);
     this.agent = new Agent({
-      name: 'GeoAgent MapLibre Browser',
+      name: 'Web GeoAgent Browser',
       model,
       systemPrompt,
       tools: [...this.tools.createTools(), ...this.resolveCustomTools()],

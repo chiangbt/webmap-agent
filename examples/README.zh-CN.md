@@ -2,7 +2,7 @@
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-本目录包含 `maplibre-gl-geoagent` 的示例实现。示例直接引入
+本目录包含 `web-geoagent` 的示例实现。示例直接引入
 `maplibre-gl-layer-control`，以免已发布的 GeoAgent 库依赖这个可选的 UI
 控件。
 

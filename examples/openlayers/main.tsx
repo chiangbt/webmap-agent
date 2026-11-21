@@ -22,8 +22,8 @@ import 'ol/ol.css';
 // Follow the language chosen on the examples homepage (localStorage).
 const locale = resolveExamplesLocale();
 applyExamplePageLocale(locale, {
-  en: 'maplibre-gl-geoagent - OpenLayers Example',
-  zh: 'maplibre-gl-geoagent - OpenLayers 示例',
+  en: 'web-geoagent - OpenLayers Example',
+  zh: 'web-geoagent - OpenLayers 示例',
 });
 
 // The only ol imports the shim needs, assembled once. Every key is required;

@@ -1,15 +1,13 @@
-# maplibre-gl-geoagent
+# web-geoagent
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-面向 MapLibre GL JS 的纯浏览器 GeoAgent 控件。该控件实现 MapLibre 的
-`IControl` 接口，内嵌一个 Strands TypeScript agent，可以通过专用的浏览器
-工具查看并操作当前地图。
+面向 Web 地图的纯浏览器 GeoAgent。原生控件实现 MapLibre 的 `IControl` 接口，
+内嵌一个 Strands TypeScript agent，可以通过专用的浏览器工具查看并操作当前
+地图；同一核心还可通过兼容 shim attach 到 Leaflet 与 OpenLayers 地图。
 
-[![npm version](https://img.shields.io/npm/v/maplibre-gl-geoagent.svg)](https://www.npmjs.com/package/maplibre-gl-geoagent)
+[![npm version](https://img.shields.io/npm/v/web-geoagent.svg)](https://www.npmjs.com/package/web-geoagent)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Open in CodeSandbox](https://img.shields.io/badge/Open%20in-CodeSandbox-blue?logo=codesandbox)](https://codesandbox.io/p/github/opengeos/maplibre-gl-geoagent)
-[![Open in StackBlitz](https://img.shields.io/badge/Open%20in-StackBlitz-blue?logo=stackblitz)](https://stackblitz.com/github/opengeos/maplibre-gl-geoagent)
 
 ## 功能特性
 
@@ -27,16 +25,16 @@
 ## 安装
 
 ```bash
-npm install maplibre-gl-geoagent maplibre-gl
+npm install web-geoagent maplibre-gl
 ```
 
 ## 原生 JS/TS 用法
 
 ```typescript
 import maplibregl from "maplibre-gl";
-import { GeoAgentControl } from "maplibre-gl-geoagent";
+import { GeoAgentControl } from "web-geoagent";
 import "maplibre-gl/dist/maplibre-gl.css";
-import "maplibre-gl-geoagent/style.css";
+import "web-geoagent/style.css";
 
 const map = new maplibregl.Map({
   container: "map",
@@ -66,9 +64,9 @@ import maplibregl, { type Map } from "maplibre-gl";
 import {
   GeoAgentControlReact,
   useGeoAgentState,
-} from "maplibre-gl-geoagent/react";
+} from "web-geoagent/react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import "maplibre-gl-geoagent/style.css";
+import "web-geoagent/style.css";
 
 function App() {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -115,8 +113,8 @@ React 组件（供应商下拉、可折叠设置、对话日志、提示词表�
 交给它；无头核心会自动创建并在卸载时销毁：
 
 ```tsx
-import { GeoAgentPanel } from "maplibre-gl-geoagent/react";
-import "maplibre-gl-geoagent/style.css";
+import { GeoAgentPanel } from "web-geoagent/react";
+import "web-geoagent/style.css";
 
 <GeoAgentPanel map={map} collapsed={false} title="GeoAgent" showCollapseButton={false} />;
 ```
@@ -127,8 +125,8 @@ attach 地图，并在地图实例变化时重新 attach。若要自行控制生
 prop 传入——此时面板不会替你销毁它：
 
 ```tsx
-import { GeoAgentCore } from "maplibre-gl-geoagent";
-import { GeoAgentPanel } from "maplibre-gl-geoagent/react";
+import { GeoAgentCore } from "web-geoagent";
+import { GeoAgentPanel } from "web-geoagent/react";
 
 const core = new GeoAgentCore({ title: "GeoAgent", locale: "zh-CN" });
 <GeoAgentPanel core={core} map={map} showCollapseButton={false} />;
@@ -141,12 +139,15 @@ const core = new GeoAgentCore({ title: "GeoAgent", locale: "zh-CN" });
   `GeoAgentControl` 提供。
 - 面板按钮为 发送 / 取消 / 复制 Markdown。`GeoAgentCore` 仍暴露
   `clearConversation()`，宿主可自行实现清空入口。
-- 样式随包内唯一的 `maplibre-gl-geoagent/style.css` 导出分发：Tailwind
+- 样式随包内唯一的 `web-geoagent/style.css` 导出分发：Tailwind
   工具类编译时不含 preflight（全局不会泄漏任何重置样式），设计令牌使用
   `--geoagent-*` 前缀变量。
 - **相对早期版本的破坏性变更：** 随 Google Gemini 与 Amazon Bedrock
   provider 一并移除，`GeoAgentState.bedrockRegion` 已删除
-  （`GeoAgentProviderId` 现在包含 `anthropic-compatible`）。
+  （`GeoAgentProviderId` 现在包含 `anthropic-compatible`）；包名由
+  `maplibre-gl-geoagent` 更名为 `web-geoagent`——默认 `storagePrefix` 变为
+  `web-geoagent`，此前保存在 `geoagent.maplibre.*` 下的 sessionStorage
+  键不再被读取（用户需重新输入一次 API key）。
 
 ## 模型提供商
 
@@ -197,7 +198,7 @@ API key 只在你提交时（按回车或焦点移出输入框）写入 `session
 | `locale`                       | `'en' \| 'zh-CN'`                                              | `'en'`              |
 | `defaultProvider`              | `GeoAgentProviderId`                                           | `'openai-responses'`|
 | `defaultModel`                 | `string \| Partial<Record<GeoAgentProviderId, string>>`        | provider 默认值     |
-| `storagePrefix`                | `string`                                                       | `'geoagent.maplibre'`|
+| `storagePrefix`                | `string`                                                       | `'web-geoagent'`|
 | `apiKeys`                      | `Partial<Record<GeoAgentProviderId, string>>`                  | `undefined`         |
 | `allowCodeExecutionDefault`    | `boolean`                                                      | `true`              |
 | `allowDestructiveToolsDefault` | `boolean`                                                      | `true`              |
@@ -247,8 +248,8 @@ paint，用贪心像素网格聚类实现 `cluster: true` 的 source）。
 
 ```javascript
 import L from 'leaflet';
-import { GeoAgentControl, addGeoAgentToLeafletMap } from 'maplibre-gl-geoagent';
-import 'maplibre-gl-geoagent/dist/maplibre-gl-geoagent.css';
+import { GeoAgentControl, addGeoAgentToLeafletMap } from 'web-geoagent';
+import 'web-geoagent/dist/web-geoagent.css';
 import 'leaflet/dist/leaflet.css';
 
 const map = L.map('map').setView([39.8283, -98.5795], 4);
@@ -303,8 +304,8 @@ import VectorSource from 'ol/source/Vector';
 import GeoJSON from 'ol/format/GeoJSON';
 import { Style, Fill, Stroke, Circle as CircleStyle, Text } from 'ol/style';
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
-import { GeoAgentControl, addGeoAgentToOpenLayersMap } from 'maplibre-gl-geoagent';
-import 'maplibre-gl-geoagent/dist/maplibre-gl-geoagent.css';
+import { GeoAgentControl, addGeoAgentToOpenLayersMap } from 'web-geoagent';
+import 'web-geoagent/dist/web-geoagent.css';
 import 'ol/ol.css';
 
 const map = new Map({

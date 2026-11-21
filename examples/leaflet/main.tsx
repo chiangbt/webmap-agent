@@ -11,8 +11,8 @@ import 'leaflet/dist/leaflet.css';
 // Follow the language chosen on the examples homepage (localStorage).
 const locale = resolveExamplesLocale();
 applyExamplePageLocale(locale, {
-  en: 'maplibre-gl-geoagent - Leaflet Example',
-  zh: 'maplibre-gl-geoagent - Leaflet 示例',
+  en: 'web-geoagent - Leaflet Example',
+  zh: 'web-geoagent - Leaflet 示例',
 });
 
 function LeafletExample() {

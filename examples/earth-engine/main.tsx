@@ -13,11 +13,11 @@ import 'maplibre-gl-layer-control/style.css';
 // Follow the language chosen on the examples homepage (localStorage).
 const locale = resolveExamplesLocale();
 applyExamplePageLocale(locale, {
-  en: 'maplibre-gl-geoagent - Earth Engine Example',
-  zh: 'maplibre-gl-geoagent - Earth Engine 示例',
+  en: 'web-geoagent - Earth Engine Example',
+  zh: 'web-geoagent - Earth Engine 示例',
 });
 
-const STORAGE_PREFIX = 'maplibre-gl-geoagent.ee-example';
+const STORAGE_PREFIX = 'web-geoagent.ee-example';
 
 function envString(value: unknown): string {
   return typeof value === 'string' ? value : '';

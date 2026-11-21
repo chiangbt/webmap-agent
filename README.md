@@ -1,15 +1,14 @@
-# maplibre-gl-geoagent
+# web-geoagent
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-A browser-only GeoAgent control for MapLibre GL JS. The control implements
+A browser-only GeoAgent for web maps. The vanilla control implements
 MapLibre's `IControl` interface and embeds a Strands TypeScript agent that can
-inspect and operate on the live map through dedicated browser tools.
+inspect and operate on the live map through dedicated browser tools; the same
+core also attaches to Leaflet and OpenLayers maps via compatibility shims.
 
-[![npm version](https://img.shields.io/npm/v/maplibre-gl-geoagent.svg)](https://www.npmjs.com/package/maplibre-gl-geoagent)
+[![npm version](https://img.shields.io/npm/v/web-geoagent.svg)](https://www.npmjs.com/package/web-geoagent)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Open in CodeSandbox](https://img.shields.io/badge/Open%20in-CodeSandbox-blue?logo=codesandbox)](https://codesandbox.io/p/github/opengeos/maplibre-gl-geoagent)
-[![Open in StackBlitz](https://img.shields.io/badge/Open%20in-StackBlitz-blue?logo=stackblitz)](https://stackblitz.com/github/opengeos/maplibre-gl-geoagent)
 
 ## Features
 
@@ -27,16 +26,16 @@ inspect and operate on the live map through dedicated browser tools.
 ## Installation
 
 ```bash
-npm install maplibre-gl-geoagent maplibre-gl
+npm install web-geoagent maplibre-gl
 ```
 
 ## Vanilla Usage
 
 ```typescript
 import maplibregl from "maplibre-gl";
-import { GeoAgentControl } from "maplibre-gl-geoagent";
+import { GeoAgentControl } from "web-geoagent";
 import "maplibre-gl/dist/maplibre-gl.css";
-import "maplibre-gl-geoagent/style.css";
+import "web-geoagent/style.css";
 
 const map = new maplibregl.Map({
   container: "map",
@@ -66,9 +65,9 @@ import maplibregl, { type Map } from "maplibre-gl";
 import {
   GeoAgentControlReact,
   useGeoAgentState,
-} from "maplibre-gl-geoagent/react";
+} from "web-geoagent/react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import "maplibre-gl-geoagent/style.css";
+import "web-geoagent/style.css";
 
 function App() {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -116,8 +115,8 @@ anywhere — a sidebar, a docked column, or a portal — and hand it the map; th
 headless core is created and disposed for you:
 
 ```tsx
-import { GeoAgentPanel } from "maplibre-gl-geoagent/react";
-import "maplibre-gl-geoagent/style.css";
+import { GeoAgentPanel } from "web-geoagent/react";
+import "web-geoagent/style.css";
 
 <GeoAgentPanel map={map} collapsed={false} title="GeoAgent" showCollapseButton={false} />;
 ```
@@ -129,8 +128,8 @@ instance changes. To control the lifecycle yourself, construct a
 it via the `core` prop — the panel then never disposes it:
 
 ```tsx
-import { GeoAgentCore } from "maplibre-gl-geoagent";
-import { GeoAgentPanel } from "maplibre-gl-geoagent/react";
+import { GeoAgentCore } from "web-geoagent";
+import { GeoAgentPanel } from "web-geoagent/react";
 
 const core = new GeoAgentCore({ title: "GeoAgent", locale: "en" });
 <GeoAgentPanel core={core} map={map} showCollapseButton={false} />;
@@ -143,12 +142,16 @@ Notes:
   `GeoAgentControl` still provides the floating, resizable panel.
 - Panel buttons are Send / Cancel / Copy Markdown. `GeoAgentCore`
   still exposes `clearConversation()` for hosts that want a clear affordance.
-- Styles ship inside the package's single `maplibre-gl-geoagent/style.css`
+- Styles ship inside the package's single `web-geoagent/style.css`
   export: Tailwind utilities compiled without preflight (no global resets leak
   into your page) and design tokens under `--geoagent-*` prefixed variables.
 - **Breaking change vs earlier releases:** `GeoAgentState.bedrockRegion` was
   removed together with the Google Gemini and Amazon Bedrock providers
-  (`GeoAgentProviderId` now also includes `anthropic-compatible`).
+  (`GeoAgentProviderId` now also includes `anthropic-compatible`), and the
+  package was renamed from `maplibre-gl-geoagent` to `web-geoagent` — the
+  default `storagePrefix` is now `web-geoagent`, so previously saved
+  `geoagent.maplibre.*` sessionStorage keys are no longer read (users re-enter
+  their API key once).
 
 ## Providers
 
@@ -204,7 +207,7 @@ provides a language dropdown that persists the choice in `localStorage`
 | `locale`                       | `'en' \| 'zh-CN'`                                              | `'en'`                |
 | `defaultProvider`              | `GeoAgentProviderId`                                           | `'openai-responses'`  |
 | `defaultModel`                 | `string \| Partial<Record<GeoAgentProviderId, string>>`        | provider default      |
-| `storagePrefix`                | `string`                                                       | `'geoagent.maplibre'` |
+| `storagePrefix`                | `string`                                                       | `'web-geoagent'` |
 | `apiKeys`                      | `Partial<Record<GeoAgentProviderId, string>>`                  | `undefined`           |
 | `allowCodeExecutionDefault`    | `boolean`                                                      | `true`                |
 | `allowDestructiveToolsDefault` | `boolean`                                                      | `true`                |
@@ -255,8 +258,8 @@ pixel-grid clustering for `cluster: true` sources).
 
 ```javascript
 import L from 'leaflet';
-import { GeoAgentControl, addGeoAgentToLeafletMap } from 'maplibre-gl-geoagent';
-import 'maplibre-gl-geoagent/dist/maplibre-gl-geoagent.css';
+import { GeoAgentControl, addGeoAgentToLeafletMap } from 'web-geoagent';
+import 'web-geoagent/dist/web-geoagent.css';
 import 'leaflet/dist/leaflet.css';
 
 const map = L.map('map').setView([39.8283, -98.5795], 4);
@@ -315,8 +318,8 @@ import VectorSource from 'ol/source/Vector';
 import GeoJSON from 'ol/format/GeoJSON';
 import { Style, Fill, Stroke, Circle as CircleStyle, Text } from 'ol/style';
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
-import { GeoAgentControl, addGeoAgentToOpenLayersMap } from 'maplibre-gl-geoagent';
-import 'maplibre-gl-geoagent/dist/maplibre-gl-geoagent.css';
+import { GeoAgentControl, addGeoAgentToOpenLayersMap } from 'web-geoagent';
+import 'web-geoagent/dist/web-geoagent.css';
 import 'ol/ol.css';
 
 const map = new Map({

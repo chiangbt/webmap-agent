@@ -43,7 +43,7 @@ export default defineConfig({
           'maplibre-gl': 'maplibregl',
         },
         assetFileNames: (assetInfo) => {
-          if (assetInfo.name === 'style.css') return 'maplibre-gl-geoagent.css';
+          if (assetInfo.name === 'style.css') return 'web-geoagent.css';
           return assetInfo.name || '';
         },
       },

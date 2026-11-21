@@ -8,7 +8,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: '/maplibre-gl-geoagent/',
+  base: '/web-geoagent/',
   build: {
     outDir: 'dist-examples',
     rollupOptions: {

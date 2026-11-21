@@ -109,7 +109,7 @@ export interface GeoAgentControlOptions {
 
   /**
    * Prefix for sessionStorage keys.
-   * @default 'geoagent.maplibre'
+   * @default 'web-geoagent'
    */
   storagePrefix?: string;
 
