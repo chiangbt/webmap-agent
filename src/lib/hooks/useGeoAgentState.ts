@@ -7,7 +7,6 @@ const DEFAULT_STATE: GeoAgentState = {
   busy: false,
   providerId: 'openai-responses',
   modelId: 'gpt-5.5',
-  bedrockRegion: 'us-west-2',
   baseUrl: '',
   allowCodeExecution: true,
   allowDestructiveTools: true,

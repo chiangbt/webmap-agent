@@ -24,11 +24,8 @@ export const zhCN: Record<GeoAgentMessageKey, string> = {
   apiKeyLabelGeneric: 'API 密钥',
   keyLabelOpenAI: 'OpenAI API 密钥',
   keyLabelAnthropic: 'Anthropic API 密钥',
-  keyLabelGemini: 'Gemini API 密钥',
-  keyLabelBedrock: 'Bedrock API 密钥',
   keyLabelGeneric: 'API 密钥',
   baseUrlLabel: 'API 基础地址',
-  regionLabel: '区域',
   modelLabel: '模型',
   useLatestButton: '使用最新',
   modelNamePlaceholder: '模型名称',
@@ -72,7 +69,6 @@ export const zhCN: Record<GeoAgentMessageKey, string> = {
 
   missingBaseUrl: 'API 基础地址',
   missingModel: '模型',
-  missingRegion: '区域',
   hintAddMissingToStart: '请添加 {missing} 以开始。',
   hintConfigureProvider: '请先配置提供商。',
   hintAddMissingToSend: '请添加 {missing} 后再发送提示词。',
@@ -85,6 +81,5 @@ export const zhCN: Record<GeoAgentMessageKey, string> = {
 
   errorApiKeyRequired: '必须提供 {keyLabel}。',
   errorModelIdRequired: '必须提供模型 ID。',
-  errorBedrockRegionRequired: '必须提供 Bedrock 区域。',
   errorBaseUrlRequired: '必须提供有效的 http(s) API 基础地址。',
 };

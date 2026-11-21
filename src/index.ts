@@ -1,6 +1,7 @@
 import './lib/styles/geoagent-control.css';
 
 export { GeoAgentControl } from './lib/core/GeoAgentControl';
+export { GeoAgentCore } from './lib/core/GeoAgentCore';
 export {
   DEFAULT_BASEMAPS,
   geoJsonBounds,
@@ -51,9 +52,13 @@ export type {
   GeoAgentControlEventHandler,
   GeoAgentControlOptions,
   GeoAgentControlReactProps,
+  GeoAgentConversationChange,
+  GeoAgentConversationEntry,
+  GeoAgentNoteState,
   GeoAgentProviderConfig,
   GeoAgentProviderId,
   GeoAgentState,
+  GeoAgentStatusState,
 } from './lib/core/types';
 
 export type { GeoAgentLocale } from './lib/i18n';

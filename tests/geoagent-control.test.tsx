@@ -312,15 +312,15 @@ describe("GeoAgentControl", () => {
   it("prefers a stored API key over a host-provided initial API key", () => {
     const storagePrefix = "geoagent.stored.keys";
     sessionStorage.setItem(
-      `${storagePrefix}.google.api_key`,
-      "stored-google-key",
+      `${storagePrefix}.anthropic.api_key`,
+      "stored-anthropic-key",
     );
     const map = new MockMap();
     const control = new GeoAgentControl({
       storagePrefix,
-      defaultProvider: "google",
+      defaultProvider: "anthropic",
       apiKeys: {
-        google: "env-google-key",
+        anthropic: "env-anthropic-key",
       },
     });
     const container = control.onAdd(map as never);
@@ -329,7 +329,7 @@ describe("GeoAgentControl", () => {
       ".geoagent-api-key",
     );
 
-    expect(apiKeyInput?.value).toBe("stored-google-key");
+    expect(apiKeyInput?.value).toBe("stored-anthropic-key");
 
     control.onRemove();
     map.cleanup();
@@ -502,8 +502,7 @@ describe("GeoAgentControl", () => {
       ["openai-responses", "gpt-5.5"],
       ["openai-chat", "gpt-5.5"],
       ["anthropic", "claude-opus-4-8"],
-      ["google", "gemini-3.5-flash"],
-      ["bedrock", "anthropic.claude-opus-4-8"],
+      ["anthropic-compatible", "claude-opus-4-8"],
     ] as const;
 
     for (const [provider, modelId] of cases) {
@@ -744,41 +743,47 @@ describe("GeoAgentControl", () => {
     map.cleanup();
   });
 
-  it("shows and persists the Bedrock region field for the Bedrock provider", () => {
+  it("shows and persists the base URL field for the Anthropic-compatible provider", () => {
     const map = new MockMap();
-    const control = new GeoAgentControl({ defaultProvider: "bedrock" });
+    const control = new GeoAgentControl({
+      defaultProvider: "anthropic-compatible",
+    });
     const container = control.onAdd(map as never);
     map.controlStack.appendChild(container);
     const providerSelect =
       map.mapContainer.querySelector<HTMLSelectElement>(".geoagent-provider");
-    const regionRow = map.mapContainer.querySelector<HTMLLabelElement>(
-      ".geoagent-bedrock-region-row",
+    const baseUrlRow = map.mapContainer.querySelector<HTMLLabelElement>(
+      ".geoagent-base-url-row",
     );
-    const regionInput = map.mapContainer.querySelector<HTMLInputElement>(
-      ".geoagent-bedrock-region",
+    const baseUrlInput = map.mapContainer.querySelector<HTMLInputElement>(
+      ".geoagent-base-url",
     );
 
-    expect(providerSelect?.value).toBe("bedrock");
-    expect(regionRow?.hidden).toBe(false);
-    expect(regionInput?.value).toBe("us-west-2");
+    expect(providerSelect?.value).toBe("anthropic-compatible");
+    expect(baseUrlRow?.hidden).toBe(false);
+    expect(baseUrlInput?.value).toBe("");
     expect(control.getState()).toMatchObject({
-      providerId: "bedrock",
-      modelId: "anthropic.claude-opus-4-8",
-      bedrockRegion: "us-west-2",
+      providerId: "anthropic-compatible",
+      modelId: "claude-opus-4-8",
     });
 
-    regionInput!.value = "us-east-1";
-    regionInput?.dispatchEvent(new Event("input", { bubbles: true }));
+    baseUrlInput!.value = "https://gateway.example.com";
+    baseUrlInput?.dispatchEvent(new Event("input", { bubbles: true }));
 
-    expect(control.getState().bedrockRegion).toBe("us-east-1");
-    expect(sessionStorage.getItem("geoagent.maplibre.bedrock.region")).toBe(
-      "us-east-1",
-    );
+    expect(control.getState().baseUrl).toBe("https://gateway.example.com");
+    expect(
+      sessionStorage.getItem("geoagent.maplibre.baseUrl.anthropic-compatible"),
+    ).toBe("https://gateway.example.com");
 
-    providerSelect!.value = "openai-responses";
+    providerSelect!.value = "anthropic";
     providerSelect?.dispatchEvent(new Event("change", { bubbles: true }));
 
-    expect(regionRow?.hidden).toBe(true);
+    expect(baseUrlRow?.hidden).toBe(true);
+
+    // Restore the default provider so later tests that share this storage
+    // prefix (and its sessionStorage persistence) start from openai-responses.
+    providerSelect!.value = "openai-responses";
+    providerSelect?.dispatchEvent(new Event("change", { bubbles: true }));
 
     control.onRemove();
     map.cleanup();

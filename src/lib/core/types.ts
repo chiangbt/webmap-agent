@@ -7,9 +7,8 @@ export type GeoAgentProviderId =
   | 'openai-responses'
   | 'openai-chat'
   | 'anthropic'
-  | 'google'
-  | 'bedrock'
-  | 'openai-compatible';
+  | 'openai-compatible'
+  | 'anthropic-compatible';
 
 export interface GeoAgentProviderConfig {
   id: GeoAgentProviderId;
@@ -194,12 +193,43 @@ export interface GeoAgentState {
   busy: boolean;
   providerId: GeoAgentProviderId;
   modelId: string;
-  bedrockRegion: string;
-  /** API base URL for the OpenAI-compatible / custom provider. */
+  /** API base URL for the OpenAI-compatible / Anthropic-compatible providers. */
   baseUrl: string;
   allowCodeExecution: boolean;
   allowDestructiveTools: boolean;
   data?: Record<string, unknown>;
+}
+
+/** One rendered row of the agent conversation. The core owns this list; both
+ * the vanilla DOM panel and the React panel mirror it from events. */
+export interface GeoAgentConversationEntry {
+  id: string;
+  role: 'system' | 'user' | 'assistant' | 'tool' | 'error';
+  content: string;
+  /** Assistant entries carry markdown and render through the sanitized
+   * markdown pipeline; plain entries render as text. */
+  markdown?: boolean;
+}
+
+/** Incremental change applied to the conversation list. */
+export interface GeoAgentConversationChange {
+  type: 'append' | 'update' | 'reset';
+  entry?: GeoAgentConversationEntry;
+}
+
+/** Current text/kind shown in the panel status badge. */
+export interface GeoAgentStatusState {
+  text: string;
+  /** 'connected' | 'setup' for idle badges; 'error' etc. for transient ones. */
+  kind: string;
+  /** True while a transient status (Running, Copied, …) is displayed. */
+  transient: boolean;
+}
+
+/** Transient configuration note shown inside the settings section. */
+export interface GeoAgentNoteState {
+  text: string;
+  kind: 'success' | 'error' | 'info' | null;
 }
 
 export interface GeoAgentControlReactProps extends GeoAgentControlOptions {

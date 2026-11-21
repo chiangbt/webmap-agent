@@ -24,11 +24,8 @@ export const en = {
   apiKeyLabelGeneric: 'API Key',
   keyLabelOpenAI: 'OpenAI API Key',
   keyLabelAnthropic: 'Anthropic API Key',
-  keyLabelGemini: 'Gemini API Key',
-  keyLabelBedrock: 'Bedrock API Key',
   keyLabelGeneric: 'API Key',
   baseUrlLabel: 'API Base URL',
-  regionLabel: 'Region',
   modelLabel: 'Model',
   useLatestButton: 'Use latest',
   modelNamePlaceholder: 'Model name',
@@ -79,7 +76,6 @@ export const en = {
   // Missing-configuration nouns and hints.
   missingBaseUrl: 'API base URL',
   missingModel: 'model',
-  missingRegion: 'region',
   hintAddMissingToStart: 'Add your {missing} to start.',
   hintConfigureProvider: 'Configure a provider to start.',
   hintAddMissingToSend: 'Add your {missing} to send a prompt.',
@@ -94,7 +90,6 @@ export const en = {
   // Agent creation errors.
   errorApiKeyRequired: '{keyLabel} is required.',
   errorModelIdRequired: 'Model id is required.',
-  errorBedrockRegionRequired: 'Bedrock region is required.',
   errorBaseUrlRequired: 'A valid http(s) API base URL is required.',
 } as const;
 
