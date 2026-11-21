@@ -474,13 +474,16 @@ What features are visible at the center of the current map?
 ## Development
 
 ```bash
-npm install
+pnpm install
 cp .env.example .env
-npm run dev
-npm test
-npm run build
-npm run build:examples
+pnpm dev
+pnpm test
+pnpm build
+pnpm build:examples
 ```
+
+This repository uses pnpm as its package manager (see the `packageManager`
+field in `package.json`; CI and the Dockerfile install the pinned version).
 
 The demo site (homepage + examples) is a Vite multi-page React app styled
 with shadcn/ui and Tailwind CSS 4; its source lives in `src/demo/` and

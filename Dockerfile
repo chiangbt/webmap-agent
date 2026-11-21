@@ -4,19 +4,22 @@ FROM node:26-alpine AS builder
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+
+# Install pnpm (corepack is no longer bundled with Node 25+)
+RUN npm install -g pnpm@12.4.1
 
 # Install dependencies
-RUN npm ci
+RUN pnpm install --frozen-lockfile
 
 # Copy source files
 COPY . .
 
 # Run tests
-RUN npm test
+RUN pnpm test
 
 # Build library and examples
-RUN npm run build && npm run build:examples
+RUN pnpm run build && pnpm run build:examples
 
 # Production stage
 FROM nginx:alpine

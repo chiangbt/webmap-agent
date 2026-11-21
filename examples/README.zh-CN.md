@@ -31,7 +31,7 @@ attach 到地图。
 `@geoql/maplibre-gl-starfield` 星空穹顶（ESO 银河全景图，CC BY 4.0）。
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 打开 <http://localhost:5173/examples/basic/>。
@@ -54,7 +54,7 @@ VITE_GEE_PROJECT_ID=
 然后运行：
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 打开 <http://localhost:5173/examples/earth-engine/>。
@@ -69,7 +69,7 @@ npm run dev
 相同的默认权限行为。
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 打开 <http://localhost:5173/examples/react/>。
@@ -82,7 +82,7 @@ npm run dev
 「在 Leaflet 上运行」章节。
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 打开 <http://localhost:5173/examples/leaflet/>。
@@ -96,7 +96,7 @@ npm run dev
 「在 OpenLayers 上运行」章节。
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 打开 <http://localhost:5173/examples/openlayers/>。
@@ -104,7 +104,7 @@ npm run dev
 ## 构建
 
 ```bash
-npm run build:examples
+pnpm build:examples
 ```
 
 构建产物写入 `dist-examples`。

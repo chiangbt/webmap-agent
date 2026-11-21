@@ -37,7 +37,7 @@ checkboxes hidden. The map starts in globe projection with the
 underneath the basemap.
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 Open <http://localhost:5173/examples/basic/>.
@@ -60,7 +60,7 @@ VITE_GEE_PROJECT_ID=
 Then run:
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 Open <http://localhost:5173/examples/earth-engine/>.
@@ -76,7 +76,7 @@ pages are all React. It uses the same default permission behavior as the basic
 example.
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 Open <http://localhost:5173/examples/react/>.
@@ -90,7 +90,7 @@ the "Running on Leaflet" section in the root README for the supported command
 set.
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 Open <http://localhost:5173/examples/leaflet/>.
@@ -105,7 +105,7 @@ style classes, projection helpers) and passes
 set.
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 Open <http://localhost:5173/examples/openlayers/>.
@@ -113,7 +113,7 @@ Open <http://localhost:5173/examples/openlayers/>.
 ## Build
 
 ```bash
-npm run build:examples
+pnpm build:examples
 ```
 
 The built examples are written to `dist-examples`.

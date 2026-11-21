@@ -448,13 +448,16 @@ MapLibre JavaScript 工具与图层删除工具默认启用。它们的复选框
 ## 开发
 
 ```bash
-npm install
+pnpm install
 cp .env.example .env
-npm run dev
-npm test
-npm run build
-npm run build:examples
+pnpm dev
+pnpm test
+pnpm build
+pnpm build:examples
 ```
+
+本仓库使用 pnpm 作为包管理器（见 `package.json` 的 `packageManager` 字段；
+CI 与 Dockerfile 会安装该固定版本）。
 
 演示站点（首页 + 示例页）是基于 Vite 的多页 React 应用，使用 shadcn/ui 与
 Tailwind CSS 4 构建样式；其源码位于 `src/demo/` 与 `examples/`。已发布的
