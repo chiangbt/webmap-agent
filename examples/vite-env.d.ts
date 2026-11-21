@@ -19,6 +19,10 @@ declare global {
         HTMLAttributes<HTMLElement>,
         HTMLElement
       >;
+      'arcgis-zoom': DetailedHTMLProps<
+        HTMLAttributes<HTMLElement>,
+        HTMLElement
+      >;
     }
   }
 }

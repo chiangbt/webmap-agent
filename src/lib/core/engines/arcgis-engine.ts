@@ -616,6 +616,7 @@ export class ArcGISMapShim {
     this.view = map;
     this.ns = asArcGISNamespace(namespace);
     this.validateSpatialReference();
+    this.injectShadowStyles();
     if (this.isScene) {
       // A SceneView navigates through the camera; watching it covers zoom
       // (scale), heading, tilt, and pan in one handler.
@@ -646,6 +647,47 @@ export class ArcGISMapShim {
       );
     }
     this.clickHandle = map.on("click", () => this.hideMarkerPopups());
+  }
+
+  /**
+   * Marker/popup elements live in `view.container`. On an
+   * `@arcgis/map-components` host that container sits inside the component's
+   * SHADOW ROOT, where the page stylesheet (geoagent-control.css) does not
+   * reach — the popup would render as unstyled raw text. When the container
+   * is inside a shadow root, inject a self-contained copy of the marker and
+   * popup rules into that root; in the light DOM the page stylesheet already
+   * applies and injection is skipped.
+   */
+  private injectShadowStyles(): void {
+    const container = this.view.container;
+    const root = container?.getRootNode?.() as
+      | ShadowRoot
+      | Document
+      | null
+      | undefined;
+    if (!root || root === document) {
+      return;
+    }
+    if (root.querySelector?.("style[data-geoagent-arcgis]")) {
+      return;
+    }
+    const style = document.createElement("style");
+    style.dataset.geoagentArcgis = "";
+    style.textContent = `
+.geoagent-arcgis-marker-icon { background: transparent; border: none; }
+.geoagent-arcgis-marker-icon svg { display: block; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35)); cursor: pointer; }
+.geoagent-arcgis-popup-content {
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #1f2933;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25);
+  max-width: 260px;
+  white-space: pre-wrap;
+}
+`;
+    root.appendChild(style);
   }
 
   getRawView(): ArcGISViewLike {

@@ -511,15 +511,26 @@ describe('ArcGISTools on a fake ArcGIS view', () => {
   });
 
   it('captures screenshots through view.takeScreenshot', async () => {
-    const agent = tools(view);
-    const result = (await agent.runCommand('screenshot_map')) as {
-      data_url: string;
-      width: number;
-      height: number;
-    };
+    const onStateDataChange = vi.fn();
+    const agent = new ArcGISTools(view as never, {
+      allowCodeExecution: () => true,
+      allowDestructiveTools: () => true,
+      onStateDataChange,
+      mapEngine: arcgisEngine(),
+    });
+    const result = (await agent.runCommand('screenshot_map')) as string;
     expect(view.takeScreenshot).toHaveBeenCalled();
-    expect(result.data_url).toContain('data:image/png');
-    expect(result).toMatchObject({ width: 480, height: 320 });
+    // The base64 image goes to the panel state, not into the model context
+    // (a ~1MB tool result overflows provider input limits).
+    expect(result).toContain('Screenshot captured: 480x320');
+    expect(result).not.toContain('data:image/png');
+    expect(onStateDataChange).toHaveBeenCalledWith({
+      screenshot: expect.objectContaining({
+        data_url: expect.stringContaining('data:image/png'),
+        width: 480,
+        height: 320,
+      }),
+    });
   });
 
   it('answers WebGL-only commands with explicit capability errors', async () => {
@@ -837,5 +848,45 @@ describe('resolveMapContainer with ArcGIS components', () => {
     const inner = document.createElement('div');
     const fakeMapView = { container: inner };
     expect(resolveMapContainer(fakeMapView)).toBe(inner);
+  });
+});
+
+describe('arcgis shadow DOM style injection', () => {
+  it('injects marker/popup styles when the container lives in a shadow root', () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const container = document.createElement('div');
+    shadow.appendChild(container);
+    try {
+      const view = new FakeView();
+      view.container = container;
+      const shim = createArcGISMapShim(view, arcgisNamespace);
+      // The page stylesheet cannot reach inside the shadow root, so the shim
+      // must inject a self-contained copy of the marker/popup rules.
+      const style = shadow.querySelector('style[data-geoagent-arcgis]');
+      expect(style).toBeTruthy();
+      expect(style?.textContent).toContain('.geoagent-arcgis-popup-content');
+      expect(style?.textContent).toContain('.geoagent-arcgis-marker-icon');
+      // A second shim on the same view must not duplicate the style.
+      createArcGISMapShim(view, arcgisNamespace);
+      expect(shadow.querySelectorAll('style[data-geoagent-arcgis]')).toHaveLength(1);
+      // Markers created afterwards still land in the (styled) shadow tree.
+      shim.createMarker('#ff0000').setLngLat([0, 0]).addTo(view);
+      expect(
+        shadow.querySelectorAll('.geoagent-arcgis-marker-icon'),
+      ).toHaveLength(1);
+    } finally {
+      host.remove();
+    }
+  });
+
+  it('skips injection in the light DOM (page stylesheet already applies)', () => {
+    const view = new FakeView();
+    // FakeView's container is attached to document.body → light DOM.
+    createArcGISMapShim(view, arcgisNamespace);
+    expect(
+      document.querySelectorAll('style[data-geoagent-arcgis]'),
+    ).toHaveLength(0);
   });
 });

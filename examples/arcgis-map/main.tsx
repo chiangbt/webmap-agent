@@ -179,7 +179,7 @@ function ArcGISMapExample() {
           <GeoAgentPanel
             core={core}
             map={mapEl}
-            title="GeoAgent ArcGIS MapView"
+            title="GeoAgent（ArcGIS MapView）"
             locale={locale}
             collapsed={false}
             showCollapseButton={false}
@@ -189,10 +189,13 @@ function ArcGISMapExample() {
       <arcgis-map
         ref={mapElement}
         basemap="topo"
-        center="-122.45, 37.79"
-        zoom="11.5"
+        center="10, 12"
+        zoom="2"
         className="relative min-w-0 flex-1"
-      />
+      >
+        {/* Zoom in/out buttons live in the view's UI at the requested slot. */}
+        <arcgis-zoom slot="top-right" />
+      </arcgis-map>
     </div>
   );
 }

@@ -255,7 +255,14 @@ export class MapLibreAgentTools extends GeoAgentTools {
     }
 
     if (command === "screenshot_map") {
-      return this.captureScreenshot();
+      const screenshot = (await this.captureScreenshot()) as {
+        data_url: string;
+        width: number;
+        height: number;
+      };
+      // The base64 image goes to the host UI, never into the model context.
+      this.publishStateData({ screenshot });
+      return `Screenshot captured: ${screenshot.width}x${screenshot.height} png. The image was published to the panel state (screenshot.data_url) for the host UI to display; it is intentionally not included in this conversation.`;
     }
 
     throw new Error(`Unsupported command: ${command}`);

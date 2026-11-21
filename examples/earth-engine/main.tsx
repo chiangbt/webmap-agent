@@ -48,8 +48,9 @@ function EarthEngineExample() {
     const mapInstance = new maplibregl.Map({
       container: mapContainer.current,
       style: 'https://tiles.openfreemap.org/styles/liberty',
-      center: [-98.5795, 39.8283],
-      zoom: 3,
+      // Global initial extent: the whole world in view on load.
+      center: [10, 12],
+      zoom: 1.6,
       maxPitch: 85,
       canvasContextAttributes: { preserveDrawingBuffer: true },
     });
@@ -85,7 +86,7 @@ function EarthEngineExample() {
         {map && (
           <GeoAgentPanel
             map={map}
-            title="GeoAgent + Earth Engine"
+            title="GeoAgent（Earth Engine）"
             locale={locale}
             collapsed={false}
             showCollapseButton={false}

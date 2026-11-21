@@ -235,21 +235,34 @@ describe('default marker names', () => {
 });
 
 describe('screenshot_map renders inside a frame', () => {
-  it('captures the canvas in a render callback instead of a cleared buffer', async () => {
+  it('captures in a render callback and keeps the data URL out of the model context', async () => {
     const map = new MockMap();
     const { namespace } = markerNamespace();
-    const agent = tools(map, namespace);
+    const onStateDataChange = vi.fn();
+    const agent = new MapLibreAgentTools(map as never, {
+      allowCodeExecution: () => true,
+      allowDestructiveTools: () => true,
+      mapEngine: { kind: 'maplibre', namespace } as GeoAgentMapEngine,
+      onStateDataChange,
+    });
 
-    const result = (await agent.runCommand('screenshot_map')) as {
-      data_url: string;
-      width: number;
-      height: number;
-    };
+    const result = (await agent.runCommand('screenshot_map')) as string;
     // The mock fires once('render') immediately; the capture must come from
     // that callback, not a bare toDataURL on a cleared WebGL buffer.
     expect(map.once).toHaveBeenCalledWith('render', expect.any(Function));
-    expect(result.data_url).toContain('data:image/png');
-    expect(result).toMatchObject({ width: 100, height: 100 });
+    // The full base64 image must NOT be returned to the model — a
+    // ~1MB tool result overflows provider input limits (observed live:
+    // "Range of input length should be [1, 983616]"). The image goes to
+    // the panel state instead.
+    expect(result).toContain('Screenshot captured: 100x100');
+    expect(result).not.toContain('data:image/png');
+    expect(onStateDataChange).toHaveBeenCalledWith({
+      screenshot: expect.objectContaining({
+        data_url: expect.stringContaining('data:image/png'),
+        width: 100,
+        height: 100,
+      }),
+    });
   });
 });
 

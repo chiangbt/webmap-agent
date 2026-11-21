@@ -33,13 +33,13 @@ const EXAMPLES: ExampleLink[] = [
     href: './examples/basic/index.html',
     titleKey: 'basicTitle',
     descKey: 'basicDesc',
-    tags: ['Vanilla JS', 'TypeScript'],
+    tags: ['MapLibre', 'Vanilla JS'],
   },
   {
     href: './examples/react/index.html',
     titleKey: 'reactTitle',
     descKey: 'reactDesc',
-    tags: ['React', 'TypeScript'],
+    tags: ['MapLibre', 'React'],
   },
   {
     href: './examples/earth-engine/index.html',

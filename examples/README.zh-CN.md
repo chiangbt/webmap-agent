@@ -23,12 +23,14 @@ attach 到地图。
 `localStorage`（`geoagent.locale`），每个示例页读取该选择并通过 `locale`
 选项传给 Agent 面板（`src/demo/locale.ts`）。
 
-## 基础示例
+## MapLibre GL 示例
 
 在 React 页面入口（`main.tsx`）中用 `GeoAgentPanel` 驱动 MapLibre 地图（默认
 的原生风格工具配置）。它默认启用 MapLibre JavaScript 与图层删除能力，同时
-隐藏权限复选框。地图以 globe 投影启动，底图下方叠加
-`@geoql/maplibre-gl-starfield` 星空穹顶（ESO 银河全景图，CC BY 4.0）。
+隐藏权限复选框。地图以 globe 投影启动，初始范围即全球（正北朝上，加载后
+整个球体尽收眼底）；底图下方叠加 `@geoql/maplibre-gl-starfield` 星空穹顶
+（ESO 银河全景图，CC BY 4.0），GlobeControl 与 agent 的 `set_projection`
+工具可随时切换到平面 Mercator。
 
 ```bash
 pnpm dev
@@ -67,7 +69,7 @@ addGeoAgentToArcGISMap(agent, mapEl, { position: 'top-left' });
 ## ArcGIS Scene 示例
 
 `<arcgis-scene>` web component（`ground="world-elevation"` 的 SceneView 球体），
-初始相机俯瞰珠穆朗玛峰，由同一个 `ArcGISTools` 驱动（
+初始为全球视野，由同一个 `ArcGISTools` 驱动（
 `mapEngine: { kind: "arcgis", viewKind: "scene" }`）。shim 会为场景适配相机
 模型——zoom 走视图 scale、bearing 走 `camera.heading`、pitch 走
 `camera.tilt`，marker 定位使用视图精确的 `toScreen` 投影。`screenshot_map`
@@ -106,7 +108,7 @@ pnpm dev
 `VITE_GEE_PROJECT_ID` 为空，这样每个用户都可以在 GeoAgent 面板中输入自己
 启用了 Earth Engine 的 Google Cloud 项目 ID。
 
-## React 示例
+## MapLibre GL React 示例
 
 与基础示例相同的配置——演示面板驱动的示例页全部是 React。它使用与基础示例
 相同的默认权限行为。

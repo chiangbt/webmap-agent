@@ -76,13 +76,13 @@ function ArcGISSceneExample() {
       if (disposed) {
         return;
       }
-      // A tilted camera over Mount Everest: the demos' signature view
-      // (the attributes below already ask for this; assigning the camera
-      // keeps the start view deterministic across SDK releases).
+      // Global initial extent: the whole globe in view on load (the
+      // attributes below already ask for this; assigning the camera keeps
+      // the start view deterministic across SDK releases).
       view.camera = {
-        position: { longitude: 86.925, latitude: 27.988, z: 12500 },
-        heading: 105,
-        tilt: 78,
+        position: { longitude: 10, latitude: 12, z: 20000000 },
+        heading: 0,
+        tilt: 0,
       };
       setMapEl(el);
     });
@@ -98,7 +98,7 @@ function ArcGISSceneExample() {
           <GeoAgentPanel
             core={core}
             map={mapEl}
-            title="GeoAgent ArcGIS SceneView"
+            title="GeoAgent（ArcGIS SceneView）"
             locale={locale}
             collapsed={false}
             showCollapseButton={false}
@@ -112,11 +112,15 @@ function ArcGISSceneExample() {
         ref={sceneElement}
         basemap="satellite"
         ground="world-elevation"
-        camera-position="86.925, 27.988, 12500"
-        camera-heading="105"
-        camera-tilt="78"
+        camera-position="10, 12, 20000000"
+        camera-heading="0"
+        camera-tilt="0"
         className="relative min-w-0 flex-1"
-      />
+      >
+        {/* Zoom in/out buttons live in the view's UI at the requested slot;
+            on a scene they step the camera distance in/out. */}
+        <arcgis-zoom slot="top-right" />
+      </arcgis-scene>
     </div>
   );
 }

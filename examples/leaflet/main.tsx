@@ -30,8 +30,9 @@ function LeafletExample() {
     // through the leaflet-engine compatibility shim
     // (mapEngine: { kind: "leaflet" }).
     const mapInstance = L.map(mapContainer.current, {
-      center: [39.8283, -98.5795],
-      zoom: 4,
+      // Global initial extent: the whole world in view on load.
+      center: [12, 10],
+      zoom: 2,
     });
 
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -53,7 +54,7 @@ function LeafletExample() {
         {map && (
           <GeoAgentPanel
             map={map}
-            title="GeoAgent (Leaflet)"
+            title="GeoAgent（Leaflet）"
             locale={locale}
             collapsed={false}
             showCollapseButton={false}

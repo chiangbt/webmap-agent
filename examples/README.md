@@ -27,14 +27,16 @@ homepage's 中文/English dropdown persists the choice in `localStorage`
 (`geoagent.locale`), and each page passes it to the Agent panel as the
 `locale` option (`src/demo/locale.ts`).
 
-## Basic Example
+## MapLibre GL Example
 
 `GeoAgentPanel` driving a MapLibre map with the default (vanilla-style) tool
 configuration, rendered from a React page entry (`main.tsx`). It enables
 MapLibre JavaScript and layer removal by default while keeping the permission
-checkboxes hidden. The map starts in globe projection with the
+checkboxes hidden. The map starts in globe projection at a global initial
+extent (the whole globe in view on load, north-up), with the
 `@geoql/maplibre-gl-starfield` skybox (an ESO Milky Way panorama, CC BY 4.0)
-underneath the basemap.
+underneath the basemap; the GlobeControl / the agent's `set_projection` tool
+switch to flat Mercator on demand.
 
 ```bash
 pnpm dev
@@ -78,7 +80,7 @@ addGeoAgentToArcGISMap(agent, mapEl, { position: 'top-left' });
 ## ArcGIS Scene Example
 
 An `<arcgis-scene>` web component (a SceneView globe with `ground="world-elevation"`)
-over Mount Everest, driven by the same `ArcGISTools` with
+starting on a whole-globe view, driven by the same `ArcGISTools` with
 `mapEngine: { kind: "arcgis", viewKind: "scene" }`. The shim adapts the camera
 model for the scene — zoom goes through the view scale, bearing through
 `camera.heading`, pitch through `camera.tilt`, and marker positioning uses the
@@ -118,7 +120,7 @@ For a public deployment, configure `VITE_GEE_OAUTH_CLIENT_ID` at build time and
 leave `VITE_GEE_PROJECT_ID` unset so each user can enter their own Earth
 Engine-enabled Google Cloud project ID in the GeoAgent panel.
 
-## React Example
+## MapLibre GL React Example
 
 Same setup as the basic example — it demonstrates that the panel-driven demo
 pages are all React. It uses the same default permission behavior as the basic

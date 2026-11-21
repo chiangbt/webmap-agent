@@ -2170,6 +2170,17 @@ export abstract class GeoAgentTools {
     return this.earthEngine;
   }
 
+  /**
+   * Publish non-conversation data to the host UI (panel state). Tool results
+   * that embed large payloads (e.g. screenshot PNG data URLs) must go through
+   * this instead of being returned to the model — a multi-hundred-kilobyte
+   * tool result is injected into the conversation history and blows past
+   * provider input limits.
+   */
+  protected publishStateData(data: Record<string, unknown>): void {
+    this.onStateDataChange?.(data);
+  }
+
   private publishEarthEngineState(): void {
     if (!this.earthEngine || !this.onStateDataChange) {
       return;

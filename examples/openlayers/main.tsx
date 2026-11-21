@@ -74,8 +74,9 @@ function OpenLayersExample() {
         }),
       ],
       view: new View({
-        center: fromLonLat([-98.5795, 39.8283]),
-        zoom: 4,
+        // Global initial extent: the whole world in view on load.
+        center: fromLonLat([10, 12]),
+        zoom: 2,
       }),
     });
     setMap(mapInstance);
@@ -91,7 +92,7 @@ function OpenLayersExample() {
         {map && (
           <GeoAgentPanel
             map={map}
-            title="GeoAgent (OpenLayers)"
+            title="GeoAgent（OpenLayers）"
             locale={locale}
             collapsed={false}
             showCollapseButton={false}

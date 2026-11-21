@@ -19,9 +19,9 @@ const locale = resolveExamplesLocale();
 // Deployment defaults from .env (LLM_API_URL / LLM_API_KEY / LLM_API_MODEL).
 const llm = readLlmEnvConfig();
 applyExamplePageLocale(locale, {
-  en: 'web-geoagent - Basic Example',
-  zh: 'web-geoagent - 基础示例',
-  tw: 'web-geoagent - 基礎範例',
+  en: 'web-geoagent - MapLibre GL Example',
+  zh: 'web-geoagent - MapLibre GL 示例',
+  tw: 'web-geoagent - MapLibre GL 範例',
 });
 
 function BasicExample() {
@@ -36,9 +36,10 @@ function BasicExample() {
       style: 'https://tiles.openfreemap.org/styles/liberty',
       // Tilted/rotated initial view so the milky way band of the skybox is
       // visible around the globe right after load.
-      center: [-85, 32],
-      zoom: 2.5,
-      bearing: 150,
+      // Global initial extent: the whole world in view on load.
+      center: [10, 12],
+      zoom: 1.6,
+      bearing: 0, // north-up, matching the Earth Engine example
       maxPitch: 85,
       canvasContextAttributes: { preserveDrawingBuffer: true },
     });
@@ -48,6 +49,9 @@ function BasicExample() {
     mapInstance.addControl(new maplibregl.GlobeControl(), 'top-right');
 
     mapInstance.on('load', () => {
+      // Spherical (globe) projection at a global initial extent: the whole
+      // globe in view on load. The GlobeControl / the agent's
+      // set_projection tool can switch to flat Mercator on demand.
       mapInstance.setProjection({ type: 'globe' });
 
       // Starfield background: the milky way panorama on a Three.js skybox plus
@@ -89,7 +93,7 @@ function BasicExample() {
         {map && (
           <GeoAgentPanel
             map={map}
-            title="GeoAgent MapLibre GL"
+            title="GeoAgent（MapLibre GL）"
             locale={locale}
             collapsed={false}
             showCollapseButton={false}
