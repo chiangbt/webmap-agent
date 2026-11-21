@@ -41,15 +41,15 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.build.json && vite build",
-    "build:examples": "vite build --config vite.examples.config.ts",
+    "build:examples": "NODE_OPTIONS=--max-old-space-size=12288 vite build --config vite.examples.config.ts",
     "preview": "vite preview",
     "test": "vitest --run",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
-      "prepublishOnly": "pnpm run build"
-    },
+    "prepublishOnly": "pnpm run build"
+  },
   "keywords": [
     "maplibre",
     "maplibre-gl",
@@ -84,6 +84,8 @@
     }
   },
   "devDependencies": {
+    "@arcgis/core": "^5.2.7",
+    "@arcgis/map-components": "^5.2.7",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@opentelemetry/api": "^1.10.0",
     "@tailwindcss/vite": "^4.3.5",

@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import type { IControl, Map as MapLibreMap } from 'maplibre-gl';
 import { GeoAgentCore } from '../GeoAgentCore';
+import { resolveMapContainer } from '../map-container';
 import type { GeoAgentTools } from '../tools/geoagent-tools';
 import type {
   GeoAgentControlEvent,
@@ -37,7 +38,6 @@ interface GeoAgentUi {
   prompt: HTMLTextAreaElement;
   sendButton: HTMLButtonElement;
   cancelButton: HTMLButtonElement;
-  clearButton: HTMLButtonElement;
   copyButton: HTMLButtonElement;
   resizeHandleLeft: HTMLDivElement;
   resizeHandleRight: HTMLDivElement;
@@ -102,19 +102,13 @@ export class GeoAgentControl implements IControl {
   onAdd(map: MapLibreMap): HTMLElement {
     this.map = map;
     // MapLibre/Mapbox/Leaflet hosts expose getContainer(); OpenLayers maps
-    // expose getTargetElement() instead — accept either so the expanded panel
-    // has a container to live in on every engine.
-    const containerSource = map as unknown as {
-      getContainer?(): HTMLElement | undefined;
-      getTargetElement?(): HTMLElement | null | undefined;
-    };
-    const mapContainer =
-      containerSource.getContainer?.() ??
-      containerSource.getTargetElement?.() ??
-      undefined;
+    // expose getTargetElement(); ArcGIS MapViews expose a `container`
+    // property — resolveMapContainer accepts all of them so the expanded
+    // panel has a container to live in on every engine.
+    const mapContainer = resolveMapContainer(map);
     if (!mapContainer) {
       throw new Error(
-        'GeoAgentControl: the map exposes neither getContainer() nor getTargetElement(); cannot mount the agent panel.',
+        'GeoAgentControl: the map exposes neither getContainer() nor getTargetElement() nor a container element; cannot mount the agent panel.',
       );
     }
     this.mapContainer = mapContainer;
@@ -407,7 +401,6 @@ export class GeoAgentControl implements IControl {
           <button class="geoagent-send" type="submit" disabled>${this.core.translate('sendButton')}</button>
           <button class="geoagent-cancel secondary" type="button" disabled>${this.core.translate('cancelButton')}</button>
           <button class="geoagent-copy secondary" type="button">${this.core.translate('copyMarkdownButton')}</button>
-          <button class="geoagent-clear secondary" type="button">${this.core.translate('clearButton')}</button>
         </div>
       </form>
     `;
@@ -440,7 +433,6 @@ export class GeoAgentControl implements IControl {
       prompt: this.requiredElement(content, '.geoagent-prompt'),
       sendButton: this.requiredElement(content, '.geoagent-send'),
       cancelButton: this.requiredElement(content, '.geoagent-cancel'),
-      clearButton: this.requiredElement(content, '.geoagent-clear'),
       copyButton: this.requiredElement(content, '.geoagent-copy'),
       resizeHandleLeft,
       resizeHandleRight,
@@ -617,9 +609,6 @@ export class GeoAgentControl implements IControl {
       if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
         this.handlePromptHistoryKey(event);
       }
-    });
-    ui.clearButton.addEventListener('click', () => {
-      this.core.clearConversation();
     });
     ui.copyButton.addEventListener('click', () => {
       void this.core.copyConversationAsMarkdown();
@@ -817,7 +806,6 @@ export class GeoAgentControl implements IControl {
     const el = document.createElement('div');
     el.className = 'geoagent-entry';
     el.dataset.role = entry.role;
-    el.dataset.markdown = entry.content;
     el.dataset.entryId = entry.id;
     const roleEl = document.createElement('div');
     roleEl.className = 'geoagent-role';
@@ -845,7 +833,6 @@ export class GeoAgentControl implements IControl {
     if (!el) {
       return;
     }
-    el.dataset.markdown = entry.content;
     const textEl = el.querySelector<HTMLElement>('.geoagent-text');
     if (textEl) {
       if (entry.markdown) {
@@ -897,7 +884,6 @@ export class GeoAgentControl implements IControl {
     this.ui.loadModelsButton.disabled =
       state.busy || !this.core.providerConfig(state.providerId).defaultModel;
     this.ui.cancelButton.disabled = !state.busy || this.core.isCancelRequested();
-    this.ui.clearButton.disabled = state.busy;
     // Fold the settings away the first time setup completes, so the chat gets
     // more room. Only act on the not-configured -> configured edge: never
     // auto-open, so a user who manually re-opens the section to tweak settings

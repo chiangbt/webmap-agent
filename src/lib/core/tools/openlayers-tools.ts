@@ -125,6 +125,14 @@ export class OpenLayersAgentTools extends GeoAgentTools {
     return this.map;
   }
 
+  /** Clear overlays and unbind the shim's map listeners. */
+  destroy(): void {
+    if (isOpenLayersMapShim(this.map)) {
+      this.map.destroy();
+    }
+    super.destroy();
+  }
+
   protected createEngineMarker(color: string): GeoAgentMarker {
     return this.shim().createMarker(color) as unknown as GeoAgentMarker;
   }

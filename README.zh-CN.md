@@ -4,7 +4,7 @@
 
 面向 Web 地图的纯浏览器 GeoAgent。原生控件实现 MapLibre 的 `IControl` 接口，
 内嵌一个 Strands TypeScript agent，可以通过专用的浏览器工具查看并操作当前
-地图；同一核心还可通过兼容 shim attach 到 Leaflet 与 OpenLayers 地图。
+地图；同一核心还可通过兼容 shim attach 到 Leaflet、OpenLayers 与 ArcGIS Maps SDK 地图（MapView / SceneView）。
 
 [![npm version](https://img.shields.io/npm/v/web-geoagent.svg)](https://www.npmjs.com/package/web-geoagent)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -21,7 +21,7 @@
 - 破坏性图层删除工具由独立开关控制
 - 可将可见的对话日志复制为 Markdown
 - 提供无头 `GeoAgentCore`、shadcn/ui 风格的 React `GeoAgentPanel`，以及经典的 React 包装组件与状态 hook
-- 按引擎划分的工具类层次：共享基类 `GeoAgentTools` 之下有 `MapLibreAgentTools`、`LeafletAgentTools`、`OpenLayersAgentTools` 三个子类——每个子类只暴露该引擎真正能执行的 Strands 工具，`createGeoAgentTools` 会根据 `mapEngine` 选择正确的子类
+- 按引擎划分的工具类层次：共享基类 `GeoAgentTools` 之下有 `MapLibreAgentTools`、`LeafletAgentTools`、`OpenLayersAgentTools`、`ArcGISTools` 四个子类——每个子类只暴露该引擎真正能执行的 Strands 工具，`createGeoAgentTools` 会根据 `mapEngine` 选择正确的子类
 
 ## 安装
 
@@ -384,6 +384,100 @@ addGeoAgentToOpenLayersMap(agent, map, { position: 'top-left' });
   MapLibre 引擎下才惰性导入它。
 - Earth Engine 瓦片以普通 XYZ raster 覆盖物加载。
 
+### 在 ArcGIS Maps SDK 上运行（含 @arcgis/map-components）
+
+同样的工具也可以运行在 [ArcGIS Maps SDK for JavaScript](https://developers.arcgis.com/javascript/)
+的 `MapView`（平面 2D）**或** `SceneView`（3D 球体）上——包括
+[`@arcgis/map-components`](https://developers.arcgis.com/javascript/latest/get-started/npm/#use-map-components)
+提供的 `<arcgis-map>` / `<arcgis-scene>` web component——由 `ArcGISTools`
+驱动，同样是共享基类 `GeoAgentTools` 的子类。该子类驱动一个兼容引擎
+（`arcgis-engine.ts`）：在真实视图之上模拟 MapLibre map API 的 shim，把
+Style Spec 的 source/layer 物化为 ArcGIS 图层（raster XYZ →
+`WebTileLayer`；GeoJSON → 客户端 `FeatureLayer`，其 graphic 携带由共享
+MapLibre 表达式引擎逐要素求值的符号；`cluster: true` 源做贪心像素网格
+聚类）。`change_basemap` 传入 ArcGIS 原生底图名（`satellite`、`topo`、
+`dark-gray` 等）会直接切换地图自身的 basemap。`mapEngine.viewKind` 选项
+声明宿主传入的是哪种视图：`"map"`（默认，MapView）或 `"scene"`
+（SceneView）——shim 按视图种类适配相机模型（scene 下 zoom 走视图 scale、
+bearing 走 `camera.heading`、pitch 走 `camera.tilt`，marker 与要素查询用
+视图精确的 `toScreen` 投影定位），系统提示词也会描述对应的几何。
+
+库本身从不 import `@arcgis/*`，由宿主一次性组装一个小的 esri 类命名空间：
+
+```javascript
+import WebTileLayer from '@arcgis/core/layers/WebTileLayer';
+import FeatureLayer from '@arcgis/core/layers/FeatureLayer';
+import Graphic from '@arcgis/core/Graphic';
+import SimpleFillSymbol from '@arcgis/core/symbols/SimpleFillSymbol';
+import SimpleLineSymbol from '@arcgis/core/symbols/SimpleLineSymbol';
+import SimpleMarkerSymbol from '@arcgis/core/symbols/SimpleMarkerSymbol';
+import TextSymbol from '@arcgis/core/symbols/TextSymbol';
+import PictureMarkerSymbol from '@arcgis/core/symbols/PictureMarkerSymbol';
+import { GeoAgentControl, addGeoAgentToArcGISMap } from 'web-geoagent';
+import 'web-geoagent/dist/web-geoagent.css';
+
+const view = new MapView({
+  container: 'viewDiv',
+  map: new WebMap({ basemap: 'topo' }),
+  center: [-98.5795, 39.8283],
+  zoom: 4,
+});
+
+const agent = new GeoAgentControl({
+  mapEngine: {
+    kind: 'arcgis',
+    // 'map'（MapView，默认）或 'scene'（SceneView）。
+    viewKind: 'map',
+    namespace: {
+      WebTileLayer, FeatureLayer, Graphic,
+      SimpleFillSymbol, SimpleLineSymbol, SimpleMarkerSymbol, TextSymbol,
+      PictureMarkerSymbol,
+    },
+  },
+});
+
+// ArcGIS 的 map.addControl 不接受外部控件，因此通过助手挂载——它附加到
+// view 容器并返回 { remove() } 用于卸载。
+addGeoAgentToArcGISMap(agent, view, { position: 'top-left' });
+```
+
+使用 `@arcgis/map-components` 时，用 `waitForArcGISComponent` 等待元素上的
+视图就绪（这些 web component 没有 `when()` 方法——元素继承的是原生
+`EventTarget.prototype.when(type)`，与本库无关），然后传入元素或其 `.view`：
+
+```javascript
+import { waitForArcGISComponent } from 'web-geoagent';
+
+const mapEl = document.querySelector('arcgis-map');
+const view = await waitForArcGISComponent(mapEl);
+addGeoAgentToArcGISMap(agent, mapEl, { position: 'top-left' });
+```
+
+设计与能力边界：
+
+- 相机（`set_center`、`fly_to`、`zoom_to_bounds`、`get_map_state`）、全部
+  GeoJSON/raster/marker 覆盖层（marker 是定位 DOM 图钉，点击弹气泡）、图层
+  可见性/透明度、要素查询（`query_rendered_features` 做像素级命中测试）、
+  `fit_bounds`（尽力而为的范围适配——ArcGIS `goTo` 没有 padding/maxZoom
+  契约）、底图切换，以及 `run_maplibre_script`（用户代码拿到真实视图作为
+  `map`，拿到你传入的命名空间作为 `esri`）。
+- 按视图种类区分：MapView 上 bearing 映射到视图旋转、pitch 恒为 0、
+  `set_projection: "globe"` 报错；SceneView 上 bearing 跟随
+  `camera.heading`、pitch 跟随 `camera.tilt`、`get_map_state` 报告
+  `projection: "globe"`、`set_projection: "globe"` 是幂等成功，地形来自
+  场景的 ground 高程图层（`raster-dem` 工具格式不适用）。两种视图都必须是
+  Web Mercator 或 WGS84，其他空间参考会给出可行动的报错。
+- 一个其他 2D shim 没有的能力在这里可用：`screenshot_map`——视图通过
+  `takeScreenshot()` 在客户端合成整幅画面（MapView 与 SceneView 都支持）。
+- 2D/3D 边界一开始就声明：WebGL 专属的 MapLibre 工具（`set_projection`、
+  `add_terrain`/`clear_terrain`、`set_sky`/`remove_sky`、`add_3d_buildings`）
+  会从工具清单中移除，系统提示词写明引擎几何；直接调 `runCommand`——或要求
+  `fill-extrusion`/`heatmap` 图层、vector-tile source——仍然显式报错，
+  不会静默失败。
+- ArcGIS 宿主在运行时永远不会加载 `maplibre-gl`：只有默认 MapLibre 引擎才会
+  惰性加载它。
+- Earth Engine 瓦片照旧作为普通 XYZ raster 覆盖层加载。
+
 ### Earth Engine 配置
 
 ```typescript
@@ -495,8 +589,10 @@ pnpm build:examples
 CI 与 Dockerfile 会安装该固定版本）。
 
 演示站点（首页 + 示例页）是基于 Vite 的多页 React 应用，使用 shadcn/ui 与
-Tailwind CSS 4 构建样式；其源码位于 `src/demo/` 与 `examples/`。已发布的
-npm 库本体保持框架无关并自带样式表，不受演示技术栈影响。
+Tailwind CSS 4 构建样式；其源码位于 `src/demo/` 与 `examples/`。示例页包括：
+`basic`、`react`、`earth-engine`、`leaflet`、`openlayers`、`arcgis-map`
+（`<arcgis-map>`，MapView 2D）与 `arcgis-scene`（`<arcgis-scene>`，SceneView
+3D）。已发布的 npm 库本体保持框架无关并自带样式表，不受演示技术栈影响。
 
 Earth Engine 示例需要在 `.env` 中设置 `VITE_GEE_OAUTH_CLIENT_ID`。
 `VITE_GEE_PROJECT_ID` 可选；省略时用户可以在 GeoAgent 面板中自行输入其

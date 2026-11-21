@@ -42,6 +42,55 @@ pnpm dev
 
 Open <http://localhost:5173/examples/basic/>.
 
+## ArcGIS Map Example
+
+An [`@arcgis/map-components`](https://developers.arcgis.com/javascript/latest/references/map-components/components/arcgis-map/)
+`<arcgis-map>` web component (a MapView) driven by `ArcGISTools`. The page
+creates a controlled `GeoAgentCore` with
+`mapEngine: { kind: "arcgis", viewKind: "map", namespace }` and, once the
+component's view is ready, seeds a small hand-made GeoJSON (district
+polygons, a bus line, café points) **through the agent's own tool machinery**
+(`tools.runCommand("add_geojson_data", ...)`), so the first prompt already has
+agent-managed layers to query and restyle.
+
+```bash
+pnpm dev
+```
+
+Open <http://localhost:5173/examples/arcgis-map/>.
+
+Readiness note for `@arcgis/map-components`: the web components have **no
+`when()` method** — the element inherits the modern native
+`EventTarget.prototype.when(type)`, which takes a required event name and has
+nothing to do with view readiness. Await the exported
+`waitForArcGISComponent(element)` instead; it resolves once the element
+exposes its `.view` (via the `arcgisViewReadyChange` event, with a poll
+fallback):
+
+```javascript
+import { waitForArcGISComponent } from 'web-geoagent';
+
+const mapEl = document.querySelector('arcgis-map');
+const view = await waitForArcGISComponent(mapEl);
+addGeoAgentToArcGISMap(agent, mapEl, { position: 'top-left' });
+```
+
+## ArcGIS Scene Example
+
+An `<arcgis-scene>` web component (a SceneView globe with `ground="world-elevation"`)
+over Mount Everest, driven by the same `ArcGISTools` with
+`mapEngine: { kind: "arcgis", viewKind: "scene" }`. The shim adapts the camera
+model for the scene — zoom goes through the view scale, bearing through
+`camera.heading`, pitch through `camera.tilt`, and marker positioning uses the
+view's exact `toScreen` projection. `screenshot_map` works here; the system
+prompt describes the globe geometry up front.
+
+```bash
+pnpm dev
+```
+
+Open <http://localhost:5173/examples/arcgis-scene/>.
+
 ## Earth Engine Example
 
 Google Earth Engine tools enabled via the panel's `earthEngine` option. Copy

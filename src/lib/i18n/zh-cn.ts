@@ -48,7 +48,6 @@ export const zhCN: Record<GeoAgentMessageKey, string> = {
   sendButton: '发送',
   cancelButton: '取消',
   copyMarkdownButton: '复制 Markdown',
-  clearButton: '清空',
 
   roleSystem: '系统',
   roleUser: '用户',

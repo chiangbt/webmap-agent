@@ -5,7 +5,7 @@
 A browser-only GeoAgent for web maps. The vanilla control implements
 MapLibre's `IControl` interface and embeds a Strands TypeScript agent that can
 inspect and operate on the live map through dedicated browser tools; the same
-core also attaches to Leaflet and OpenLayers maps via compatibility shims.
+core also attaches to Leaflet, OpenLayers, and ArcGIS Maps SDK maps (MapView / SceneView) via compatibility shims.
 
 [![npm version](https://img.shields.io/npm/v/web-geoagent.svg)](https://www.npmjs.com/package/web-geoagent)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -22,7 +22,7 @@ core also attaches to Leaflet and OpenLayers maps via compatibility shims.
 - Destructive layer removal tools gated behind a separate toggle
 - Copy the visible conversation log as Markdown
 - Headless `GeoAgentCore`, a shadcn/ui-styled React `GeoAgentPanel`, plus the classic React wrapper and state hook
-- Engine-specific tool classes: a shared `GeoAgentTools` base with `MapLibreAgentTools`, `LeafletAgentTools`, and `OpenLayersAgentTools` subclasses — each exposes only the Strands tools its engine can actually run, and `createGeoAgentTools` picks the right subclass from `mapEngine`
+- Engine-specific tool classes: a shared `GeoAgentTools` base with `MapLibreAgentTools`, `LeafletAgentTools`, `OpenLayersAgentTools`, and `ArcGISTools` subclasses — each exposes only the Strands tools its engine can actually run, and `createGeoAgentTools` picks the right subclass from `mapEngine`
 
 ## Installation
 
@@ -409,6 +409,111 @@ What works and what does not, by design:
   imports it lazily, only for the default MapLibre engine.
 - Earth Engine tiles load as plain XYZ raster overlays.
 
+### Running on the ArcGIS Maps SDK (including @arcgis/map-components)
+
+The same tools also run on an [ArcGIS Maps SDK for JavaScript](https://developers.arcgis.com/javascript/)
+`MapView` (flat 2D) **or** `SceneView` (3D globe) — including the
+[`@arcgis/map-components`](https://developers.arcgis.com/javascript/latest/get-started/npm/#use-map-components)
+web components `<arcgis-map>` / `<arcgis-scene>` — through `ArcGISTools`,
+another subclass of the shared `GeoAgentTools` base. The subclass drives a
+compatibility engine (`arcgis-engine.ts`): a shim that presents the MapLibre
+map API on top of the real view and materializes Style-Spec sources/layers
+as ArcGIS layers (raster XYZ as `WebTileLayer`, GeoJSON as client-side
+`FeatureLayer`s whose graphics carry per-feature symbols evaluated with the
+shared MapLibre-expression engine, and greedy pixel-grid clustering for
+`cluster: true` sources). `change_basemap` with a known ArcGIS basemap name
+(`satellite`, `topo`, `dark-gray`, …) swaps the map's own basemap. The
+`mapEngine.viewKind` option declares which view the host passes: `"map"`
+(the default, MapView) or `"scene"` (SceneView) — the shim adapts its camera
+model per kind (on a scene, zoom goes through the view scale, bearing through
+`camera.heading`, pitch through `camera.tilt`, and markers/feature queries
+position through the view's exact `toScreen` projection), and the system
+prompt describes the right geometry.
+
+The library itself never imports `@arcgis/*`, so the host assembles a small
+namespace of esri classes once:
+
+```javascript
+import WebTileLayer from '@arcgis/core/layers/WebTileLayer';
+import FeatureLayer from '@arcgis/core/layers/FeatureLayer';
+import Graphic from '@arcgis/core/Graphic';
+import SimpleFillSymbol from '@arcgis/core/symbols/SimpleFillSymbol';
+import SimpleLineSymbol from '@arcgis/core/symbols/SimpleLineSymbol';
+import SimpleMarkerSymbol from '@arcgis/core/symbols/SimpleMarkerSymbol';
+import TextSymbol from '@arcgis/core/symbols/TextSymbol';
+import PictureMarkerSymbol from '@arcgis/core/symbols/PictureMarkerSymbol';
+import { GeoAgentControl, addGeoAgentToArcGISMap } from 'web-geoagent';
+import 'web-geoagent/dist/web-geoagent.css';
+
+const view = new MapView({
+  container: 'viewDiv',
+  map: new WebMap({ basemap: 'topo' }),
+  center: [-98.5795, 39.8283],
+  zoom: 4,
+});
+
+const agent = new GeoAgentControl({
+  mapEngine: {
+    kind: 'arcgis',
+    // 'map' (MapView, default) or 'scene' (SceneView).
+    viewKind: 'map',
+    namespace: {
+      WebTileLayer, FeatureLayer, Graphic,
+      SimpleFillSymbol, SimpleLineSymbol, SimpleMarkerSymbol, TextSymbol,
+      PictureMarkerSymbol,
+    },
+  },
+});
+
+// ArcGIS has no map.addControl slot for foreign controls, so mount it
+// through the helper — it attaches to the view container and returns
+// { remove() } for teardown.
+addGeoAgentToArcGISMap(agent, view, { position: 'top-left' });
+```
+
+For `@arcgis/map-components`, wait for the element's view with
+`waitForArcGISComponent` (the web components have no `when()` method — the
+element inherits the native `EventTarget.prototype.when(type)`, which is
+unrelated), then pass the element or its `.view`:
+
+```javascript
+import { waitForArcGISComponent } from 'web-geoagent';
+
+const mapEl = document.querySelector('arcgis-map');
+const view = await waitForArcGISComponent(mapEl);
+addGeoAgentToArcGISMap(agent, mapEl, { position: 'top-left' });
+```
+
+What works and what does not, by design:
+
+- Camera (`set_center`, `fly_to`, `zoom_to_bounds`, `get_map_state`), all
+  GeoJSON/raster/marker overlays (markers become positioned DOM pins with
+  click-to-open popups), layer visibility/opacity, feature queries
+  (`query_rendered_features` does pixel-accurate hit tests), `fit_bounds` (as
+  a best-effort extent fit — ArcGIS `goTo` has no padding/maxZoom contract),
+  basemap switching, and `run_maplibre_script` (user code receives the real
+  view as `map` and the namespace you supplied as `esri`).
+- Per view kind: on a MapView, bearing maps to the view rotation, pitch is
+  always 0, and `set_projection: "globe"` errors; on a SceneView, bearing
+  follows `camera.heading`, pitch follows `camera.tilt`, `get_map_state`
+  reports `projection: "globe"`, `set_projection: "globe"` is a no-op
+  success, and terrain comes from the scene's ground elevation layers (the
+  `raster-dem` tool format is not applicable). Both kinds must be Web
+  Mercator or WGS84; other spatial references are rejected with an
+  actionable error.
+- One capability the other 2D shims lack works here: `screenshot_map` —
+  the view composites itself client-side via `takeScreenshot()` (MapView and
+  SceneView both).
+- The 2D/3D boundary is declared up front: the WebGL-only MapLibre tools
+  (`set_projection`, `add_terrain`/`clear_terrain`, `set_sky`/`remove_sky`,
+  `add_3d_buildings`) are removed from the tool list and the system prompt
+  states the engine's geometry; calling them through `runCommand` directly —
+  or asking for `fill-extrusion`/`heatmap` layers or vector-tile sources —
+  still reports unsupported instead of failing silently.
+- An ArcGIS host never loads `maplibre-gl` at runtime: the package imports
+  it lazily, only for the default MapLibre engine.
+- Earth Engine tiles load as plain XYZ raster overlays.
+
 ### Earth Engine Options
 
 ```typescript
@@ -529,8 +634,11 @@ field in `package.json`; CI and the Dockerfile install the pinned version).
 
 The demo site (homepage + examples) is a Vite multi-page React app styled
 with shadcn/ui and Tailwind CSS 4; its source lives in `src/demo/` and
-`examples/`. The published library itself stays framework-agnostic with its
-own stylesheet and is not affected by the demo stack.
+`examples/`. The example pages: `basic`, `react`, `earth-engine`, `leaflet`,
+`openlayers`, `arcgis-map` (`<arcgis-map>`, MapView 2D), and `arcgis-scene`
+(`<arcgis-scene>`, SceneView 3D). The published library itself stays
+framework-agnostic with its own stylesheet and is not affected by the demo
+stack.
 
 For the Earth Engine example, set `VITE_GEE_OAUTH_CLIENT_ID` in `.env`.
 `VITE_GEE_PROJECT_ID` is optional; when it is omitted, users can enter their

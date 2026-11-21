@@ -11,6 +11,7 @@ import {
 import { MapLibreAgentTools } from "./maplibre-tools";
 import { LeafletAgentTools } from "./leaflet-tools";
 import { OpenLayersAgentTools } from "./openlayers-tools";
+import { ArcGISTools } from "./arcgis-tools";
 
 export function createGeoAgentTools(
   map: unknown,
@@ -21,6 +22,8 @@ export function createGeoAgentTools(
       return new LeafletAgentTools(map, options);
     case "openlayers":
       return new OpenLayersAgentTools(map, options);
+    case "arcgis":
+      return new ArcGISTools(map, options);
     default:
       // maplibre-gl (default) and mapbox-gl both drive the Style-Spec
       // surface natively.

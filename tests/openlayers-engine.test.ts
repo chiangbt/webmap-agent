@@ -351,3 +351,175 @@ describe('OpenLayersAgentTools on a real OpenLayers map (jsdom)', () => {
     ).rejects.toThrow(/Sky is not supported/);
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/* Defect regressions found in the library audit                              */
+/* -------------------------------------------------------------------------- */
+
+describe('openlayers engine defect regressions', () => {
+  let container: HTMLDivElement;
+  let map: Map;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    map = makeMap(container);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    map.setTarget(undefined);
+    container.remove();
+  });
+
+  function shimWithPointLayer(spec: Record<string, unknown>) {
+    const shim = createOpenLayersMapShim(
+      map as never,
+      openLayersNamespace as unknown as Record<string, unknown>,
+    );
+    shim.addSource('src', {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [-98.5795, 39.8283] },
+            properties: { kind: 'city', pop: 1000 },
+          },
+        ],
+      },
+    });
+    shim.addLayer({ id: 'layer-under-test', source: 'src', ...spec });
+    return shim;
+  }
+
+  function styleForLayer(_shim: ReturnType<typeof createOpenLayersMapShim>): Style {
+    // The registry layer's ol style function; calling it with a feature
+    // reproduces exactly what the renderer draws.
+    // The registry appends, so the layer under test is the last vector layer.
+    const vectorLayers = map
+      .getLayers()
+      .getArray()
+      .filter((layer): layer is VectorLayer => layer instanceof VectorLayer);
+    const styleFn = vectorLayers.at(-1)!.getStyle() as (
+      feature: Feature,
+    ) => Style | undefined;
+    const feature = new Feature(new Point(fromLonLat([-98.5795, 39.8283])));
+    feature.set('kind', 'city');
+    feature.set('pop', 1000);
+    const style = styleFn(feature);
+    expect(style).toBeTruthy();
+    return style as Style;
+  }
+
+  it('throws on an unknown beforeId in addLayer and moveLayer', () => {
+    const shim = createOpenLayersMapShim(
+      map as never,
+      openLayersNamespace as unknown as Record<string, unknown>,
+    );
+    shim.addSource('src', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+    expect(() =>
+      shim.addLayer({ id: 'l1', type: 'circle', source: 'src' }, 'ghost'),
+    ).toThrow(/beforeId not found: ghost/);
+    shim.addLayer({ id: 'l1', type: 'circle', source: 'src' });
+    expect(() => shim.moveLayer('l1', 'ghost')).toThrow(/Layer not found: ghost/);
+    // A known beforeId still works.
+    shim.addLayer({ id: 'l2', type: 'circle', source: 'src' });
+    expect(() => shim.moveLayer('l2', 'l1')).not.toThrow();
+  });
+
+  it('guards removeSource like MapLibre', () => {
+    const shim = createOpenLayersMapShim(
+      map as never,
+      openLayersNamespace as unknown as Record<string, unknown>,
+    );
+    shim.addSource('src', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+    expect(() => shim.removeSource('missing')).toThrow(/Source not found: missing/);
+    shim.addLayer({ id: 'l1', type: 'circle', source: 'src' });
+    expect(() => shim.removeSource('src')).toThrow(
+      /Cannot remove source src; active layers depend on it: l1/,
+    );
+    shim.removeLayer('l1');
+    expect(() => shim.removeSource('src')).not.toThrow();
+  });
+
+  it('draws no fill outline unless fill-outline-color is set', () => {
+    const shim = shimWithPointLayer({ type: 'fill' });
+    const style = styleForLayer(shim);
+    // ol.Style.getStroke() is null when no stroke was configured.
+    expect(style.getStroke()).toBeNull();
+  });
+
+  it('applies fill-opacity to the fill outline too', () => {
+    const shim = shimWithPointLayer({
+      type: 'fill',
+      paint: { 'fill-color': '#ff0000', 'fill-outline-color': '#00ff00', 'fill-opacity': 0.25 },
+    });
+    const style = styleForLayer(shim);
+    const stroke = style.getStroke();
+    expect(stroke).toBeTruthy();
+    // ol normalizes the color string with spaces; assert the blended opacity.
+    expect(String(stroke?.getColor())).toMatch(/rgba\(0,\s*255,\s*0,\s*0\.25\)/);
+    expect(String(style.getFill()?.getColor())).toMatch(
+      /rgba\(255,\s*0,\s*0,\s*0\.25\)/,
+    );
+  });
+
+  it('matches the shared default paint values (line width 1, circle radius 5)', () => {
+    const shim = shimWithPointLayer({ type: 'line' });
+    expect(styleForLayer(shim).getStroke()?.getWidth()).toBe(1);
+
+    const circleShim = shimWithPointLayer({ type: 'circle' });
+    const image = styleForLayer(circleShim).getImage() as CircleStyle;
+    expect(image.getRadius()).toBe(5);
+  });
+
+  it('respects minzoom/maxzoom in queryRenderedFeatures', () => {
+    const shim = createOpenLayersMapShim(
+      map as never,
+      openLayersNamespace as unknown as Record<string, unknown>,
+    );
+    shim.addSource('src', {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [-98.5795, 39.8283] },
+            properties: {},
+          },
+        ],
+      },
+    });
+    // The map zoom is 4: a minzoom 12 layer is not rendered and must not be
+    // hit-tested, matching MapLibre and the Leaflet shim.
+    shim.addLayer({ id: 'gated', type: 'circle', source: 'src', minzoom: 12 });
+    const size = shim.getSize();
+    expect(shim.queryRenderedFeatures([size[0] / 2, size[1] / 2])).toHaveLength(0);
+    shim.removeLayer('gated');
+    shim.addLayer({ id: 'open', type: 'circle', source: 'src' });
+    expect(
+      shim.queryRenderedFeatures([size[0] / 2, size[1] / 2]).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('unbinds its moveend listener on destroy', () => {
+    const unSpy = vi.spyOn(map, 'un');
+    const shim = createOpenLayersMapShim(
+      map as never,
+      openLayersNamespace as unknown as Record<string, unknown>,
+    );
+    shim.destroy();
+    expect(unSpy).toHaveBeenCalledWith('moveend', expect.any(Function));
+    unSpy.mockRestore();
+  });
+});

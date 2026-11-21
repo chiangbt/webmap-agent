@@ -52,7 +52,6 @@ export const en = {
   sendButton: 'Send',
   cancelButton: 'Cancel',
   copyMarkdownButton: 'Copy Markdown',
-  clearButton: 'Clear',
 
   // Log roles (displayed as-is; en keeps the historical lowercase form).
   roleSystem: 'system',

@@ -30,6 +30,8 @@ import {
   type GeoAgentStyleSpecEngine,
   type GeoAgentStyleSpecNamespace,
 } from "./geoagent-tools";
+
+const MAP_EVENT_TIMEOUT_MS = 8000;
 import type { JsonObject } from "./geoagent-tools";
 
 export * from "./geoagent-tools";
@@ -253,14 +255,51 @@ export class MapLibreAgentTools extends GeoAgentTools {
     }
 
     if (command === "screenshot_map") {
-      return {
-        data_url: this.map.getCanvas().toDataURL("image/png"),
-        width: this.map.getCanvas().width,
-        height: this.map.getCanvas().height,
-      };
+      return this.captureScreenshot();
     }
 
     throw new Error(`Unsupported command: ${command}`);
+  }
+
+  /**
+   * Capture the map canvas inside a render frame. WebGL clears the drawing
+   * buffer after compositing unless the map was created with
+   * `preserveDrawingBuffer: true`, so reading the canvas outside a render
+   * callback returns a blank image on default maps; `triggerRepaint` +
+   * `once("render")` reads it while the buffer is still intact.
+   */
+  private captureScreenshot(): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (action: () => void): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        window.clearTimeout(timeoutId);
+        action();
+      };
+      const timeoutId = window.setTimeout(() => {
+        finish(() =>
+          reject(
+            new Error(
+              "screenshot_map timed out waiting for a render frame; the map may not be visible. Create the map with canvasContextAttributes.preserveDrawingBuffer: true as a fallback.",
+            ),
+          ),
+        );
+      }, MAP_EVENT_TIMEOUT_MS);
+      this.map.once("render", () => {
+        finish(() => {
+          const canvas = this.map.getCanvas();
+          resolve({
+            data_url: canvas.toDataURL("image/png"),
+            width: canvas.width,
+            height: canvas.height,
+          });
+        });
+      });
+      this.map.triggerRepaint?.();
+    });
   }
 
   private async add3dBuildings(args: JsonObject): Promise<string> {

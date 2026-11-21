@@ -6,6 +6,7 @@ import {
 } from '@strands-agents/sdk';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { t, type GeoAgentMessageKey } from '../i18n';
+import { resolveMapContainer } from './map-container';
 import { DEFAULT_BASEMAPS, type GeoAgentTools } from './tools/geoagent-tools';
 import { createGeoAgentTools } from './tools/tools-factory';
 import type {
@@ -67,14 +68,24 @@ Workflow guidance:
  * runtime error after the fact. Empty for maplibre-gl, whose capabilities the
  * base prompt and the full tool list already describe.
  *
- * Exported for tests; the parameter is `options.mapEngine?.kind`.
+ * Exported for tests; the parameters are `options.mapEngine?.kind` and, for
+ * ArcGIS hosts, `options.mapEngine.viewKind` ('map' | 'scene').
  */
-export function engineCapabilityPrompt(engineKind: string | undefined): string {
+export function engineCapabilityPrompt(
+  engineKind: string | undefined,
+  arcgisViewKind?: 'map' | 'scene',
+): string {
   if (engineKind === 'leaflet') {
     return `The live map is rendered by Leaflet, a 2D-only engine. Leaflet cannot render 3D: there is no globe projection, no terrain, no sky, no 3D buildings (fill-extrusion), and no map screenshot; the corresponding tools are not available on this map. Camera pitch and bearing are always 0, and the projection is always Web Mercator. If the user asks for a 3D effect, explain that Leaflet does not support it and offer a 2D alternative instead of attempting workarounds.`;
   }
   if (engineKind === 'openlayers') {
     return `The live map is rendered by OpenLayers, a 2D engine in this integration. It cannot render 3D here: there is no globe projection, no terrain, no sky, no 3D buildings (fill-extrusion), and no map screenshot; the corresponding tools are not available on this map. Camera pitch is always 0 (bearing follows the view rotation), and the projection is always Web Mercator. If the user asks for a 3D effect, explain that the OpenLayers engine does not support it and offer a 2D alternative instead of attempting workarounds.`;
+  }
+  if (engineKind === 'arcgis' && arcgisViewKind === 'scene') {
+    return `The live map is rendered by an ArcGIS SceneView — a 3D globe. Terrain comes from the scene's ground elevation layers and the atmosphere is built in, so add_terrain/set_sky are not applicable and will report errors. Camera bearing follows the camera heading and pitch follows the camera tilt; screenshot_map IS supported and composites the globe. GeoJSON renders as client-side FeatureLayers draped on the globe; vector-tile sources are not supported. fly_to moves the camera while keeping its tilt. For SceneView-specific camera work (heading/tilt targets), write ArcGIS Maps SDK code with run_maplibre_script.`;
+  }
+  if (engineKind === 'arcgis') {
+    return `The live map is rendered by the ArcGIS Maps SDK for JavaScript (MapView, a 2D engine). It cannot render 3D here: there is no globe projection, no terrain, no sky, and no 3D buildings (fill-extrusion); the corresponding tools report errors. Camera pitch is always 0 (bearing follows the view rotation), and the projection is Web Mercator. GeoJSON renders as client-side FeatureLayers with per-feature symbols; vector-tile and image sources are not supported. Map screenshots ARE supported on this engine (screenshot_map composites the view). If the user asks for a 3D effect, explain that the ArcGIS MapView engine does not support it and offer a 2D alternative instead of attempting workarounds.`;
   }
   if (engineKind === 'mapbox') {
     return `The live map is rendered by Mapbox GL JS. Sky specification tools are not supported by Mapbox GL JS (it draws sky through a style layer) and will report an error.`;
@@ -90,7 +101,10 @@ export function engineCapabilityPrompt(engineKind: string | undefined): string {
  *
  * Exported for tests; the parameter is `options.mapEngine?.kind`.
  */
-export function codeExecutionPrompt(engineKind: string | undefined): string {
+export function codeExecutionPrompt(
+  engineKind: string | undefined,
+  arcgisViewKind?: 'map' | 'scene',
+): string {
   const base = `Browser JavaScript code execution is enabled for this local session. This tool runs arbitrary JavaScript in the page context and is not a safety boundary; treat it as a trusted, local-only escape hatch.`;
   const guardrails = `Keep code focused on map operations, and avoid credential handling, storage access, unrelated DOM manipulation, or broad network operations.`;
   if (engineKind === 'leaflet') {
@@ -102,6 +116,12 @@ When no dedicated browser map tool can perform the requested operation, write a 
     return `${base}
 
 When no dedicated browser map tool can perform the requested operation, write a short JavaScript snippet and run it with run_maplibre_script. The snippet executes in the browser with these names in scope: map (the real OpenLayers ol/Map), ol (the OpenLayers namespace object), and helpers. Write OpenLayers API code — this map is not MapLibre, and MapLibre calls will fail. ${guardrails}`;
+  }
+  if (engineKind === 'arcgis') {
+    const viewName = arcgisViewKind === 'scene' ? 'ArcGIS SceneView' : 'ArcGIS MapView';
+    return `${base}
+
+When no dedicated browser map tool can perform the requested operation, write a short JavaScript snippet and run it with run_maplibre_script. The snippet executes in the browser with these names in scope: map (the real ${viewName}), esri (the namespace classes passed via mapEngine), and helpers. Write ArcGIS Maps SDK code — this map is not MapLibre, and MapLibre calls will fail. ${guardrails}`;
   }
   const api = engineKind === 'mapbox' ? 'Mapbox GL JS' : 'MapLibre GL JS';
   const namespaceName = engineKind === 'mapbox' ? 'mapboxgl' : 'maplibregl';
@@ -164,6 +184,7 @@ const ENGINE_LABELS: Record<string, string> = {
   mapbox: 'Mapbox GL JS',
   leaflet: 'Leaflet',
   openlayers: 'OpenLayers',
+  arcgis: 'ArcGIS Maps SDK',
 };
 
 let conversationEntryCount = 0;
@@ -322,19 +343,13 @@ export class GeoAgentCore {
     }
     this.mapInstance = map;
     // MapLibre/Mapbox/Leaflet hosts expose getContainer(); OpenLayers maps
-    // expose getTargetElement() instead — accept either so overlays and the
+    // expose getTargetElement(); ArcGIS MapViews expose a `container`
+    // property — resolveMapContainer accepts all of them so overlays and the
     // height clamping have a container on every engine.
-    const containerSource = map as unknown as {
-      getContainer?(): HTMLElement | undefined;
-      getTargetElement?(): HTMLElement | null | undefined;
-    };
-    const mapContainer =
-      containerSource.getContainer?.() ??
-      containerSource.getTargetElement?.() ??
-      undefined;
+    const mapContainer = resolveMapContainer(map);
     if (!mapContainer) {
       throw new Error(
-        'GeoAgentControl: the map exposes neither getContainer() nor getTargetElement(); cannot mount the agent panel.',
+        'GeoAgentControl: the map exposes neither getContainer() nor getTargetElement() nor a container element; cannot mount the agent panel.',
       );
     }
     this.mapContainer = mapContainer;
@@ -1147,10 +1162,18 @@ export class GeoAgentCore {
     }
 
     const engineKind = this.options.mapEngine?.kind;
+    const arcgisViewKind =
+      this.options.mapEngine?.kind === 'arcgis'
+        ? (
+            this.options.mapEngine as { viewKind?: 'map' | 'scene' }
+          ).viewKind
+        : undefined;
     const systemPromptParts = [
       BROWSER_MAP_SYSTEM_PROMPT,
-      engineCapabilityPrompt(engineKind),
-      this.state.allowCodeExecution ? codeExecutionPrompt(engineKind) : '',
+      engineCapabilityPrompt(engineKind, arcgisViewKind),
+      this.state.allowCodeExecution
+        ? codeExecutionPrompt(engineKind, arcgisViewKind)
+        : '',
       this.options.customSystemPrompt?.trim() ?? '',
     ].filter(Boolean);
     const systemPrompt = systemPromptParts.join('\n\n');

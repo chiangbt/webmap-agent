@@ -36,6 +36,49 @@ pnpm dev
 
 打开 <http://localhost:5173/examples/basic/>。
 
+## ArcGIS Map 示例
+
+用 [`@arcgis/map-components`](https://developers.arcgis.com/javascript/latest/references/map-components/components/arcgis-map/)
+的 `<arcgis-map>` web component（MapView）配合 `ArcGISTools`。页面创建受控
+`GeoAgentCore`（`mapEngine: { kind: "arcgis", viewKind: "map", namespace }`），
+在组件 `when()` 就绪后，**通过 agent 自己的工具机制**（
+`tools.runCommand("add_geojson_data", ...)`）预置一份手造 GeoJSON（街区面、
+公交线、咖啡馆点）——第一条提示就有 agent 托管的图层可查询、可改样式。
+
+```bash
+pnpm dev
+```
+
+打开 <http://localhost:5173/examples/arcgis-map/>。
+
+`@arcgis/map-components` 就绪方式说明：这些 web component **没有 `when()`
+方法**——元素继承的是现代原生 `EventTarget.prototype.when(type)`，它要求必传
+事件名，与视图就绪无关。请改用导出的 `waitForArcGISComponent(element)`，它在
+元素暴露出 `.view` 时解析（监听 `arcgisViewReadyChange` 事件，并有轮询兜底）：
+
+```javascript
+import { waitForArcGISComponent } from 'web-geoagent';
+
+const mapEl = document.querySelector('arcgis-map');
+const view = await waitForArcGISComponent(mapEl);
+addGeoAgentToArcGISMap(agent, mapEl, { position: 'top-left' });
+```
+
+## ArcGIS Scene 示例
+
+`<arcgis-scene>` web component（`ground="world-elevation"` 的 SceneView 球体），
+初始相机俯瞰珠穆朗玛峰，由同一个 `ArcGISTools` 驱动（
+`mapEngine: { kind: "arcgis", viewKind: "scene" }`）。shim 会为场景适配相机
+模型——zoom 走视图 scale、bearing 走 `camera.heading`、pitch 走
+`camera.tilt`，marker 定位使用视图精确的 `toScreen` 投影。`screenshot_map`
+在此可用；系统提示词一开始就描述球体几何。
+
+```bash
+pnpm dev
+```
+
+打开 <http://localhost:5173/examples/arcgis-scene/>.
+
 ## Earth Engine 示例
 
 通过面板的 `earthEngine` 选项启用 Google Earth Engine 工具。把

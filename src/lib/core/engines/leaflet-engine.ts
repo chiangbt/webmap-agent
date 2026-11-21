@@ -918,16 +918,23 @@ export class LeafletMapShim {
   private basePaneName: string | null = null;
   private paneSeq = 0;
   private ready = false;
+  /** Named so destroy() can unbind exactly what the constructor bound. */
+  private readonly zoomHandler = (): void => {
+    this.handleZoomChange();
+  };
 
   constructor(map: LeafletMapLike, namespace: Record<string, unknown>) {
     this.raw = map;
     this.factory = asLeafletFactory(namespace);
     let foundBase = false;
     this.raw.eachLayer((layer) => {
+      // Leaflet TileLayers expose getTileUrl (there is no getURL method on
+      // any Leaflet class) — this probe is how the host's own basemap is
+      // found so change_basemap can actually replace it.
       if (
         !foundBase &&
         isRecord(layer) &&
-        typeof (layer as { getURL?: unknown }).getURL === "function"
+        typeof (layer as { getTileUrl?: unknown }).getTileUrl === "function"
       ) {
         this.baseTileLayer = layer as unknown as TileLayerLike;
         foundBase = true;
@@ -939,7 +946,15 @@ export class LeafletMapShim {
     if ((this.raw as unknown as { _loaded?: boolean })._loaded === true) {
       this.ready = true;
     }
-    this.raw.on("zoomend", () => this.handleZoomChange());
+    this.raw.on("zoomend", this.zoomHandler);
+  }
+
+  /**
+   * Unbind the shim's map listeners. Called by the tools layer on dispose;
+   * without it, re-attaching to the same map leaks one handler per attach.
+   */
+  destroy(): void {
+    this.raw.off("zoomend", this.zoomHandler);
   }
 
   /** The real Leaflet map instance behind this shim. */
@@ -1070,6 +1085,14 @@ export class LeafletMapShim {
   }
 
   once(type: string, listener: (event?: unknown) => void): this {
+    // Leaflet has no "idle" event; MapLibre code (waitForMapIdle) waits on it
+    // before every command. Emulate with whenReady, which fires immediately
+    // when the map is already ready — otherwise every command issued before
+    // the host map finished loading would stall for the full event timeout.
+    if (type === "idle") {
+      this.raw.whenReady(() => listener());
+      return this;
+    }
     this.raw.once(type, listener);
     return this;
   }
@@ -1184,6 +1207,11 @@ export class LeafletMapShim {
     if (this.layers.has(id)) {
       throw new Error(`Layer already exists: ${id}`);
     }
+    // MapLibre's addLayer throws for an unknown beforeId; mirror that instead
+    // of silently appending, so the agent can correct itself on every engine.
+    if (beforeId && !this.layerOrder.includes(beforeId)) {
+      throw new Error(`Cannot add layer ${id}; beforeId not found: ${beforeId}`);
+    }
     const paneName = `geoagent-pane-${(this.paneSeq += 1)}`;
     this.raw.createPane(paneName);
     const entry: ShimLayerEntry = {
@@ -1192,10 +1220,9 @@ export class LeafletMapShim {
       paneName,
     };
     this.materializeLayer(entry);
-    const insertIndex =
-      beforeId && this.layerOrder.includes(beforeId)
-        ? this.layerOrder.indexOf(beforeId)
-        : this.layerOrder.length;
+    const insertIndex = beforeId
+      ? this.layerOrder.indexOf(beforeId)
+      : this.layerOrder.length;
     this.layerOrder.splice(insertIndex, 0, id);
     this.layers.set(id, entry);
     this.assignZIndexes();
@@ -1289,7 +1316,10 @@ export class LeafletMapShim {
       return [];
     }
     const zoom = this.raw.getZoom();
-    return source.data.features.filter((feature) => {
+    // resolvedFeatures (not the raw data) so a cluster source answers with the
+    // clustered set — the point_count features MapLibre and the OpenLayers
+    // shim both serve to this tool.
+    return source.resolvedFeatures().filter((feature) => {
       if (!options?.filter) {
         return true;
       }
@@ -1454,7 +1484,10 @@ export class LeafletMapShim {
     return {
       leafletPopup: popup,
       setText(text: string): unknown {
-        popup.setContent(text);
+        // Leaflet's setContent treats a plain string as HTML, so marker popup
+        // text (which comes from model tool calls, influenced by ingested map
+        // data) must be escaped before it reaches innerHTML.
+        popup.setContent(escapeHtml(text));
         return this;
       },
     };
@@ -1645,9 +1678,11 @@ export class LeafletMapShim {
     const zoom = this.raw.getZoom();
     const minZoom =
       entry.spec.minzoom == null ? -Infinity : Number(entry.spec.minzoom);
+    // maxzoom is exclusive (a layer with maxzoom 10 is hidden at zoom 10),
+    // matching MapLibre and the OpenLayers shim.
     const maxZoom =
       entry.spec.maxzoom == null ? Infinity : Number(entry.spec.maxzoom);
-    return zoom >= minZoom && zoom <= maxZoom;
+    return zoom >= minZoom && zoom < maxZoom;
   }
 
   private coordinatesToBounds(
@@ -1910,9 +1945,15 @@ export function numberValueFrom(
     return value;
   }
   if (Array.isArray(value)) {
-    const evaluated = Number(evaluateExpression(value, context));
-    if (Number.isFinite(evaluated)) {
-      return evaluated;
+    const evaluated = evaluateExpression(value, context);
+    // An expression resolving to null/undefined (e.g. a match/case without a
+    // default clause) must fall back, not coerce through Number(null) === 0,
+    // which would silently render radius-0 invisible geometry.
+    if (evaluated != null) {
+      const numeric = Number(evaluated);
+      if (Number.isFinite(numeric)) {
+        return numeric;
+      }
     }
   }
   return fallback;

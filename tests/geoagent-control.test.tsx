@@ -1578,10 +1578,6 @@ describe("GeoAgentControl locale", () => {
         ?.textContent,
     ).toBe("Copy Markdown");
     expect(
-      map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-clear")
-        ?.textContent,
-    ).toBe("Clear");
-    expect(
       map.mapContainer.querySelector<HTMLElement>(".geoagent-settings summary")
         ?.textContent,
     ).toBe("Provider & model");
@@ -1636,10 +1632,6 @@ describe("GeoAgentControl locale", () => {
       map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-copy")
         ?.textContent,
     ).toBe("复制 Markdown");
-    expect(
-      map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-clear")
-        ?.textContent,
-    ).toBe("清空");
     expect(
       map.mapContainer.querySelector<HTMLElement>(".geoagent-settings summary")
         ?.textContent,
@@ -1710,20 +1702,20 @@ describe("GeoAgentControl locale", () => {
     const control = new GeoAgentControl({ storagePrefix, locale: "zh-CN" });
     map.controlStack.appendChild(control.onAdd(map as never));
 
-    map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-clear")!
-      .click();
+    // The attach-time runtime log entry is localized (logReady), as is its
+    // role label.
     const entries = Array.from(
       map.mapContainer.querySelectorAll<HTMLElement>(
         ".geoagent-entry .geoagent-text",
       ),
     ).map((el) => el.textContent ?? "");
-    expect(entries.at(-1)).toBe("对话已清空。");
+    expect(entries.at(0)).toContain("已加载");
     const roles = Array.from(
       map.mapContainer.querySelectorAll<HTMLElement>(
         ".geoagent-entry .geoagent-role",
       ),
     ).map((el) => el.textContent ?? "");
-    expect(roles.at(-1)).toBe("系统");
+    expect(roles.at(0)).toBe("系统");
 
     control.onRemove();
     map.cleanup();

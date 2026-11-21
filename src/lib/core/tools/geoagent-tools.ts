@@ -126,10 +126,31 @@ export interface GeoAgentOpenLayersEngine {
   namespace: Record<string, unknown>;
 }
 
+export interface GeoAgentArcGISEngine {
+  kind: "arcgis";
+  /**
+   * Which ArcGIS view the host passes: `"map"` (MapView, flat 2D — the
+   * default) or `"scene"` (SceneView, a 3D globe). The shim adapts its camera
+   * model per kind (zoom via scale, bearing via camera.heading, pitch via
+   * camera.tilt on a scene); the system prompt describes the right geometry.
+   */
+  viewKind?: "map" | "scene";
+  /**
+   * An object with the ArcGIS Maps SDK classes the shim constructs
+   * (WebTileLayer, FeatureLayer, Graphic, SimpleFillSymbol, SimpleLineSymbol,
+   * SimpleMarkerSymbol, TextSymbol, PictureMarkerSymbol). The tools run
+   * through a compatibility shim (see arcgis-engine.ts) that materializes
+   * Style-Spec sources/layers as ArcGIS layers; `run_maplibre_script` hands
+   * user code the real view and this namespace.
+   */
+  namespace: Record<string, unknown>;
+}
+
 export type GeoAgentMapEngine =
   | GeoAgentStyleSpecEngine
   | GeoAgentLeafletEngine
-  | GeoAgentOpenLayersEngine;
+  | GeoAgentOpenLayersEngine
+  | GeoAgentArcGISEngine;
 
 /** One agent-managed map overlay; shared bookkeeping across engines. */
 export interface Overlay {
@@ -363,6 +384,14 @@ export function geojsonLayerPaint(style: JsonObject): {
   line: JsonObject;
   circle: JsonObject;
 } {
+  // Clamps defeat NaN (Math.min/max pass NaN through), so every numeric style
+  // value falls back when it is not finite rather than poisoning the paint.
+  const finiteOr = (value: unknown, fallback: number): number => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : fallback;
+  };
+  const clamp01 = (value: unknown, fallback: number): number =>
+    Math.max(0, Math.min(1, finiteOr(value, fallback)));
   const color =
     stringArg(style, "color") || stringArg(style, "line-color") || "#1c7ed6";
   const fillColor = stringArg(
@@ -380,20 +409,20 @@ export function geojsonLayerPaint(style: JsonObject): {
     "circle-color",
     stringArg(style, "circleColor", color),
   );
-  const opacity = Number(style.opacity ?? style["fill-opacity"] ?? 0.35);
+  const opacity = style.opacity ?? style["fill-opacity"] ?? 0.35;
   return {
     fill: {
       "fill-color": fillColor,
       "fill-outline-color": lineColor,
-      "fill-opacity": Math.max(0, Math.min(1, opacity)),
+      "fill-opacity": clamp01(opacity, 0.35),
     },
     line: {
       "line-color": lineColor,
-      "line-width": Number(style["line-width"] ?? style.lineWidth ?? 2),
+      "line-width": finiteOr(style["line-width"] ?? style.lineWidth, 2),
     },
     circle: {
       "circle-color": circleColor,
-      "circle-radius": Number(style["circle-radius"] ?? style.radius ?? 6),
+      "circle-radius": finiteOr(style["circle-radius"] ?? style.radius, 6),
       "circle-stroke-color": "#ffffff",
       "circle-stroke-width": 1,
     },
@@ -1183,7 +1212,8 @@ export abstract class GeoAgentTools {
           id: overlay.name,
           type: "marker",
           source: null,
-          visible: true,
+          // Reflect the set_layer_visibility toggle instead of always true.
+          visible: overlay.marker?.getElement().style.display !== "none",
           user_added: true,
         }));
       return [...styleLayers, ...markerLayers];
@@ -1213,17 +1243,21 @@ export abstract class GeoAgentTools {
     }
 
     if (command === "set_center") {
+      // zoom goes through the same finite-number validation as lat/lon, so a
+      // bad value errors cleanly instead of handing the camera a NaN.
+      const zoom = args.zoom == null ? this.map.getZoom() : numberArg(args, "zoom");
       this.map.jumpTo({
         center: [numberArg(args, "lon"), numberArg(args, "lat")],
-        zoom: args.zoom == null ? this.map.getZoom() : Number(args.zoom),
+        zoom,
       });
       return "Centered map.";
     }
 
     if (command === "fly_to") {
+      const zoom = args.zoom == null ? this.map.getZoom() : numberArg(args, "zoom");
       this.map.flyTo({
         center: [numberArg(args, "lon"), numberArg(args, "lat")],
-        zoom: args.zoom == null ? this.map.getZoom() : Number(args.zoom),
+        zoom,
       });
       return "Moved map.";
     }
@@ -1370,11 +1404,17 @@ export abstract class GeoAgentTools {
       if (!layer.id) {
         throw new Error("add_map_layer requires layer.id.");
       }
+      const beforeId = stringArg(args, "before_id") || undefined;
+      // Validate here so the agent gets an actionable error on every engine
+      // (native MapLibre only logs an error event and silently skips).
+      if (beforeId && !this.map.getLayer(beforeId)) {
+        throw new Error(
+          `Cannot add layer ${layer.id}; before_id not found: ${beforeId}`,
+        );
+      }
       await this.addNativeOverlay({
         name: layer.id,
-        layerSpecs: [
-          { layer, beforeId: stringArg(args, "before_id") || undefined },
-        ],
+        layerSpecs: [{ layer, beforeId }],
       });
       return `Added MapLibre layer ${layer.id}.`;
     }
@@ -1558,6 +1598,12 @@ export abstract class GeoAgentTools {
       const overlay = this.overlays.get(name);
       const visibility = args.visible ? "visible" : "none";
       if (overlay) {
+        // Markers have no style layers; toggle the marker element instead so
+        // the tool does not claim success while the marker stays on screen.
+        if (overlay.kind === "marker" && overlay.marker) {
+          overlay.marker.getElement().style.display = args.visible ? "" : "none";
+          return `Layer ${name} visibility updated.`;
+        }
         for (const layerId of overlay.layerIds) {
           if (this.map.getLayer(layerId)) {
             this.map.setLayoutProperty(layerId, "visibility", visibility);
@@ -1619,6 +1665,11 @@ export abstract class GeoAgentTools {
             layers.push(...overlay.layerIds);
           } else if (this.map.getLayer(layerName)) {
             layers.push(layerName);
+          } else {
+            // Unknown names must not degrade the query to a whole-map scan —
+            // the model asked for specific layers and would otherwise get
+            // unrelated results with no error.
+            throw new Error(`Layer not found: ${layerName}`);
           }
         }
       }
@@ -2196,11 +2247,10 @@ export abstract class GeoAgentTools {
     const paint = geojsonLayerPaint(style);
     let sourceData = overlay.data;
     if (!sourceData && overlay.url) {
-      try {
-        sourceData = await this.fetchGeoJson(overlay.url);
-      } catch (error) {
-        console.warn(error);
-      }
+      // Surfaced, not swallowed: a failed fetch here means MapLibre's own
+      // fetch of the same URL will fail too, so the layer would render
+      // nothing while the tool result claimed success.
+      sourceData = await this.fetchGeoJson(overlay.url);
     }
     const initialLayerDefs = geojsonLayerDefs(
       slug(overlay.name),
@@ -2403,7 +2453,13 @@ export abstract class GeoAgentTools {
           `Cannot add layer ${layer.id}; source not found: ${sourceId}`,
         );
       }
-      this.map.addLayer(this.cloneSpec(layer), beforeId);
+      // A recorded beforeId may reference a layer of the previous style (the
+      // replay path runs after change_basemap); drop it rather than losing
+      // the overlay — on native MapLibre the add would silently no-op, and on
+      // the shim engines it would throw and discard the whole overlay.
+      const effectiveBeforeId =
+        beforeId && this.map.getLayer(beforeId) ? beforeId : undefined;
+      this.map.addLayer(this.cloneSpec(layer), effectiveBeforeId);
     }
     if (overlay.terrain) {
       this.setTerrain(overlay.terrain);
@@ -2654,8 +2710,13 @@ export abstract class GeoAgentTools {
     }
   }
 
+  // Monotonic counter for default marker names. The overlay-map size would
+  // collide (add three markers, remove the first, the next default name
+  // would replace an existing marker).
+  private markerSeq = 0;
+
   private addMarkerOverlay(args: JsonObject): string {
-    const name = stringArg(args, "name", `marker-${this.overlays.size + 1}`);
+    const name = stringArg(args, "name", `marker-${(this.markerSeq += 1)}`);
     this.removeOverlay(name);
     // The marker is built by the engine subclass (createEngineMarker): the
     // host engine's own Marker class on MapLibre/Mapbox — MapLibre's Marker

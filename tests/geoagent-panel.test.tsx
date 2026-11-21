@@ -2,13 +2,16 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GeoAgentCore } from '../src/lib/core/GeoAgentCore';
 import { GeoAgentPanel } from '../src/lib/panel/GeoAgentPanel';
+import { Button } from '../src/lib/ui/button';
+import { Input } from '../src/lib/ui/input';
+import { Textarea } from '../src/lib/ui/textarea';
 
 // jsdom lacks scrollIntoView, which Radix Select item focusing requires.
 Element.prototype.scrollIntoView = vi.fn();
 
 // The agent/model SDK is mocked so prompt runs stream deterministic text.
 // vi.hoisted keeps the factories available to the hoisted vi.mock calls below.
-const { streamMock, agentCancelMock, AgentMock } = vi.hoisted(() => {
+const { streamMock, AgentMock } = vi.hoisted(() => {
   const streamEvents = [
     {
       type: 'modelStreamUpdateEvent',
@@ -38,7 +41,7 @@ const { streamMock, agentCancelMock, AgentMock } = vi.hoisted(() => {
     stream: streamMock,
     cancel: agentCancelMock,
   }));
-  return { streamMock, agentCancelMock, AgentMock };
+  return { streamMock, AgentMock };
 });
 
 vi.mock('@strands-agents/sdk', () => ({
@@ -248,6 +251,24 @@ describe('GeoAgentPanel conversation flow', () => {
     );
     expect(screen.getByTestId('geoagent-status').textContent).toBe('Copied');
     cleanup();
+  });
+
+  it('forwards refs on the shadcn primitives (React 18 compatibility)', () => {
+    const textareaRef = { current: null as HTMLTextAreaElement | null };
+    const inputRef = { current: null as HTMLInputElement | null };
+    const buttonRef = { current: null as HTMLButtonElement | null };
+    render(
+      <div>
+        <Textarea ref={textareaRef} data-testid="t" />
+        <Input ref={inputRef} data-testid="i" />
+        <Button ref={buttonRef} data-testid="b" />
+      </div>,
+    );
+    // A plain function component would leave all three null and log
+    // "Function components cannot be given refs" in dev.
+    expect(textareaRef.current).toBeInstanceOf(HTMLTextAreaElement);
+    expect(inputRef.current).toBeInstanceOf(HTMLInputElement);
+    expect(buttonRef.current).toBeInstanceOf(HTMLButtonElement);
   });
 
   it('accepts a controlled core and reports state changes', async () => {

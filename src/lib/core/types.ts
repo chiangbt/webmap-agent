@@ -193,6 +193,13 @@ export interface GeoAgentControlOptions {
    * `OpenLayersNamespace`; the tools run through a compatibility shim (see
    * `openlayers-engine.ts`) and the control is mounted with
    * `addGeoAgentToOpenLayersMap(control, map)`.
+   *
+   * An ArcGIS host (ArcGIS Maps SDK for JavaScript, including the
+   * `@arcgis/map-components` web components) passes
+   * `{ kind: "arcgis", namespace }` where `namespace` bundles the esri
+   * classes listed in `ArcGISNamespace`; the tools run through a
+   * compatibility shim (see `arcgis-engine.ts`) and the control is mounted
+   * with `addGeoAgentToArcGISMap(control, view)`.
    */
   mapEngine?: GeoAgentMapEngine;
 }

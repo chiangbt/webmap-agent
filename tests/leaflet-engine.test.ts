@@ -10,6 +10,7 @@ import {
   isLeafletMapShim,
   normalizeFeatureCollection,
   normalizeGeometryType,
+  numberValueFrom,
   resolveBasemapStyle,
 } from '../src/lib/core/engines/leaflet-engine';
 
@@ -396,5 +397,194 @@ describe('LeafletAgentTools on a real Leaflet map (jsdom)', () => {
     await expect(
       agent.runCommand('set_sky', { sky: { 'sky-color': '#000' } }),
     ).rejects.toThrow(/Sky is not supported/);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Defect regressions found in the library audit                              */
+/* -------------------------------------------------------------------------- */
+
+describe('leaflet engine defect regressions', () => {
+  let container: HTMLDivElement;
+  let map: L.Map;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    map = L.map(container, {
+      center: [39.8283, -98.5795],
+      zoom: 4,
+      zoomControl: false,
+      attributionControl: false,
+    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    map.remove();
+    container.remove();
+  });
+
+  it('detects the host basemap via getTileUrl and replaces it on setStyle', () => {
+    // Leaflet TileLayers expose getTileUrl; no Leaflet class has getURL, so
+    // the old probe never matched and change_basemap rendered underneath the
+    // host's tiles with no visible change.
+    const hostBasemap = L.tileLayer('https://example.com/host/{z}/{x}/{y}.png');
+    hostBasemap.addTo(map);
+    const shim = createLeafletMapShim(map as never, L as never);
+
+    shim.setStyle('dark');
+    expect(map.hasLayer(hostBasemap)).toBe(false);
+    // Exactly one agent basemap lives in the dedicated base pane.
+    const baseLayerCount = () => {
+      let count = 0;
+      map.eachLayer((layer) => {
+        if (
+          (layer as unknown as { options?: { pane?: string } }).options?.pane ===
+          'geoagent-base'
+        ) {
+          count += 1;
+        }
+      });
+      return count;
+    };
+    expect(baseLayerCount()).toBe(1);
+    shim.setStyle('positron');
+    expect(baseLayerCount()).toBe(1);
+  });
+
+  it('escapes marker popup text before Leaflet renders it as HTML', () => {
+    // Leaflet's Popup.setContent treats a plain string as HTML; the popup text
+    // comes from model tool calls influenced by ingested map data, so it must
+    // be escaped before reaching innerHTML.
+    const shim = createLeafletMapShim(map as never, L as never);
+    const popup = shim.createPopup();
+    popup.setText('<img src=x onerror=alert(1)>');
+    const content = (popup.leafletPopup as unknown as { _content?: string })
+      ._content;
+    expect(content).toContain('&lt;img');
+    expect(content).not.toContain('<img');
+  });
+
+  it('unbinds its zoomend listener on destroy', () => {
+    const shim = createLeafletMapShim(map as never, L as never);
+    expect(map.listens('zoomend')).toBe(true);
+    shim.destroy();
+    expect(map.listens('zoomend')).toBe(false);
+  });
+
+  it('emulates the idle event via whenReady for an unloaded map', async () => {
+    const bareContainer = document.createElement('div');
+    document.body.appendChild(bareContainer);
+    // A map without a view is not "loaded"; Leaflet has no idle event, so the
+    // shim must route once('idle') through whenReady instead of stalling.
+    const bareMap = L.map(bareContainer);
+    try {
+      const shim = createLeafletMapShim(bareMap as never, L as never);
+      expect(shim.loaded()).toBe(false);
+      let fired = 0;
+      shim.once('idle', () => {
+        fired += 1;
+      });
+      bareMap.setView([0, 0], 2);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20);
+      });
+      expect(fired).toBe(1);
+    } finally {
+      bareMap.remove();
+      bareContainer.remove();
+    }
+  });
+
+  it('throws on an unknown beforeId instead of silently appending', () => {
+    const shim = createLeafletMapShim(map as never, L as never);
+    shim.addSource('src', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+    expect(() =>
+      shim.addLayer(
+        { id: 'missing-before', type: 'circle', source: 'src' },
+        'no-such-layer',
+      ),
+    ).toThrow(/beforeId not found: no-such-layer/);
+  });
+
+  it('treats maxzoom as exclusive, matching MapLibre', () => {
+    const shim = createLeafletMapShim(map as never, L as never);
+    shim.addSource('src', {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [-98.5795, 39.8283] },
+            properties: { id: 1 },
+          },
+        ],
+      },
+    });
+    // Map zoom is 4 here; a maxzoom 4 layer must be hidden at zoom 4.
+    // (Leaflet keeps layer-group children in its layer registry too, so count
+    // the materialized L.GeoJSON groups, not raw map layers.)
+    const geoLayersOnMap = () => {
+      let count = 0;
+      map.eachLayer((layer) => {
+        if (layer instanceof L.GeoJSON) {
+          count += 1;
+        }
+      });
+      return count;
+    };
+    shim.addLayer({ id: 'gated', type: 'circle', source: 'src', maxzoom: 4 });
+    expect(geoLayersOnMap()).toBe(0);
+    // Dropping below maxzoom materializes it.
+    map.setZoom(3, { animate: false });
+    expect(geoLayersOnMap()).toBe(1);
+  });
+
+  it('answers query_source_features with clustered features', () => {
+    const shim = createLeafletMapShim(map as never, L as never);
+    const points = [0, 1].map((i) => ({
+      type: 'Feature' as const,
+      geometry: {
+        type: 'Point' as const,
+        coordinates: [-98.5795 + i * 0.001, 39.8283],
+      },
+      properties: { id: i },
+    }));
+    shim.addSource('clustered', {
+      type: 'geojson',
+      cluster: true,
+      clusterRadius: 500,
+      data: { type: 'FeatureCollection', features: points },
+    });
+    shim.addLayer({ id: 'clusters', type: 'circle', source: 'clustered' });
+    const features = shim.querySourceFeatures('clustered', {
+      filter: ['has', 'point_count'],
+    });
+    expect(features).toHaveLength(1);
+    expect(features[0]?.properties?.point_count).toBe(2);
+  });
+
+  it('falls back on expressions that resolve to null instead of coercing 0', () => {
+    const context = {
+      properties: { kind: 'town' },
+      geometryType: 'Point',
+      zoom: 4,
+    };
+    // A match without a default clause resolves to null.
+    expect(
+      numberValueFrom(['match', ['get', 'kind'], ['city'], 3], context, 5),
+    ).toBe(5);
+    expect(
+      numberValueFrom(['match', ['get', 'kind'], ['city'], 3], {
+        ...context,
+        properties: { kind: 'city' },
+      }, 5),
+    ).toBe(3);
   });
 });

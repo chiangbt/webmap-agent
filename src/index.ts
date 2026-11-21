@@ -20,12 +20,14 @@ export {
   type GeoAgentStyleSpecNamespace,
   type GeoAgentLeafletEngine,
   type GeoAgentOpenLayersEngine,
+  type GeoAgentArcGISEngine,
   type GeoAgentMarker,
   type GeoAgentPopup,
 } from './lib/core/tools/geoagent-tools';
 export { MapLibreAgentTools } from './lib/core/tools/maplibre-tools';
 export { LeafletAgentTools } from './lib/core/tools/leaflet-tools';
 export { OpenLayersAgentTools } from './lib/core/tools/openlayers-tools';
+export { ArcGISTools } from './lib/core/tools/arcgis-tools';
 export { createGeoAgentTools } from './lib/core/tools/tools-factory';
 
 export {
@@ -48,6 +50,22 @@ export {
   type OpenLayersMapLike,
   type OpenLayersNamespace,
 } from './lib/core/engines/openlayers-engine';
+
+export {
+  ArcGISMapShim,
+  addGeoAgentToArcGISMap,
+  createArcGISMapShim,
+  isArcGISComponent,
+  isArcGISMapShim,
+  isArcGISSceneView,
+  isArcGISView,
+  resolveArcGISView,
+  waitForArcGISComponent,
+  type ArcGISControlAttachment,
+  type ArcGISComponentLike,
+  type ArcGISNamespace,
+  type ArcGISViewLike,
+} from './lib/core/engines/arcgis-engine';
 
 export type {
   EarthEngineOptions,

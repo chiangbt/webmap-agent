@@ -785,6 +785,21 @@ export class OpenLayersMapShim {
   }
 
   removeSource(id: string): void {
+    const source = this.sources.get(id);
+    if (!source) {
+      throw new Error(`Source not found: ${id}`);
+    }
+    // Mirror MapLibre and the Leaflet shim: refuse while layers depend on the
+    // source, so dependents are not left rendering from a detached source.
+    const dependents = this.layerOrder.filter(
+      (layerId) =>
+        String(this.layers.get(layerId)?.spec.source ?? "") === id,
+    );
+    if (dependents.length > 0) {
+      throw new Error(
+        `Cannot remove source ${id}; active layers depend on it: ${dependents.join(", ")}`,
+      );
+    }
     this.sources.delete(id);
   }
 
@@ -806,6 +821,11 @@ export class OpenLayersMapShim {
     const source = this.sources.get(sourceId);
     if (!source) {
       throw new Error(`Cannot add layer ${id}; source not found: ${sourceId}`);
+    }
+    // MapLibre's addLayer throws for an unknown beforeId; mirror that instead
+    // of silently appending, so the agent can correct itself on every engine.
+    if (beforeId && !this.layerOrder.includes(beforeId)) {
+      throw new Error(`Cannot add layer ${id}; beforeId not found: ${beforeId}`);
     }
     const layout = isRecord(spec.layout) ? spec.layout : {};
     const entry: OlShimLayer = {
@@ -884,12 +904,14 @@ export class OpenLayersMapShim {
     if (!this.layers.has(id)) {
       throw new Error(`Layer not found: ${id}`);
     }
-    this.layerOrder = this.layerOrder.filter((layerId) => layerId !== id);
-    if (beforeId && this.layerOrder.includes(beforeId)) {
-      this.layerOrder.splice(this.layerOrder.indexOf(beforeId), 0, id);
-    } else {
-      this.layerOrder.push(id);
+    if (beforeId && !this.layers.has(beforeId)) {
+      throw new Error(`Layer not found: ${beforeId}`);
     }
+    this.layerOrder = this.layerOrder.filter((layerId) => layerId !== id);
+    const insertIndex = beforeId
+      ? this.layerOrder.indexOf(beforeId)
+      : this.layerOrder.length;
+    this.layerOrder.splice(insertIndex, 0, id);
     this.syncLayerOrder();
   }
 
@@ -976,23 +998,31 @@ export class OpenLayersMapShim {
     const layout = isRecord(spec.layout) ? spec.layout : {};
     const ns = this.ns;
     switch (entry.type) {
-      case "fill":
+      case "fill": {
+        // MapLibre fills have no outline unless fill-outline-color is set, and
+        // fill-opacity applies to the whole layer including that outline —
+        // match both, instead of always drawing a dark 35% hairline.
+        const fillOpacity = numberValueFrom(paint["fill-opacity"], context, 1);
+        const outlineColor = paint["fill-outline-color"];
         return new ns.Style({
           fill: new ns.Fill({
             color: withOpacity(
               colorValueFrom(paint["fill-color"], context, "#1c7ed6"),
-              numberValueFrom(paint["fill-opacity"], context, 1),
+              fillOpacity,
             ),
           }),
-          stroke: new ns.Stroke({
-            color: colorValueFrom(
-              paint["fill-outline-color"],
-              context,
-              "rgba(0, 0, 0, 0.35)",
-            ),
-            width: 1,
-          }),
+          stroke:
+            outlineColor != null
+              ? new ns.Stroke({
+                  color: withOpacity(
+                    colorValueFrom(outlineColor, context, "#1c7ed6"),
+                    fillOpacity,
+                  ),
+                  width: 1,
+                })
+              : undefined,
         });
+      }
       case "line":
         return new ns.Style({
           stroke: new ns.Stroke({
@@ -1000,7 +1030,7 @@ export class OpenLayersMapShim {
               colorValueFrom(paint["line-color"], context, "#1c7ed6"),
               numberValueFrom(paint["line-opacity"], context, 1),
             ),
-            width: Math.max(0.5, numberValueFrom(paint["line-width"], context, 2)),
+            width: Math.max(0.5, numberValueFrom(paint["line-width"], context, 1)),
           }),
         });
       case "circle": {
@@ -1013,7 +1043,7 @@ export class OpenLayersMapShim {
           image: new ns.CircleStyle({
             radius: Math.max(
               0.5,
-              numberValueFrom(paint["circle-radius"], context, 6),
+              numberValueFrom(paint["circle-radius"], context, 5),
             ),
             fill: new ns.Fill({
               color: withOpacity(
@@ -1053,10 +1083,12 @@ export class OpenLayersMapShim {
             text,
             font: `${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`,
             fill: new ns.Fill({
-              color: colorValueFrom(paint["text-color"], context, "#000000"),
+              // Same default as the Leaflet shim: white label with a dark halo
+              // so text stays legible over both light and dark tiles.
+              color: colorValueFrom(paint["text-color"], context, "#ffffff"),
             }),
             stroke: new ns.Stroke({
-              color: "rgba(255, 255, 255, 0.85)",
+              color: "rgba(0, 0, 0, 0.85)",
               width: 3,
             }),
             overflow: true,
@@ -1143,6 +1175,14 @@ export class OpenLayersMapShim {
     for (const id of this.layerOrder) {
       const entry = this.layers.get(id);
       if (!entry || !entry.visible || !GEOJSON_LAYER_TYPES.includes(entry.type)) {
+        continue;
+      }
+      // Respect the layer's zoom range (as MapLibre and the Leaflet shim do):
+      // a minzoom-gated layer is not rendered, so it must not be hit-tested.
+      if (
+        (typeof entry.spec.minzoom === "number" && zoom < entry.spec.minzoom) ||
+        (typeof entry.spec.maxzoom === "number" && zoom >= entry.spec.maxzoom)
+      ) {
         continue;
       }
       if (requested && !requested.has(id)) {
@@ -1317,7 +1357,12 @@ export class OpenLayersMapShim {
 
   /* ------------------------------ teardown -------------------------------- */
 
-  remove(): void {
+  /**
+   * Unbind the shim's map listeners. Called by the tools layer on dispose;
+   * without it, re-attaching to the same map leaks one handler per attach,
+   * and stale handlers keep re-syncing detached sources on every pan.
+   */
+  destroy(): void {
     this.raw.un("moveend", this.clusterHandler);
   }
 }

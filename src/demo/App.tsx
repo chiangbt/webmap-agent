@@ -59,6 +59,18 @@ const EXAMPLES: ExampleLink[] = [
     descKey: 'openlayersDesc',
     tags: ['OpenLayers', 'mapEngine'],
   },
+  {
+    href: './examples/arcgis-map/index.html',
+    titleKey: 'arcgisMapTitle',
+    descKey: 'arcgisMapDesc',
+    tags: ['ArcGIS', 'MapView', '2D'],
+  },
+  {
+    href: './examples/arcgis-scene/index.html',
+    titleKey: 'arcgisSceneTitle',
+    descKey: 'arcgisSceneDesc',
+    tags: ['ArcGIS', 'SceneView', '3D'],
+  },
 ];
 
 export function App() {
