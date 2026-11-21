@@ -20,34 +20,13 @@ import type {
   GeoAgentStatusState,
 } from './types';
 
-const DEFAULT_PROVIDER: GeoAgentProviderId = 'openai-responses';
+const DEFAULT_PROVIDER: GeoAgentProviderId = 'openai-compatible';
 const DEFAULT_STORAGE_PREFIX = 'web-geoagent';
 
 const BASE_PROVIDER_CONFIGS: Record<
   GeoAgentProviderId,
   Omit<GeoAgentProviderConfig, 'storageKey'>
 > = {
-  'openai-responses': {
-    id: 'openai-responses',
-    label: 'OpenAI Responses',
-    keyLabel: 'OpenAI API Key',
-    keyPlaceholder: 'sk-...',
-    defaultModel: 'gpt-5.5',
-  },
-  'openai-chat': {
-    id: 'openai-chat',
-    label: 'OpenAI Chat',
-    keyLabel: 'OpenAI API Key',
-    keyPlaceholder: 'sk-...',
-    defaultModel: 'gpt-5.5',
-  },
-  anthropic: {
-    id: 'anthropic',
-    label: 'Anthropic',
-    keyLabel: 'Anthropic API Key',
-    keyPlaceholder: 'sk-ant-...',
-    defaultModel: 'claude-opus-4-8',
-  },
   'openai-compatible': {
     id: 'openai-compatible',
     label: 'OpenAI-Compatible (Custom)',
@@ -502,11 +481,9 @@ export class GeoAgentCore {
   /** Localized API key field label for a provider. */
   localizedApiKeyLabel(providerId: GeoAgentProviderId): string {
     const key: GeoAgentMessageKey =
-      providerId === 'anthropic' || providerId === 'anthropic-compatible'
+      providerId === 'anthropic-compatible'
         ? 'keyLabelAnthropic'
-        : providerId === 'openai-compatible'
-          ? 'keyLabelGeneric'
-          : 'keyLabelOpenAI';
+        : 'keyLabelGeneric';
     return this.translate(key);
   }
 
@@ -530,9 +507,6 @@ export class GeoAgentCore {
 
   providerConfigs(): Record<GeoAgentProviderId, GeoAgentProviderConfig> {
     return {
-      'openai-responses': this.providerConfig('openai-responses'),
-      'openai-chat': this.providerConfig('openai-chat'),
-      anthropic: this.providerConfig('anthropic'),
       'openai-compatible': this.providerConfig('openai-compatible'),
       'anthropic-compatible': this.providerConfig('anthropic-compatible'),
     };
@@ -624,6 +598,9 @@ export class GeoAgentCore {
       storageRemove(this.modelStorageKey(this.state.providerId));
     }
     this.invalidateAgent();
+    // Refresh the idle badge (no-op while a transient status is shown), mirroring
+    // the imperative panel's updateControls() -> applyIdleStatus() chain.
+    this.applyIdleStatus();
     this.emit('statechange');
   }
 
@@ -636,6 +613,7 @@ export class GeoAgentCore {
       storageRemove(this.baseUrlStorageKey(this.state.providerId));
     }
     this.invalidateAgent();
+    this.applyIdleStatus();
     this.emit('statechange');
   }
 
@@ -1030,17 +1008,6 @@ export class GeoAgentCore {
     apiKey: string,
     baseUrl: string,
   ): Promise<Model> {
-    if (providerId === 'openai-responses' || providerId === 'openai-chat') {
-      const { OpenAIModel } = await import('@strands-agents/sdk/models/openai');
-      return new OpenAIModel({
-        api: providerId === 'openai-responses' ? 'responses' : 'chat',
-        modelId,
-        apiKey,
-        clientConfig: {
-          dangerouslyAllowBrowser: true,
-        },
-      });
-    }
     if (providerId === 'openai-compatible') {
       const { OpenAIModel } = await import('@strands-agents/sdk/models/openai');
       return new OpenAIModel({
@@ -1053,7 +1020,7 @@ export class GeoAgentCore {
         },
       });
     }
-    if (providerId === 'anthropic' || providerId === 'anthropic-compatible') {
+    if (providerId === 'anthropic-compatible') {
       const { AnthropicModel } = await import('@strands-agents/sdk/models/anthropic');
       return new AnthropicModel({
         modelId,
@@ -1062,9 +1029,7 @@ export class GeoAgentCore {
         // the same way OpenAI-compatible endpoints are.
         clientConfig: {
           dangerouslyAllowBrowser: true,
-          ...(providerId === 'anthropic-compatible'
-            ? { baseURL: this.normalizeBaseUrl(baseUrl) }
-            : {}),
+          baseURL: this.normalizeBaseUrl(baseUrl),
         },
       });
     }

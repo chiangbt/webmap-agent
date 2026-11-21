@@ -84,28 +84,36 @@ describe('GeoAgentPanel rendering', () => {
     cleanup();
   });
 
-  it('hides the base URL field for direct providers and shows it for compatible ones', () => {
+  it('shows the API base URL field for both compatible providers', () => {
     const { map, cleanup } = createMockMap();
-    const direct = render(<GeoAgentPanel map={map} collapsed={false} />);
-    expect(screen.queryByTestId('geoagent-base-url')).toBeNull();
-    direct.unmount();
+    const openai = render(<GeoAgentPanel map={map} collapsed={false} />);
+    const openaiBaseUrl = screen.getByTestId(
+      'geoagent-base-url',
+    ) as HTMLInputElement;
+    expect(openaiBaseUrl.placeholder).toBe('https://host/v1');
+    // No default model for the OpenAI-compatible endpoint.
+    expect((screen.getByTestId('geoagent-model') as HTMLInputElement).value).toBe('');
+    openai.unmount();
 
-    const compatible = render(
+    const anthropic = render(
       <GeoAgentPanel map={map} collapsed={false} defaultProvider="anthropic-compatible" />,
     );
-    expect(screen.queryByTestId('geoagent-base-url')).toBeTruthy();
+    const anthropicBaseUrl = screen.getByTestId(
+      'geoagent-base-url',
+    ) as HTMLInputElement;
+    expect(anthropicBaseUrl.placeholder).toBe('https://host');
     expect(
       (screen.getByTestId('geoagent-model') as HTMLInputElement).value,
     ).toBe('claude-opus-4-8');
-    compatible.unmount();
+    anthropic.unmount();
     cleanup();
   });
 
-  it('renders the five providers in the select trigger value', () => {
+  it('renders the two compatible providers in the select trigger value', () => {
     const { map, cleanup } = createMockMap();
     render(<GeoAgentPanel map={map} collapsed={false} />);
     const trigger = screen.getByTestId('geoagent-provider');
-    expect(trigger.textContent).toContain('OpenAI Responses');
+    expect(trigger.textContent).toContain('OpenAI-Compatible (Custom)');
     cleanup();
   });
 
@@ -130,6 +138,10 @@ describe('GeoAgentPanel configuration flow', () => {
   });
 
   it('commits the API key on Enter and unlocks the prompt', async () => {
+    // The compatible provider also needs a base URL and a model id; seed them
+    // so committing the key completes the configuration.
+    sessionStorage.setItem('web-geoagent.baseUrl.openai-compatible', 'https://llm.example.com/v1');
+    sessionStorage.setItem('web-geoagent.model.openai-compatible', 'local-model');
     const { map, cleanup } = createMockMap();
     render(<GeoAgentPanel map={map} collapsed={false} />);
 
@@ -145,7 +157,7 @@ describe('GeoAgentPanel configuration flow', () => {
       expect(screen.getByTestId('geoagent-status').textContent).toBe('Ready');
     });
     expect(
-      sessionStorage.getItem('web-geoagent.openai-responses.api_key'),
+      sessionStorage.getItem('web-geoagent.openai-compatible.api_key'),
     ).toBe('sk-panel-test');
     expect(prompt.disabled).toBe(false);
     cleanup();
@@ -172,8 +184,19 @@ describe('GeoAgentPanel conversation flow', () => {
   });
 
   it('sends a prompt and renders the streamed assistant answer', async () => {
+    sessionStorage.setItem(
+      'web-geoagent.baseUrl.anthropic-compatible',
+      'https://gateway.example.com',
+    );
     const { map, cleanup } = createMockMap();
-    render(<GeoAgentPanel map={map} collapsed={false} apiKeys={{ 'openai-responses': 'sk-test' }} />);
+    render(
+      <GeoAgentPanel
+        map={map}
+        collapsed={false}
+        defaultProvider="anthropic-compatible"
+        apiKeys={{ 'anthropic-compatible': 'sk-test' }}
+      />,
+    );
 
     const prompt = screen.getByTestId('geoagent-prompt') as HTMLTextAreaElement;
     fireEvent.change(prompt, { target: { value: 'Add a marker' } });
@@ -200,8 +223,19 @@ describe('GeoAgentPanel conversation flow', () => {
       configurable: true,
       value: { writeText },
     });
+    sessionStorage.setItem(
+      'web-geoagent.baseUrl.anthropic-compatible',
+      'https://gateway.example.com',
+    );
     const { map, cleanup } = createMockMap();
-    render(<GeoAgentPanel map={map} collapsed={false} apiKeys={{ 'openai-responses': 'sk-test' }} />);
+    render(
+      <GeoAgentPanel
+        map={map}
+        collapsed={false}
+        defaultProvider="anthropic-compatible"
+        apiKeys={{ 'anthropic-compatible': 'sk-test' }}
+      />,
+    );
 
     await waitFor(() => {
       expect(screen.getAllByTestId('geoagent-entry').length).toBe(1);
@@ -217,7 +251,7 @@ describe('GeoAgentPanel conversation flow', () => {
   });
 
   it('accepts a controlled core and reports state changes', async () => {
-    const core = new GeoAgentCore({ collapsed: false, apiKeys: { anthropic: 'sk-ant' } });
+    const core = new GeoAgentCore({ collapsed: false, apiKeys: { 'openai-compatible': 'sk-ant' } });
     const onStateChange = vi.fn();
     const { map, cleanup } = createMockMap();
     render(<GeoAgentPanel core={core} map={map} onStateChange={onStateChange} />);
@@ -236,7 +270,7 @@ describe('GeoAgentPanel conversation flow', () => {
     cleanup();
     core.commitApiKey('sk-later');
     expect(
-      sessionStorage.getItem('web-geoagent.openai-responses.api_key'),
+      sessionStorage.getItem('web-geoagent.openai-compatible.api_key'),
     ).toBe('sk-later');
     core.dispose();
   });

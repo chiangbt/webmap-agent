@@ -22,7 +22,6 @@ export const zhCN: Record<GeoAgentMessageKey, string> = {
   settingsSummary: '模型与提供商',
   providerLabel: '提供商',
   apiKeyLabelGeneric: 'API 密钥',
-  keyLabelOpenAI: 'OpenAI API 密钥',
   keyLabelAnthropic: 'Anthropic API 密钥',
   keyLabelGeneric: 'API 密钥',
   baseUrlLabel: 'API 基础地址',

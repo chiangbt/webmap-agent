@@ -4,9 +4,6 @@ import type { GeoAgentMapEngine } from './maplibre-tools';
 import type { EarthEngineOptions } from './earth-engine';
 
 export type GeoAgentProviderId =
-  | 'openai-responses'
-  | 'openai-chat'
-  | 'anthropic'
   | 'openai-compatible'
   | 'anthropic-compatible';
 
@@ -98,7 +95,7 @@ export interface GeoAgentControlOptions {
 
   /**
    * Initial provider when there is no stored provider preference.
-   * @default 'openai-responses'
+   * @default 'openai-compatible'
    */
   defaultProvider?: GeoAgentProviderId;
 

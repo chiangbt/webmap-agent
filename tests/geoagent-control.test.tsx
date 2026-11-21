@@ -244,7 +244,7 @@ describe("GeoAgentControl", () => {
     expect(control.getState()).toMatchObject({
       collapsed: true,
       panelWidth: 390,
-      providerId: "openai-responses",
+      providerId: "openai-compatible",
       allowCodeExecution: true,
       allowDestructiveTools: true,
     });
@@ -285,13 +285,13 @@ describe("GeoAgentControl", () => {
 
   it("uses host-provided initial API keys when no session key is stored", () => {
     const storagePrefix = "geoagent.initial.keys";
-    sessionStorage.removeItem(`${storagePrefix}.anthropic.api_key`);
+    sessionStorage.removeItem(`${storagePrefix}.anthropic-compatible.api_key`);
     const map = new MockMap();
     const control = new GeoAgentControl({
       storagePrefix,
-      defaultProvider: "anthropic",
+      defaultProvider: "anthropic-compatible",
       apiKeys: {
-        anthropic: "env-anthropic-key",
+        "anthropic-compatible": "env-anthropic-key",
       },
     });
     const container = control.onAdd(map as never);
@@ -301,9 +301,9 @@ describe("GeoAgentControl", () => {
     );
 
     expect(apiKeyInput?.value).toBe("env-anthropic-key");
-    expect(sessionStorage.getItem(`${storagePrefix}.anthropic.api_key`)).toBe(
-      null,
-    );
+    expect(
+      sessionStorage.getItem(`${storagePrefix}.anthropic-compatible.api_key`),
+    ).toBe(null);
 
     control.onRemove();
     map.cleanup();
@@ -312,15 +312,15 @@ describe("GeoAgentControl", () => {
   it("prefers a stored API key over a host-provided initial API key", () => {
     const storagePrefix = "geoagent.stored.keys";
     sessionStorage.setItem(
-      `${storagePrefix}.anthropic.api_key`,
+      `${storagePrefix}.anthropic-compatible.api_key`,
       "stored-anthropic-key",
     );
     const map = new MockMap();
     const control = new GeoAgentControl({
       storagePrefix,
-      defaultProvider: "anthropic",
+      defaultProvider: "anthropic-compatible",
       apiKeys: {
-        anthropic: "env-anthropic-key",
+        "anthropic-compatible": "env-anthropic-key",
       },
     });
     const container = control.onAdd(map as never);
@@ -337,7 +337,14 @@ describe("GeoAgentControl", () => {
 
   it("reports a setup status until credentials are committed", () => {
     const storagePrefix = "geoagent.setup";
-    sessionStorage.removeItem(`${storagePrefix}.openai-responses.api_key`);
+    sessionStorage.removeItem(`${storagePrefix}.openai-compatible.api_key`);
+    // The compatible provider needs base URL and model as well; seed them so
+    // committing the key completes the configuration.
+    sessionStorage.setItem(
+      `${storagePrefix}.baseUrl.openai-compatible`,
+      "https://llm.example.com/v1",
+    );
+    sessionStorage.setItem(`${storagePrefix}.model.openai-compatible`, "local-model");
     const map = new MockMap();
     const control = new GeoAgentControl({ storagePrefix });
     const container = control.onAdd(map as never);
@@ -358,9 +365,9 @@ describe("GeoAgentControl", () => {
     expect(status.textContent).toBe("Setup required");
     expect(status.className).toContain("setup");
     expect(sendButton.disabled).toBe(true);
-    expect(sendButton.title).toContain("OpenAI API Key");
+    expect(sendButton.title).toContain("API Key");
     expect(prompt.disabled).toBe(true);
-    expect(firstEntry?.textContent).toContain("Add your OpenAI API Key");
+    expect(firstEntry?.textContent).toContain("Add your API Key");
 
     const apiKeyInput =
       map.mapContainer.querySelector<HTMLInputElement>(".geoagent-api-key")!;
@@ -371,14 +378,14 @@ describe("GeoAgentControl", () => {
     expect(status.className).not.toContain("connected");
     expect(prompt.disabled).toBe(true);
     expect(
-      sessionStorage.getItem(`${storagePrefix}.openai-responses.api_key`),
+      sessionStorage.getItem(`${storagePrefix}.openai-compatible.api_key`),
     ).toBeNull();
 
     apiKeyInput.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
     );
     expect(
-      sessionStorage.getItem(`${storagePrefix}.openai-responses.api_key`),
+      sessionStorage.getItem(`${storagePrefix}.openai-compatible.api_key`),
     ).toBe("sk-test");
     expect(
       map.mapContainer.querySelector<HTMLElement>(".geoagent-config-note")
@@ -405,7 +412,12 @@ describe("GeoAgentControl", () => {
     vi.stubGlobal("fetch", fetchMock);
     try {
       const storagePrefix = "geoagent.no-model-list";
-      sessionStorage.removeItem(`${storagePrefix}.openai-responses.api_key`);
+      sessionStorage.removeItem(`${storagePrefix}.openai-compatible.api_key`);
+      sessionStorage.setItem(
+        `${storagePrefix}.baseUrl.openai-compatible`,
+        "https://llm.example.com/v1",
+      );
+      sessionStorage.setItem(`${storagePrefix}.model.openai-compatible`, "local-model");
       const map = new MockMap();
       const control = new GeoAgentControl({ storagePrefix });
       map.controlStack.appendChild(control.onAdd(map as never));
@@ -450,10 +462,8 @@ describe("GeoAgentControl", () => {
     const baseUrlRow = map.mapContainer.querySelector<HTMLElement>(
       ".geoagent-base-url-row",
     )!;
-    expect(baseUrlRow.hidden).toBe(true);
-
-    providerSelect.value = "openai-compatible";
-    providerSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    // The default provider is openai-compatible, so the base URL field is
+    // visible from the start.
     expect(baseUrlRow.hidden).toBe(false);
 
     const status =
@@ -499,9 +509,6 @@ describe("GeoAgentControl", () => {
 
   it("uses the configured latest model for each built-in provider", () => {
     const cases = [
-      ["openai-responses", "gpt-5.5"],
-      ["openai-chat", "gpt-5.5"],
-      ["anthropic", "claude-opus-4-8"],
       ["anthropic-compatible", "claude-opus-4-8"],
     ] as const;
 
@@ -529,11 +536,14 @@ describe("GeoAgentControl", () => {
     try {
       const storagePrefix = "geoagent.use-latest";
       sessionStorage.setItem(
-        `${storagePrefix}.model.openai-responses`,
+        `${storagePrefix}.model.anthropic-compatible`,
         "old-model",
       );
       const map = new MockMap();
-      const control = new GeoAgentControl({ storagePrefix });
+      const control = new GeoAgentControl({
+        storagePrefix,
+        defaultProvider: "anthropic-compatible",
+      });
       map.controlStack.appendChild(control.onAdd(map as never));
 
       const modelInput = map.mapContainer.querySelector<HTMLInputElement>(
@@ -545,8 +555,8 @@ describe("GeoAgentControl", () => {
         .querySelector<HTMLButtonElement>(".geoagent-load-models")!
         .click();
 
-      expect(modelInput.value).toBe("gpt-5.5");
-      expect(control.getState().modelId).toBe("gpt-5.5");
+      expect(modelInput.value).toBe("claude-opus-4-8");
+      expect(control.getState().modelId).toBe("claude-opus-4-8");
       expect(fetchMock).not.toHaveBeenCalled();
 
       control.onRemove();
@@ -561,7 +571,13 @@ describe("GeoAgentControl", () => {
     vi.stubGlobal("fetch", fetchMock);
     try {
       // No key: setup is needed, so the settings section starts expanded.
-      sessionStorage.removeItem("geoagent.collapse.setup.openai-responses.api_key");
+      sessionStorage.removeItem("geoagent.collapse.setup.openai-compatible.api_key");
+      // Seed base URL + model so committing the key completes the setup.
+      sessionStorage.setItem(
+        "geoagent.collapse.setup.baseUrl.openai-compatible",
+        "https://llm.example.com/v1",
+      );
+      sessionStorage.setItem("geoagent.collapse.setup.model.openai-compatible", "local-model");
       const setup = new MockMap();
       const setupControl = new GeoAgentControl({
         storagePrefix: "geoagent.collapse.setup",
@@ -616,10 +632,15 @@ describe("GeoAgentControl", () => {
 
       // A pre-supplied key means the agent is configured, so the section starts
       // collapsed to leave more room for the chat.
+      sessionStorage.setItem(
+        "geoagent.collapse.ready.baseUrl.anthropic-compatible",
+        "https://gateway.example.com",
+      );
       const ready = new MockMap();
       const readyControl = new GeoAgentControl({
         storagePrefix: "geoagent.collapse.ready",
-        apiKeys: { "openai-responses": "sk-test" },
+        defaultProvider: "anthropic-compatible",
+        apiKeys: { "anthropic-compatible": "sk-test" },
       });
       ready.controlStack.appendChild(readyControl.onAdd(ready as never));
 
@@ -637,10 +658,15 @@ describe("GeoAgentControl", () => {
   });
 
   it("starts ready when an initial API key is provided", () => {
+    sessionStorage.setItem(
+      "geoagent.ready.baseUrl.anthropic-compatible",
+      "https://gateway.example.com",
+    );
     const map = new MockMap();
     const control = new GeoAgentControl({
       storagePrefix: "geoagent.ready",
-      apiKeys: { "openai-responses": "sk-test" },
+      defaultProvider: "anthropic-compatible",
+      apiKeys: { "anthropic-compatible": "sk-test" },
     });
     const container = control.onAdd(map as never);
     map.controlStack.appendChild(container);
@@ -775,14 +801,15 @@ describe("GeoAgentControl", () => {
       sessionStorage.getItem("web-geoagent.baseUrl.anthropic-compatible"),
     ).toBe("https://gateway.example.com");
 
-    providerSelect!.value = "anthropic";
+    providerSelect!.value = "openai-compatible";
     providerSelect?.dispatchEvent(new Event("change", { bubbles: true }));
 
-    expect(baseUrlRow?.hidden).toBe(true);
+    // Both compatible providers need a base URL, so the field stays visible.
+    expect(baseUrlRow?.hidden).toBe(false);
 
     // Restore the default provider so later tests that share this storage
-    // prefix (and its sessionStorage persistence) start from openai-responses.
-    providerSelect!.value = "openai-responses";
+    // prefix (and its sessionStorage persistence) start from openai-compatible.
+    providerSelect!.value = "openai-compatible";
     providerSelect?.dispatchEvent(new Event("change", { bubbles: true }));
 
     control.onRemove();
@@ -795,9 +822,17 @@ describe("GeoAgentControl", () => {
       configurable: true,
       value: { writeText },
     });
+    sessionStorage.setItem(
+      "geoagent.copy.baseUrl.anthropic-compatible",
+      "https://gateway.example.com",
+    );
     const map = new MockMap();
     const control = new GeoAgentControl({
-      apiKeys: { "openai-responses": "sk-test" },
+      // Own storage prefix: earlier tests persist a provider choice under the
+      // default prefix, and the stored choice wins over defaultProvider.
+      storagePrefix: "geoagent.copy",
+      defaultProvider: "anthropic-compatible",
+      apiKeys: { "anthropic-compatible": "sk-test" },
     });
     const container = control.onAdd(map as never);
     map.controlStack.appendChild(container);
@@ -1514,11 +1549,13 @@ describe("MapLibreAgentTools native tools", () => {
 
 describe("GeoAgentControl locale", () => {
   function removeStoredSettings(prefix: string): void {
-    sessionStorage.removeItem(`${prefix}.openai-responses.api_key`);
-    sessionStorage.removeItem(`${prefix}.anthropic.api_key`);
+    sessionStorage.removeItem(`${prefix}.openai-compatible.api_key`);
+    sessionStorage.removeItem(`${prefix}.anthropic-compatible.api_key`);
     sessionStorage.removeItem(`${prefix}.provider`);
-    sessionStorage.removeItem(`${prefix}.model.openai-responses`);
-    sessionStorage.removeItem(`${prefix}.model.anthropic`);
+    sessionStorage.removeItem(`${prefix}.model.openai-compatible`);
+    sessionStorage.removeItem(`${prefix}.model.anthropic-compatible`);
+    sessionStorage.removeItem(`${prefix}.baseUrl.openai-compatible`);
+    sessionStorage.removeItem(`${prefix}.baseUrl.anthropic-compatible`);
   }
 
   it("renders English panel strings by default", () => {
@@ -1552,7 +1589,7 @@ describe("GeoAgentControl locale", () => {
     expect(
       map.mapContainer.querySelector<HTMLTextAreaElement>(".geoagent-prompt")
         ?.placeholder,
-    ).toBe("Add your OpenAI API Key to start.");
+    ).toBe("Add your API Key, API base URL, model to start.");
 
     control.onRemove();
     map.cleanup();
@@ -1561,12 +1598,17 @@ describe("GeoAgentControl locale", () => {
   it("renders Chinese panel strings with locale zh-CN", () => {
     const storagePrefix = "geoagent.locale.zh";
     removeStoredSettings(storagePrefix);
+    // Seed the base URL so the pre-supplied key completes the configuration.
+    sessionStorage.setItem(
+      `${storagePrefix}.baseUrl.anthropic-compatible`,
+      "https://gateway.example.com",
+    );
     const map = new MockMap();
     const control = new GeoAgentControl({
       storagePrefix,
       locale: "zh-CN",
-      defaultProvider: "anthropic",
-      apiKeys: { anthropic: "test-anthropic-key" },
+      defaultProvider: "anthropic-compatible",
+      apiKeys: { "anthropic-compatible": "test-anthropic-key" },
     });
     map.controlStack.appendChild(control.onAdd(map as never));
 
@@ -1618,6 +1660,12 @@ describe("GeoAgentControl locale", () => {
   it("keeps the zh-CN idle badge round-trip working without label matching", () => {
     const storagePrefix = "geoagent.locale.zh.flow";
     removeStoredSettings(storagePrefix);
+    // Seed base URL + model so committing the key completes the configuration.
+    sessionStorage.setItem(
+      `${storagePrefix}.baseUrl.openai-compatible`,
+      "https://llm.example.com/v1",
+    );
+    sessionStorage.setItem(`${storagePrefix}.model.openai-compatible`, "local-model");
     const map = new MockMap();
     const control = new GeoAgentControl({ storagePrefix, locale: "zh-CN" });
     map.controlStack.appendChild(control.onAdd(map as never));

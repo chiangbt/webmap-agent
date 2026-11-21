@@ -19,12 +19,9 @@ function createMockMap() {
 }
 
 describe('GeoAgentCore providers', () => {
-  it('exposes the five supported providers without google/bedrock', () => {
+  it('exposes the two compatible providers only', () => {
     const core = new GeoAgentCore();
     expect(Object.keys(core.providerConfigs())).toEqual([
-      'openai-responses',
-      'openai-chat',
-      'anthropic',
       'openai-compatible',
       'anthropic-compatible',
     ]);
@@ -43,15 +40,23 @@ describe('GeoAgentCore providers', () => {
     expect(core.providerConfig('anthropic-compatible').defaultModel).toBe(
       'claude-opus-4-8',
     );
+    // The OpenAI-compatible endpoint has no universal default model.
+    expect(core.providerConfig('openai-compatible').defaultModel).toBe('');
   });
 
   it('honors per-provider default model overrides', () => {
     const core = new GeoAgentCore({
-      defaultModel: { anthropic: 'claude-custom', 'openai-responses': 'gpt-custom' },
+      defaultModel: {
+        'anthropic-compatible': 'claude-custom',
+        'openai-compatible': 'gpt-custom',
+      },
     });
-    expect(core.providerConfig('anthropic').defaultModel).toBe('claude-custom');
-    expect(core.providerConfig('openai-responses').defaultModel).toBe('gpt-custom');
-    expect(core.providerConfig('openai-chat').defaultModel).toBe('gpt-5.5');
+    expect(core.providerConfig('anthropic-compatible').defaultModel).toBe(
+      'claude-custom',
+    );
+    expect(core.providerConfig('openai-compatible').defaultModel).toBe(
+      'gpt-custom',
+    );
   });
 });
 
@@ -70,10 +75,15 @@ describe('GeoAgentCore configuration state', () => {
     core.setApiKeyEdited('sk-half-typed');
     expect(core.isConfigured()).toBe(false);
     core.commitApiKey('sk-half-typed');
-    expect(core.isConfigured()).toBe(true);
+    // The key alone is not enough: the compatible provider also needs a valid
+    // base URL (the model id defaults to empty for openai-compatible).
+    expect(core.isConfigured()).toBe(false);
     expect(
-      sessionStorage.getItem('web-geoagent.openai-responses.api_key'),
+      sessionStorage.getItem('web-geoagent.openai-compatible.api_key'),
     ).toBe('sk-half-typed');
+    core.setBaseUrl('https://llm.example.com/v1');
+    core.setModelId('local-model');
+    expect(core.isConfigured()).toBe(true);
     core.dispose();
     mapContext.cleanup();
   });
@@ -110,13 +120,18 @@ describe('GeoAgentCore configuration state', () => {
   });
 
   it('persists the provider choice and reloads its stored settings', () => {
-    sessionStorage.setItem('geoagent.switch.anthropic.api_key', 'stored-ant');
+    sessionStorage.setItem(
+      'geoagent.switch.anthropic-compatible.api_key',
+      'stored-ant',
+    );
     const core = new GeoAgentCore({ storagePrefix: 'geoagent.switch' });
-    core.switchProvider('anthropic');
-    expect(core.getState().providerId).toBe('anthropic');
+    core.switchProvider('anthropic-compatible');
+    expect(core.getState().providerId).toBe('anthropic-compatible');
     expect(core.getState().modelId).toBe('claude-opus-4-8');
     expect(core.getCommittedApiKey()).toBe('stored-ant');
-    expect(sessionStorage.getItem('geoagent.switch.provider')).toBe('anthropic');
+    expect(sessionStorage.getItem('geoagent.switch.provider')).toBe(
+      'anthropic-compatible',
+    );
     core.dispose();
   });
 });
@@ -130,7 +145,10 @@ describe('GeoAgentCore conversation', () => {
   });
 
   it('records a ready entry on attach and clears with a system entry', () => {
-    const core = new GeoAgentCore({ apiKeys: { 'openai-responses': 'sk-test' } });
+    const core = new GeoAgentCore({
+      defaultProvider: 'anthropic-compatible',
+      apiKeys: { 'anthropic-compatible': 'sk-test' },
+    });
     const changes: string[] = [];
     core.onConversation((change, entries) => {
       changes.push(`${change.type}:${entries.length}`);
@@ -149,7 +167,14 @@ describe('GeoAgentCore conversation', () => {
   });
 
   it('exports the conversation as markdown with capitalized roles', () => {
-    const core = new GeoAgentCore({ apiKeys: { 'openai-responses': 'sk-test' } });
+    sessionStorage.setItem(
+      'web-geoagent.baseUrl.anthropic-compatible',
+      'https://gateway.example.com',
+    );
+    const core = new GeoAgentCore({
+      defaultProvider: 'anthropic-compatible',
+      apiKeys: { 'anthropic-compatible': 'sk-test' },
+    });
     core.attach(mapContext.map);
     const markdown = core.conversationMarkdown();
     expect(markdown).toBe(
@@ -193,14 +218,18 @@ describe('GeoAgentCore status', () => {
     mapContext = createMockMap();
   });
 
-  it('emits setup and connected statuses as the key is committed', () => {
+  it('emits setup and connected statuses as the configuration completes', () => {
     const core = new GeoAgentCore();
     const statuses: string[] = [];
     core.onStatus((status) => statuses.push(`${status.kind}:${status.text}`));
     core.attach(mapContext.map);
 
     expect(statuses[0]).toBe('setup:Setup required');
+    // The key alone is not enough for the compatible provider: the badge only
+    // flips to Ready once base URL and model are set too.
     core.commitApiKey('sk-test');
+    core.setBaseUrl('https://llm.example.com/v1');
+    core.setModelId('local-model');
     expect(statuses[statuses.length - 1]).toBe('connected:Ready');
     expect(core.getStatus().transient).toBe(false);
     core.dispose();

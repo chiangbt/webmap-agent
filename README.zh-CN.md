@@ -12,7 +12,7 @@
 ## 功能特性
 
 - 可折叠的 MapLibre 控件，带浮动聊天面板
-- 浏览器端 provider 界面，支持 OpenAI Responses、OpenAI Chat、Anthropic，以及 OpenAI 兼容与 Anthropic 兼容的自定义端点
+- 浏览器端 provider 界面，支持 OpenAI 兼容与 Anthropic 兼容的自定义端点（自托管服务、私有化部署与网关）
 - API key 在提交时（回车或失焦）才保存，并有行内确认提示；provider 报错在发送 prompt 时展示
 - provider、key 与模型设置集中在一个可折叠区块中，配置完成后自动收起；内置 provider 默认使用其最新配置模型，模型仍可手动修改
 - 地图工具覆盖相机移动、投影、底图、标记点、GeoJSON、XYZ 瓦片、图层可见性、透明度、要素查询、截图与图层清理
@@ -142,40 +142,38 @@ const core = new GeoAgentCore({ title: "GeoAgent", locale: "zh-CN" });
 - 样式随包内唯一的 `web-geoagent/style.css` 导出分发：Tailwind
   工具类编译时不含 preflight（全局不会泄漏任何重置样式），设计令牌使用
   `--geoagent-*` 前缀变量。
-- **相对早期版本的破坏性变更：** 随 Google Gemini 与 Amazon Bedrock
-  provider 一并移除，`GeoAgentState.bedrockRegion` 已删除
-  （`GeoAgentProviderId` 现在包含 `anthropic-compatible`）；包名由
-  `maplibre-gl-geoagent` 更名为 `web-geoagent`——默认 `storagePrefix` 变为
-  `web-geoagent`，此前保存在 `geoagent.maplibre.*` 下的 sessionStorage
-  键不再被读取（用户需重新输入一次 API key）。
+- **相对早期版本的破坏性变更：** 厂商直连 provider（OpenAI Responses、
+  OpenAI Chat、Anthropic、Google Gemini、Amazon Bedrock）已移除——
+  `GeoAgentProviderId` 现为 `'openai-compatible' | 'anthropic-compatible'`，
+  默认 provider 为 `openai-compatible`；随 Amazon Bedrock 一并移除，
+  `GeoAgentState.bedrockRegion` 已删除；包名由 `maplibre-gl-geoagent` 更名为
+  `web-geoagent`——默认 `storagePrefix` 变为 `web-geoagent`，此前保存在
+  `geoagent.maplibre.*` 下的 sessionStorage 键不再被读取（用户需重新输入一次
+  API key）。
 
 ## 模型提供商
 
-支持的 provider：
+支持的 provider（均为自定义端点——不内置任何厂商直连凭据）：
 
-- OpenAI Responses
-- OpenAI Chat
-- Anthropic
 - OpenAI-Compatible（自定义）
 - Anthropic-Compatible（自定义）
 
-使用自定义或自托管模型时，选择 `OpenAI-Compatible (Custom)` 或
-`Anthropic-Compatible (Custom)`，输入对应兼容端点的 API base URL（例如本地
-LLM 服务、私有化部署或网关），提供 API key 并填写模型 ID。
-OpenAI 兼容端点按 OpenAI Chat Completions API 的请求格式调用
-（`https://host/v1`）；Anthropic 兼容 provider 走 Anthropic Messages API
-（`https://host`）。
+选择 `OpenAI-Compatible (Custom)` 或 `Anthropic-Compatible (Custom)`，输入对应
+兼容端点的 API base URL（例如本地 LLM 服务、私有化部署或网关），提供 API
+key 并填写模型 ID。OpenAI 兼容端点按 OpenAI Chat Completions API 的请求格式
+调用（`https://host/v1`）；Anthropic 兼容 provider 走 Anthropic Messages API
+（`https://host`）。厂商直连 provider（OpenAI Responses/Chat、Anthropic、
+Google Gemini、Amazon Bedrock）已移除——请将兼容 provider 指向网关或代理。
 
 ### 保存 key 与模型
 
 API key 只在你提交时（按回车或焦点移出输入框）写入 `sessionStorage`，因此
 输入一半的 key 不会把状态徽章变成 "Ready"，也不会被写入存储。
 
-内置 provider 使用包内配置的最新模型：OpenAI Responses 与 OpenAI Chat 为
-`gpt-5.5`，Anthropic 与 Anthropic-Compatible 为 `claude-opus-4-8`。
-"Use latest" 按钮会把模型输入框重置为该配置默认值，不会调用 provider 的
-模型列表接口。`OpenAI-Compatible (Custom)` 没有通用的最新模型，请填写该
-端点暴露的模型 ID。
+内置 provider 使用包内配置的最新模型：Anthropic-Compatible 为
+`claude-opus-4-8`。"Use latest" 按钮会把模型输入框重置为该配置默认值，不会
+调用 provider 的模型列表接口。`OpenAI-Compatible (Custom)` 没有通用的最新
+模型，请填写该端点暴露的模型 ID。
 
 ### 语言
 
@@ -393,9 +391,8 @@ provider。适用于本地开发、可信内部应用，或有意暴露浏览器
 ```typescript
 new GeoAgentControl({
   apiKeys: {
-    "openai-responses": "OPENAI_API_KEY_VALUE",
-    "openai-chat": "OPENAI_API_KEY_VALUE",
-    anthropic: "ANTHROPIC_API_KEY_VALUE",
+    "openai-compatible": "OPENAI_COMPATIBLE_KEY_VALUE",
+    "anthropic-compatible": "ANTHROPIC_COMPATIBLE_KEY_VALUE",
   },
 });
 ```

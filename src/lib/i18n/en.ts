@@ -22,7 +22,6 @@ export const en = {
   settingsSummary: 'Provider & model',
   providerLabel: 'Provider',
   apiKeyLabelGeneric: 'API Key',
-  keyLabelOpenAI: 'OpenAI API Key',
   keyLabelAnthropic: 'Anthropic API Key',
   keyLabelGeneric: 'API Key',
   baseUrlLabel: 'API Base URL',

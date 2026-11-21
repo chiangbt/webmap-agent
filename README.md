@@ -13,7 +13,7 @@ core also attaches to Leaflet and OpenLayers maps via compatibility shims.
 ## Features
 
 - Collapsible MapLibre control with a floating chat panel
-- Browser provider UI for OpenAI Responses, OpenAI Chat, Anthropic, plus OpenAI-compatible and Anthropic-compatible custom endpoints
+- Browser provider UI with OpenAI-compatible and Anthropic-compatible custom endpoints (self-hosted servers, private deployments, and gateways)
 - API keys are saved on commit (Enter or blur) with an inline confirmation; provider errors are shown when a prompt is sent
 - Provider, key, and model settings live in one collapsible section that folds away once configured; built-in providers default to their latest configured model, and the model can still be edited manually
 - Map tools for camera movement, projection, basemaps, markers, GeoJSON, XYZ tiles, layer visibility, opacity, feature queries, screenshots, and layer cleanup
@@ -145,31 +145,32 @@ Notes:
 - Styles ship inside the package's single `web-geoagent/style.css`
   export: Tailwind utilities compiled without preflight (no global resets leak
   into your page) and design tokens under `--geoagent-*` prefixed variables.
-- **Breaking change vs earlier releases:** `GeoAgentState.bedrockRegion` was
-  removed together with the Google Gemini and Amazon Bedrock providers
-  (`GeoAgentProviderId` now also includes `anthropic-compatible`), and the
-  package was renamed from `maplibre-gl-geoagent` to `web-geoagent` — the
-  default `storagePrefix` is now `web-geoagent`, so previously saved
-  `geoagent.maplibre.*` sessionStorage keys are no longer read (users re-enter
-  their API key once).
+- **Breaking change vs earlier releases:** the vendor-direct providers
+  (OpenAI Responses, OpenAI Chat, Anthropic, Google Gemini, Amazon Bedrock)
+  were removed — `GeoAgentProviderId` is now
+  `'openai-compatible' | 'anthropic-compatible'` and the default provider is
+  `openai-compatible`. `GeoAgentState.bedrockRegion` was removed together with
+  Amazon Bedrock, and the package was renamed from `maplibre-gl-geoagent` to
+  `web-geoagent` — the default `storagePrefix` is now `web-geoagent`, so
+  previously saved `geoagent.maplibre.*` sessionStorage keys are no longer read
+  (users re-enter their API key once).
 
 ## Providers
 
-Supported providers:
+Supported providers (both are custom endpoints — no vendor-direct credentials
+are built in):
 
-- OpenAI Responses
-- OpenAI Chat
-- Anthropic
 - OpenAI-Compatible (Custom)
 - Anthropic-Compatible (Custom)
 
-For a custom or self-hosted model, select `OpenAI-Compatible (Custom)` or
-`Anthropic-Compatible (Custom)`, enter the API base URL of the compatible
-endpoint (for example a local LLM server, a private deployment, or a gateway),
-supply the API key, and enter a model ID. OpenAI-compatible endpoints are called
-with the OpenAI Chat Completions API shape (`https://host/v1`); the
-Anthropic-compatible provider speaks the Anthropic Messages API
-(`https://host`).
+Select `OpenAI-Compatible (Custom)` or `Anthropic-Compatible (Custom)`, enter
+the API base URL of the compatible endpoint (for example a local LLM server, a
+private deployment, or a gateway), supply the API key, and enter a model ID.
+OpenAI-compatible endpoints are called with the OpenAI Chat Completions API
+shape (`https://host/v1`); the Anthropic-compatible provider speaks the
+Anthropic Messages API (`https://host`). Vendor-direct providers (OpenAI
+Responses/Chat, Anthropic, Google Gemini, Amazon Bedrock) were removed — point
+the compatible providers at a gateway or proxy instead.
 
 ### Saving keys and models
 
@@ -178,11 +179,10 @@ or move focus out of the field), so a half-typed key never flips the status
 badge to "Ready" or get written to storage.
 
 Built-in providers use the latest model configured by the package:
-`gpt-5.5` for OpenAI Responses and OpenAI Chat, and `claude-opus-4-8` for
-Anthropic and Anthropic-Compatible. The "Use latest" button resets the model
-field to that configured default without calling a provider model-list endpoint.
-For `OpenAI-Compatible (Custom)`, there is no universal latest model, so enter
-the model ID exposed by that endpoint.
+`claude-opus-4-8` for Anthropic-Compatible. The "Use latest" button resets the
+model field to that configured default without calling a provider model-list
+endpoint. For `OpenAI-Compatible (Custom)`, there is no universal latest model,
+so enter the model ID exposed by that endpoint.
 
 ### Language
 
@@ -417,9 +417,8 @@ Host applications can prefill the panel with initial API keys:
 ```typescript
 new GeoAgentControl({
   apiKeys: {
-    "openai-responses": "OPENAI_API_KEY_VALUE",
-    "openai-chat": "OPENAI_API_KEY_VALUE",
-    anthropic: "ANTHROPIC_API_KEY_VALUE",
+    "openai-compatible": "OPENAI_COMPATIBLE_KEY_VALUE",
+    "anthropic-compatible": "ANTHROPIC_COMPATIBLE_KEY_VALUE",
   },
 });
 ```
