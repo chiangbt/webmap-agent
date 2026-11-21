@@ -35,7 +35,7 @@ import {
   EarthEngineService,
   parseBbox,
   type EarthEngineOptions,
-} from "./earth-engine";
+} from "../earth-engine/earth-engine";
 
 export type JsonObject = Record<string, unknown>;
 export type BBox = [number, number, number, number];

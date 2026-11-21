@@ -1,6 +1,6 @@
 import './lib/styles/geoagent-panel.css';
 
-export { GeoAgentControlReact } from './lib/core/GeoAgentControlReact';
+export { GeoAgentControlReact } from './lib/core/control/GeoAgentControlReact';
 export { GeoAgentPanel } from './lib/panel/GeoAgentPanel';
 export { useGeoAgentState } from './lib/hooks';
 

@@ -1,7 +1,7 @@
 import type { Map, StyleSpecification } from 'maplibre-gl';
 import type { GeoAgentLocale } from '../i18n';
-import type { GeoAgentMapEngine } from './geoagent-tools';
-import type { EarthEngineOptions } from './earth-engine';
+import type { GeoAgentMapEngine } from './tools/geoagent-tools';
+import type { EarthEngineOptions } from './earth-engine/earth-engine';
 
 export type GeoAgentProviderId =
   | 'openai-compatible'

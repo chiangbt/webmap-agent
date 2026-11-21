@@ -11,7 +11,7 @@
  *
  * The shared tool surface, overlay bookkeeping and command dispatch live in
  * the base class (see geoagent-tools.ts). Everything the base exports is
- * re-exported here so the historical `./maplibre-tools` import path keeps
+ * re-exported here so the historical `core/maplibre-tools` import path keeps
  * working.
  */
 import { tool, type Tool } from "@strands-agents/sdk";

@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MapLibreAgentTools } from "../src/lib/core/maplibre-tools";
+import { MapLibreAgentTools } from "../src/lib/core/tools/maplibre-tools";
 import {
   EarthEngineService,
   parseCommunityGeeCatalog,
   parseOfficialGeeCatalog,
-} from "../src/lib/core/earth-engine";
+} from "../src/lib/core/earth-engine/earth-engine";
 
 class MockEeObject {
   constructor(

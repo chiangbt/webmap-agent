@@ -17,11 +17,11 @@ import VectorSource from 'ol/source/Vector';
 import GeoJSON from 'ol/format/GeoJSON';
 import { Circle as CircleStyle, Fill, Stroke, Style, Text } from 'ol/style';
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
-import { GeoAgentTools } from '../src/lib/core/geoagent-tools';
-import { MapLibreAgentTools } from '../src/lib/core/maplibre-tools';
-import { LeafletAgentTools } from '../src/lib/core/leaflet-tools';
-import { OpenLayersAgentTools } from '../src/lib/core/openlayers-tools';
-import { createGeoAgentTools } from '../src/lib/core/tools-factory';
+import { GeoAgentTools } from '../src/lib/core/tools/geoagent-tools';
+import { MapLibreAgentTools } from '../src/lib/core/tools/maplibre-tools';
+import { LeafletAgentTools } from '../src/lib/core/tools/leaflet-tools';
+import { OpenLayersAgentTools } from '../src/lib/core/tools/openlayers-tools';
+import { createGeoAgentTools } from '../src/lib/core/tools/tools-factory';
 
 const baseOptions = {
   allowCodeExecution: () => true,

@@ -21,7 +21,7 @@
  */
 
 import type { Map as MapLibreMap } from "maplibre-gl";
-import type { GeoAgentControl } from "./GeoAgentControl";
+import type { GeoAgentControl } from "../control/GeoAgentControl";
 
 /* -------------------------------------------------------------------------- */
 /* Structural Leaflet types (the shim never imports leaflet itself)           */

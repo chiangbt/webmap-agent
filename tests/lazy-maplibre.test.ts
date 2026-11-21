@@ -19,11 +19,11 @@ import VectorSource from 'ol/source/Vector';
 import GeoJSON from 'ol/format/GeoJSON';
 import { Circle as CircleStyle, Fill, Stroke, Style, Text } from 'ol/style';
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
-import { createGeoAgentTools } from '../src/lib/core/tools-factory';
+import { createGeoAgentTools } from '../src/lib/core/tools/tools-factory';
 import type {
   GeoAgentMapEngine,
   GeoAgentTools,
-} from '../src/lib/core/geoagent-tools';
+} from '../src/lib/core/tools/geoagent-tools';
 
 const { maplibreImportSpy } = vi.hoisted(() => ({
   maplibreImportSpy: vi.fn(),

@@ -29,7 +29,7 @@ import {
   isOpenLayersMapShim,
   type OpenLayersMapLike,
   type OpenLayersMapShim,
-} from "./openlayers-engine";
+} from "../engines/openlayers-engine";
 
 export class OpenLayersAgentTools extends GeoAgentTools {
   protected resolveEngine(

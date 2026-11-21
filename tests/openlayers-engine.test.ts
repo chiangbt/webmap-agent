@@ -11,13 +11,13 @@ import VectorSource from 'ol/source/Vector';
 import GeoJSON from 'ol/format/GeoJSON';
 import { Circle as CircleStyle, Fill, Stroke, Style, Text } from 'ol/style';
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
-import { OpenLayersAgentTools } from '../src/lib/core/openlayers-tools';
-import type { GeoAgentMapEngine } from '../src/lib/core/geoagent-tools';
+import { OpenLayersAgentTools } from '../src/lib/core/tools/openlayers-tools';
+import type { GeoAgentMapEngine } from '../src/lib/core/tools/geoagent-tools';
 import {
   createOpenLayersMapShim,
   isOpenLayersMap,
   isOpenLayersMapShim,
-} from '../src/lib/core/openlayers-engine';
+} from '../src/lib/core/engines/openlayers-engine';
 
 const openLayersNamespace = {
   Feature,

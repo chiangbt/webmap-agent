@@ -13,7 +13,7 @@ import {
   objectArg,
   slug,
   toJsonValue,
-} from "../src/lib/core/maplibre-tools";
+} from "../src/lib/core/tools/maplibre-tools";
 
 class MockMap {
   readonly mapContainer = document.createElement("div");

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { GeoAgentControl } from './GeoAgentControl';
-import type { GeoAgentControlReactProps } from './types';
+import type { GeoAgentControlReactProps } from '../types';
 
 export function GeoAgentControlReact({
   map,

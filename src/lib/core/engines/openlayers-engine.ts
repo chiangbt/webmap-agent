@@ -24,7 +24,7 @@
  */
 
 import type { Map as MapLibreMap } from "maplibre-gl";
-import type { GeoAgentControl } from "./GeoAgentControl";
+import type { GeoAgentControl } from "../control/GeoAgentControl";
 import type { ExpressionContext, PixelProjector } from "./leaflet-engine";
 import {
   colorValueFrom,

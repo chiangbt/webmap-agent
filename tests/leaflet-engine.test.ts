@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import L from 'leaflet';
-import { LeafletAgentTools } from '../src/lib/core/leaflet-tools';
-import type { GeoAgentMapEngine } from '../src/lib/core/geoagent-tools';
+import { LeafletAgentTools } from '../src/lib/core/tools/leaflet-tools';
+import type { GeoAgentMapEngine } from '../src/lib/core/tools/geoagent-tools';
 import {
   computeClusteredFeatures,
   createLeafletMapShim,
@@ -11,7 +11,7 @@ import {
   normalizeFeatureCollection,
   normalizeGeometryType,
   resolveBasemapStyle,
-} from '../src/lib/core/leaflet-engine';
+} from '../src/lib/core/engines/leaflet-engine';
 
 function leafletEngine(): GeoAgentMapEngine {
   return { kind: 'leaflet', namespace: L as unknown as Record<string, unknown> };

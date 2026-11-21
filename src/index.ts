@@ -1,6 +1,6 @@
 import './lib/styles/geoagent-control.css';
 
-export { GeoAgentControl } from './lib/core/GeoAgentControl';
+export { GeoAgentControl } from './lib/core/control/GeoAgentControl';
 export { GeoAgentCore } from './lib/core/GeoAgentCore';
 export {
   GeoAgentTools,
@@ -22,11 +22,11 @@ export {
   type GeoAgentOpenLayersEngine,
   type GeoAgentMarker,
   type GeoAgentPopup,
-} from './lib/core/geoagent-tools';
-export { MapLibreAgentTools } from './lib/core/maplibre-tools';
-export { LeafletAgentTools } from './lib/core/leaflet-tools';
-export { OpenLayersAgentTools } from './lib/core/openlayers-tools';
-export { createGeoAgentTools } from './lib/core/tools-factory';
+} from './lib/core/tools/geoagent-tools';
+export { MapLibreAgentTools } from './lib/core/tools/maplibre-tools';
+export { LeafletAgentTools } from './lib/core/tools/leaflet-tools';
+export { OpenLayersAgentTools } from './lib/core/tools/openlayers-tools';
+export { createGeoAgentTools } from './lib/core/tools/tools-factory';
 
 export {
   LeafletMapShim,
@@ -36,7 +36,7 @@ export {
   isLeafletMapShim,
   type LeafletControlAttachment,
   type LeafletMapLike,
-} from './lib/core/leaflet-engine';
+} from './lib/core/engines/leaflet-engine';
 
 export {
   OpenLayersMapShim,
@@ -47,13 +47,13 @@ export {
   type OpenLayersControlAttachment,
   type OpenLayersMapLike,
   type OpenLayersNamespace,
-} from './lib/core/openlayers-engine';
+} from './lib/core/engines/openlayers-engine';
 
 export type {
   EarthEngineOptions,
   EarthEngineLayerRecord,
   GeeDataset,
-} from './lib/core/earth-engine';
+} from './lib/core/earth-engine/earth-engine';
 
 export type {
   GeoAgentControlEvent,

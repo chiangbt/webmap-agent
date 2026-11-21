@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { MapLibreAgentTools, type GeoAgentMapEngine } from '../src/lib/core/maplibre-tools';
+import { MapLibreAgentTools, type GeoAgentMapEngine } from '../src/lib/core/tools/maplibre-tools';
 
 /**
  * A marker of whichever engine the host uses: only the members the tools drive,
@@ -244,7 +244,7 @@ describe('GeoAgentControl mapEngine plumbing', () => {
     // declared but never copied typechecks and then silently does nothing: the
     // tools fall back to maplibre-gl and every engine-specific tool breaks on a
     // mapbox-gl map. Assert through the tools, which is what actually matters.
-    const { GeoAgentControl } = await import('../src/lib/core/GeoAgentControl');
+    const { GeoAgentControl } = await import('../src/lib/core/control/GeoAgentControl');
     const { FakeMarker } = fakeMarkerClass();
     const engine = mapboxEngine(FakeMarker);
 
@@ -266,7 +266,7 @@ describe('GeoAgentControl mapEngine plumbing', () => {
   });
 
   it('still defaults to maplibre-gl when no engine is named', async () => {
-    const { GeoAgentControl } = await import('../src/lib/core/GeoAgentControl');
+    const { GeoAgentControl } = await import('../src/lib/core/control/GeoAgentControl');
     const control = new GeoAgentControl({});
     const container = document.createElement('div');
     document.body.appendChild(container);

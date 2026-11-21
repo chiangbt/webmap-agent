@@ -1,8 +1,8 @@
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import type { IControl, Map as MapLibreMap } from 'maplibre-gl';
-import { GeoAgentCore } from './GeoAgentCore';
-import type { GeoAgentTools } from './geoagent-tools';
+import { GeoAgentCore } from '../GeoAgentCore';
+import type { GeoAgentTools } from '../tools/geoagent-tools';
 import type {
   GeoAgentControlEvent,
   GeoAgentControlEventHandler,
@@ -11,7 +11,7 @@ import type {
   GeoAgentProviderId,
   GeoAgentState,
   GeoAgentStatusState,
-} from './types';
+} from '../types';
 
 interface GeoAgentUi {
   status: HTMLSpanElement;

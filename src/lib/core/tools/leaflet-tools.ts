@@ -29,7 +29,7 @@ import {
   isLeafletMapShim,
   type LeafletMapLike,
   type LeafletMapShim,
-} from "./leaflet-engine";
+} from "../engines/leaflet-engine";
 
 export class LeafletAgentTools extends GeoAgentTools {
   protected resolveEngine(

@@ -6,8 +6,8 @@ import {
 } from '@strands-agents/sdk';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { t, type GeoAgentMessageKey } from '../i18n';
-import { DEFAULT_BASEMAPS, type GeoAgentTools } from './geoagent-tools';
-import { createGeoAgentTools } from './tools-factory';
+import { DEFAULT_BASEMAPS, type GeoAgentTools } from './tools/geoagent-tools';
+import { createGeoAgentTools } from './tools/tools-factory';
 import type {
   GeoAgentConversationChange,
   GeoAgentConversationEntry,
