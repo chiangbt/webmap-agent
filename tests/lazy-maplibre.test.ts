@@ -19,7 +19,11 @@ import VectorSource from 'ol/source/Vector';
 import GeoJSON from 'ol/format/GeoJSON';
 import { Circle as CircleStyle, Fill, Stroke, Style, Text } from 'ol/style';
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
-import { MapLibreAgentTools } from '../src/lib/core/maplibre-tools';
+import { createGeoAgentTools } from '../src/lib/core/tools-factory';
+import type {
+  GeoAgentMapEngine,
+  GeoAgentTools,
+} from '../src/lib/core/geoagent-tools';
 
 const { maplibreImportSpy } = vi.hoisted(() => ({
   maplibreImportSpy: vi.fn(),
@@ -75,8 +79,11 @@ const openLayersNamespace = {
   transformExtent,
 };
 
-function toolsFor(map: unknown, mapEngine?: never): MapLibreAgentTools {
-  return new MapLibreAgentTools(map as never, {
+function toolsFor(
+  map: unknown,
+  mapEngine?: GeoAgentMapEngine,
+): GeoAgentTools {
+  return createGeoAgentTools(map, {
     allowCodeExecution: () => true,
     allowDestructiveTools: () => true,
     mapEngine,
@@ -127,7 +134,7 @@ describe('lazy maplibre-gl loading', () => {
         {
           kind: 'leaflet',
           namespace: L as unknown as Record<string, unknown>,
-        } as never,
+        },
       );
       await agent.runCommand('get_map_state');
       await agent.runCommand('add_marker', { lat: 39, lon: -98, name: 'pin' });
@@ -162,7 +169,7 @@ describe('lazy maplibre-gl loading', () => {
         {
           kind: 'openlayers',
           namespace: openLayersNamespace as unknown as Record<string, unknown>,
-        } as never,
+        },
       );
       await agent.runCommand('get_map_state');
       await agent.runCommand('add_marker', { lat: 39, lon: -98, name: 'pin' });

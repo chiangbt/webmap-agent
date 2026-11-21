@@ -6,7 +6,8 @@ import {
 } from '@strands-agents/sdk';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { t, type GeoAgentMessageKey } from '../i18n';
-import { DEFAULT_BASEMAPS, MapLibreAgentTools } from './maplibre-tools';
+import { DEFAULT_BASEMAPS, type GeoAgentTools } from './geoagent-tools';
+import { createGeoAgentTools } from './tools-factory';
 import type {
   GeoAgentConversationChange,
   GeoAgentConversationEntry,
@@ -224,7 +225,7 @@ export class GeoAgentCore {
     >;
   private mapInstance?: MapLibreMap;
   private mapContainer?: HTMLElement;
-  private tools?: MapLibreAgentTools;
+  private tools?: GeoAgentTools;
   private agent: Agent | null = null;
   private agentSignature = '';
   private streamingEntryId: string | null = null;
@@ -337,7 +338,7 @@ export class GeoAgentCore {
       );
     }
     this.mapContainer = mapContainer;
-    this.tools = new MapLibreAgentTools(map, {
+    this.tools = createGeoAgentTools(map, {
       basemaps: { ...DEFAULT_BASEMAPS, ...this.options.basemaps },
       allowCodeExecution: () => this.state.allowCodeExecution,
       allowDestructiveTools: () => this.state.allowDestructiveTools,
@@ -392,7 +393,7 @@ export class GeoAgentCore {
   }
 
   /** The engine-bound tools, or undefined before `attach`. */
-  getTools(): MapLibreAgentTools | undefined {
+  getTools(): GeoAgentTools | undefined {
     return this.tools;
   }
 

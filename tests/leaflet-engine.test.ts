@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import L from 'leaflet';
-import {
-  MapLibreAgentTools,
-  type GeoAgentMapEngine,
-} from '../src/lib/core/maplibre-tools';
+import { LeafletAgentTools } from '../src/lib/core/leaflet-tools';
+import type { GeoAgentMapEngine } from '../src/lib/core/geoagent-tools';
 import {
   computeClusteredFeatures,
   createLeafletMapShim,
@@ -19,8 +17,8 @@ function leafletEngine(): GeoAgentMapEngine {
   return { kind: 'leaflet', namespace: L as unknown as Record<string, unknown> };
 }
 
-function tools(map: unknown, mapEngine?: GeoAgentMapEngine): MapLibreAgentTools {
-  return new MapLibreAgentTools(map as never, {
+function tools(map: unknown, mapEngine?: GeoAgentMapEngine): LeafletAgentTools {
+  return new LeafletAgentTools(map as never, {
     allowCodeExecution: () => true,
     allowDestructiveTools: () => true,
     mapEngine: mapEngine ?? leafletEngine(),
@@ -152,7 +150,7 @@ describe('leaflet pure helpers', () => {
   });
 });
 
-describe('MapLibreAgentTools on a real Leaflet map (jsdom)', () => {
+describe('LeafletAgentTools on a real Leaflet map (jsdom)', () => {
   let container: HTMLDivElement;
   let map: L.Map;
 

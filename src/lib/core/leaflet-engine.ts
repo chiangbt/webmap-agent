@@ -1,7 +1,7 @@
 /**
  * Leaflet host support for the GeoAgent control.
  *
- * MapLibreAgentTools drives the map through the MapLibre GL JS API surface:
+ * The GeoAgent tools drive the map through the MapLibre GL JS API surface:
  * Style Spec sources/layers, setStyle, queryRenderedFeatures, and friends.
  * Leaflet has none of that — its layers are objects (TileLayer, GeoJSON,
  * Marker) and there is no style document.

@@ -2,7 +2,7 @@ import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import type { IControl, Map as MapLibreMap } from 'maplibre-gl';
 import { GeoAgentCore } from './GeoAgentCore';
-import type { MapLibreAgentTools } from './maplibre-tools';
+import type { GeoAgentTools } from './geoagent-tools';
 import type {
   GeoAgentControlEvent,
   GeoAgentControlEventHandler,
@@ -95,7 +95,7 @@ export class GeoAgentControl implements IControl {
   }
 
   /** The core's engine-bound tools, or undefined before mounting. */
-  get tools(): MapLibreAgentTools | undefined {
+  get tools(): GeoAgentTools | undefined {
     return this.core.getTools();
   }
 

@@ -21,6 +21,7 @@
 - 破坏性图层删除工具由独立开关控制
 - 可将可见的对话日志复制为 Markdown
 - 提供无头 `GeoAgentCore`、shadcn/ui 风格的 React `GeoAgentPanel`，以及经典的 React 包装组件与状态 hook
+- 按引擎划分的工具类层次：共享基类 `GeoAgentTools` 之下有 `MapLibreAgentTools`、`LeafletAgentTools`、`OpenLayersAgentTools` 三个子类——每个子类只暴露该引擎真正能执行的 Strands 工具，`createGeoAgentTools` 会根据 `mapEngine` 选择正确的子类
 
 ## 安装
 
@@ -259,8 +260,10 @@ map.addControl(agent);
 
 ### 在 Leaflet 上运行
 
-同样的工具也可以运行在纯 [Leaflet](https://leafletjs.com/) 地图上。Leaflet
-没有 Style Spec，因此本包内置了一个兼容引擎（`leaflet-engine.ts`）：一个在
+同样的工具也可以运行在纯 [Leaflet](https://leafletjs.com/) 地图上，由
+`LeafletAgentTools` 驱动——它是共享基类 `GeoAgentTools` 的子类，
+`createGeoAgentTools` 会根据 `mapEngine.kind` 选中它。Leaflet
+没有 Style Spec，因此该子类驱动一个兼容引擎（`leaflet-engine.ts`）：一个在
 真实 `L.Map` 之上模拟 MapLibre map API 的 shim，把 Style Spec 的
 source/layer 物化为 Leaflet 图层（每个 Style Spec 图层对应 GeoJSON/vector
 图层，raster source 对应瓦片图层，用每层独立 pane 控制 z-order 与可见性，
@@ -307,8 +310,9 @@ addGeoAgentToLeafletMap(agent, map, { position: 'topleft' });
 
 ### 在 OpenLayers 上运行
 
-同样的工具也可以运行在纯 [OpenLayers](https://openlayers.org/) 地图上。本包
-内置第二个兼容引擎（`openlayers-engine.ts`）：一个在真实 `ol/Map` 之上模拟
+同样的工具也可以运行在纯 [OpenLayers](https://openlayers.org/) 地图上，由
+`OpenLayersAgentTools` 驱动——同样是共享基类 `GeoAgentTools` 的子类。该子类
+驱动第二个兼容引擎（`openlayers-engine.ts`）：一个在真实 `ol/Map` 之上模拟
 MapLibre map API 的 shim，把 Style Spec 的 source/layer 物化为 OpenLayers
 图层（每个 Style Spec 图层对应一个 `VectorLayer`，其 style function 求值
 fill/line/circle/symbol 的 paint 与 `["get", ...]`/`["step", ...]`/

@@ -22,6 +22,7 @@ core also attaches to Leaflet and OpenLayers maps via compatibility shims.
 - Destructive layer removal tools gated behind a separate toggle
 - Copy the visible conversation log as Markdown
 - Headless `GeoAgentCore`, a shadcn/ui-styled React `GeoAgentPanel`, plus the classic React wrapper and state hook
+- Engine-specific tool classes: a shared `GeoAgentTools` base with `MapLibreAgentTools`, `LeafletAgentTools`, and `OpenLayersAgentTools` subclasses — each exposes only the Strands tools its engine can actually run, and `createGeoAgentTools` picks the right subclass from `mapEngine`
 
 ## Installation
 
@@ -273,9 +274,11 @@ layer). It reports that rather than failing silently.
 
 ### Running on Leaflet
 
-The same tools also run on a plain [Leaflet](https://leafletjs.com/) map.
-Leaflet has no Style Spec, so the package ships a compatibility engine
-(`leaflet-engine.ts`): a shim that presents the MapLibre map API on top of a
+The same tools also run on a plain [Leaflet](https://leafletjs.com/) map,
+through `LeafletAgentTools` — a subclass of the shared `GeoAgentTools` base
+that `createGeoAgentTools` picks from `mapEngine.kind`. Leaflet has no Style
+Spec, so the subclass drives a compatibility engine (`leaflet-engine.ts`): a
+shim that presents the MapLibre map API on top of a
 real `L.Map` and materializes Style-Spec sources/layers as Leaflet layers
 (GeoJSON/vector layers per Style-Spec layer, tile layers for raster sources,
 per-layer panes for z-order and visibility, an expression evaluator for
@@ -325,8 +328,10 @@ What works and what does not, by design:
 
 ### Running on OpenLayers
 
-The same tools also run on a plain [OpenLayers](https://openlayers.org/) map.
-The package ships a second compatibility engine (`openlayers-engine.ts`): a
+The same tools also run on a plain [OpenLayers](https://openlayers.org/) map,
+through `OpenLayersAgentTools` — a subclass of the shared `GeoAgentTools`
+base. The subclass drives a second compatibility engine
+(`openlayers-engine.ts`): a
 shim that presents the MapLibre map API on top of a real `ol/Map` and
 materializes Style-Spec sources/layers as OpenLayers layers (one
 `VectorLayer` per Style-Spec layer with a style function that evaluates

@@ -11,10 +11,8 @@ import VectorSource from 'ol/source/Vector';
 import GeoJSON from 'ol/format/GeoJSON';
 import { Circle as CircleStyle, Fill, Stroke, Style, Text } from 'ol/style';
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
-import {
-  MapLibreAgentTools,
-  type GeoAgentMapEngine,
-} from '../src/lib/core/maplibre-tools';
+import { OpenLayersAgentTools } from '../src/lib/core/openlayers-tools';
+import type { GeoAgentMapEngine } from '../src/lib/core/geoagent-tools';
 import {
   createOpenLayersMapShim,
   isOpenLayersMap,
@@ -47,8 +45,8 @@ function openLayersEngine(): GeoAgentMapEngine {
   };
 }
 
-function tools(map: unknown, mapEngine?: GeoAgentMapEngine): MapLibreAgentTools {
-  return new MapLibreAgentTools(map as never, {
+function tools(map: unknown, mapEngine?: GeoAgentMapEngine): OpenLayersAgentTools {
+  return new OpenLayersAgentTools(map as never, {
     allowCodeExecution: () => true,
     allowDestructiveTools: () => true,
     mapEngine: mapEngine ?? openLayersEngine(),
@@ -108,7 +106,7 @@ describe('openlayers structural helpers', () => {
   });
 });
 
-describe('MapLibreAgentTools on a real OpenLayers map (jsdom)', () => {
+describe('OpenLayersAgentTools on a real OpenLayers map (jsdom)', () => {
   let container: HTMLDivElement;
   let map: Map;
 

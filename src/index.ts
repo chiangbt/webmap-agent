@@ -3,6 +3,7 @@ import './lib/styles/geoagent-control.css';
 export { GeoAgentControl } from './lib/core/GeoAgentControl';
 export { GeoAgentCore } from './lib/core/GeoAgentCore';
 export {
+  GeoAgentTools,
   DEFAULT_BASEMAPS,
   geoJsonBounds,
   geoJsonGeometryTypes,
@@ -12,6 +13,8 @@ export {
   toJsonValue,
   type BBox,
   type JsonObject,
+  type GeoAgentToolsOptions,
+  type MapLibreAgentToolsOptions,
   type GeoAgentMapEngine,
   type GeoAgentStyleSpecEngine,
   type GeoAgentStyleSpecNamespace,
@@ -19,7 +22,11 @@ export {
   type GeoAgentOpenLayersEngine,
   type GeoAgentMarker,
   type GeoAgentPopup,
-} from './lib/core/maplibre-tools';
+} from './lib/core/geoagent-tools';
+export { MapLibreAgentTools } from './lib/core/maplibre-tools';
+export { LeafletAgentTools } from './lib/core/leaflet-tools';
+export { OpenLayersAgentTools } from './lib/core/openlayers-tools';
+export { createGeoAgentTools } from './lib/core/tools-factory';
 
 export {
   LeafletMapShim,

@@ -1,6 +1,6 @@
 import type { Map, StyleSpecification } from 'maplibre-gl';
 import type { GeoAgentLocale } from '../i18n';
-import type { GeoAgentMapEngine } from './maplibre-tools';
+import type { GeoAgentMapEngine } from './geoagent-tools';
 import type { EarthEngineOptions } from './earth-engine';
 
 export type GeoAgentProviderId =

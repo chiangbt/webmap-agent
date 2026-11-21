@@ -1,7 +1,7 @@
 /**
  * OpenLayers host support for the GeoAgent control.
  *
- * MapLibreAgentTools drives the map through the MapLibre GL JS API surface:
+ * The GeoAgent tools drive the map through the MapLibre GL JS API surface:
  * Style Spec sources/layers, setStyle, queryRenderedFeatures, and friends.
  * OpenLayers has a different object model entirely — Layers with Sources, a
  * View in EPSG:3857, and style functions instead of a style document.
@@ -443,7 +443,7 @@ class OlShimSource {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Presents the MapLibre Map API surface MapLibreAgentTools speaks on top of a
+ * Presents the MapLibre Map API surface the GeoAgent tools speak on top of a
  * real ol/Map. Mirrors LeafletMapShim; see that class for the contract.
  */
 export class OpenLayersMapShim {
