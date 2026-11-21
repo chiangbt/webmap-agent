@@ -112,6 +112,14 @@ function markdownHeading(role: string): string {
   return role.charAt(0).toUpperCase() + role.slice(1).toLowerCase();
 }
 
+/** Human-readable map engine name for log messages, keyed by `mapEngine.kind`. */
+const ENGINE_LABELS: Record<string, string> = {
+  maplibre: 'MapLibre',
+  mapbox: 'Mapbox GL JS',
+  leaflet: 'Leaflet',
+  openlayers: 'OpenLayers',
+};
+
 let conversationEntryCount = 0;
 
 function generateEntryId(): string {
@@ -797,14 +805,21 @@ export class GeoAgentCore {
     return missing.join(', ');
   }
 
+  /** The map engine actually in use, for engine-aware log messages. */
+  private engineLabel(): string {
+    const kind = this.options.mapEngine?.kind;
+    return (kind && ENGINE_LABELS[kind]) || 'MapLibre';
+  }
+
   private readyLogMessage(): string {
+    const engine = this.engineLabel();
     if (this.isConfigured()) {
-      return this.translate('logReady');
+      return this.translate('logReady', { engine });
     }
     const missing = this.missingConfigSummary();
     return missing
-      ? this.translate('logLoadedWithMissing', { missing })
-      : this.translate('logLoaded');
+      ? this.translate('logLoadedWithMissing', { missing, engine })
+      : this.translate('logLoaded', { engine });
   }
 
   private normalizeBaseUrl(baseUrl: string): string {

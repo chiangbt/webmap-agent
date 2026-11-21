@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import L from 'leaflet';
 import { GeoAgentCore } from '../src/lib/core/GeoAgentCore';
 
 function createMockMap() {
@@ -217,10 +218,39 @@ describe('GeoAgentCore conversation', () => {
     core.attach(mapContext.map);
     const markdown = core.conversationMarkdown();
     expect(markdown).toBe(
-      '## System\n\nBrowser-only Strands MapLibre agent ready.',
+      '## System\n\nBrowser-only Strands agent ready (MapLibre).',
     );
     core.dispose();
     mapContext.cleanup();
+  });
+
+  it('names the actual map engine in the ready entry', () => {
+    sessionStorage.setItem(
+      'web-geoagent.baseUrl.anthropic-compatible',
+      'https://gateway.example.com',
+    );
+    // A minimal Leaflet-flavored map: the shim constructor walks the existing
+    // layers and registers a zoomend listener.
+    const leafletMap = {
+      getContainer: () => mapContext.container,
+      eachLayer: (_cb: (layer: unknown) => void) => {},
+      whenReady: (cb: () => void) => {
+        cb();
+      },
+      _loaded: true,
+      on: () => {},
+      off: () => {},
+    };
+    const core = new GeoAgentCore({
+      defaultProvider: 'anthropic-compatible',
+      apiKeys: { 'anthropic-compatible': 'sk-test' },
+      mapEngine: { kind: 'leaflet', namespace: L as unknown as Record<string, unknown> },
+    });
+    core.attach(leafletMap as never);
+    expect(core.conversationMarkdown()).toBe(
+      '## System\n\nBrowser-only Strands agent ready (Leaflet).',
+    );
+    core.dispose();
   });
 
   it('keeps prompt history across prompts and navigates with drafts', async () => {

@@ -843,7 +843,7 @@ describe("GeoAgentControl", () => {
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
 
     expect(writeText).toHaveBeenCalledWith(
-      "## System\n\nBrowser-only Strands MapLibre agent ready.",
+      "## System\n\nBrowser-only Strands agent ready (MapLibre).",
     );
 
     control.onRemove();
@@ -1622,7 +1622,7 @@ describe("GeoAgentControl locale", () => {
       map.mapContainer.querySelector<HTMLElement>(
         ".geoagent-entry .geoagent-text",
       )?.textContent,
-    ).toBe("浏览器端 Strands MapLibre 智能体已就绪。");
+    ).toBe("浏览器端 Strands 智能体已就绪（MapLibre）。");
 
     expect(
       map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-send")

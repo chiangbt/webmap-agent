@@ -61,11 +61,12 @@ export const en = {
   roleTool: 'tool',
   roleError: 'error',
 
-  // Runtime log and status messages.
-  logReady: 'Browser-only Strands MapLibre agent ready.',
+  // Runtime log and status messages. {engine} is the actual map engine in
+  // use (MapLibre, Mapbox GL JS, Leaflet, OpenLayers).
+  logReady: 'Browser-only Strands agent ready ({engine}).',
   logLoadedWithMissing:
-    'Browser-only Strands MapLibre agent loaded. Add your {missing} to start.',
-  logLoaded: 'Browser-only Strands MapLibre agent loaded.',
+    'Browser-only Strands agent loaded ({engine}). Add your {missing} to start.',
+  logLoaded: 'Browser-only Strands agent loaded ({engine}).',
   logChatCleared: 'Chat cleared.',
   logCancelRequested: 'Cancellation requested.',
   logRunningTool: 'Running {tool}',

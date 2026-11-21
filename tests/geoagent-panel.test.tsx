@@ -78,7 +78,7 @@ describe('GeoAgentPanel rendering', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('geoagent-entry').length).toBe(1);
       expect(screen.getAllByTestId('geoagent-entry')[0].textContent).toContain(
-        'Strands MapLibre agent loaded',
+        'Strands agent loaded',
       );
     });
     cleanup();
@@ -244,7 +244,7 @@ describe('GeoAgentPanel conversation flow', () => {
 
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     expect(writeText).toHaveBeenCalledWith(
-      '## System\n\nBrowser-only Strands MapLibre agent ready.',
+      '## System\n\nBrowser-only Strands agent ready (MapLibre).',
     );
     expect(screen.getByTestId('geoagent-status').textContent).toBe('Copied');
     cleanup();
