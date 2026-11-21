@@ -303,11 +303,15 @@ What works and what does not, by design:
   (`query_rendered_features` does pixel-accurate hit tests), basemap
   switching (named MapLibre styles resolve to raster tile URLs — vector
   styles cannot render in Leaflet), and `run_maplibre_script` (user code
-  receives the real `L.Map` and the `L` namespace, so scripts there are
-  Leaflet scripts).
-- `set_projection` accepts `'mercator'` only (Leaflet is Web Mercator);
-  `add_terrain`, `set_sky`/`clear_sky`, `fill-extrusion`/`heatmap` layers
-  and `screenshot_map` report unsupported instead of failing silently.
+  receives the real `L.Map` as `map` and the Leaflet namespace as `L`, and
+  the tool description tells the model to write Leaflet code — scripts
+  there are Leaflet scripts).
+- Leaflet is 2D-only, and the agent knows it up front: the WebGL-only tools
+  (`set_projection`, `add_terrain`/`clear_terrain`, `set_sky`/`remove_sky`,
+  `add_3d_buildings`, `screenshot_map`) are removed from the tool list on
+  this engine, and the system prompt states the 2D boundary. Calling them
+  through `runCommand` directly still reports unsupported instead of
+  failing silently.
 - Earth Engine tiles load as plain XYZ raster overlays.
 
 ### Running on OpenLayers
@@ -377,12 +381,16 @@ What works and what does not, by design:
   (`query_rendered_features` does pixel-accurate hit tests, falling back to
   pure Web Mercator math before the first rendered frame), basemap
   switching (named MapLibre styles resolve to raster tile URLs), and
-  `run_maplibre_script` (user code receives the real `ol/Map` and the
-  namespace you supplied, so scripts there are OpenLayers scripts).
-- `set_projection` accepts `'mercator'` only; `add_terrain`,
-  `set_sky`/`clear_sky`, `fill-extrusion`/`heatmap` layers, vector tile
-  sources and `screenshot_map` report unsupported instead of failing
-  silently.
+  `run_maplibre_script` (user code receives the real `ol/Map` as `map` and
+  the namespace you supplied as `ol`, and the tool description tells the
+  model to write OpenLayers code — scripts there are OpenLayers scripts).
+- OpenLayers is 2D in this integration, and the agent knows it up front:
+  the WebGL-only tools (`set_projection`, `add_terrain`/`clear_terrain`,
+  `set_sky`/`remove_sky`, `add_3d_buildings`, `screenshot_map`) are removed
+  from the tool list on this engine, and the system prompt states the 2D
+  boundary. Calling them through `runCommand` directly — or asking for
+  `fill-extrusion`/`heatmap` layers or vector tile sources — still reports
+  unsupported instead of failing silently.
 - Earth Engine tiles load as plain XYZ raster overlays.
 
 ### Earth Engine Options

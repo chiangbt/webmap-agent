@@ -286,11 +286,53 @@ describe('MapLibreAgentTools on a real OpenLayers map (jsdom)', () => {
   it('hands run_maplibre_script the raw ol map and the namespace', async () => {
     const agent = tools(map);
     const result = (await agent.runCommand('run_maplibre_script', {
-      code: 'return { isOlMap: typeof map.getView === "function" && typeof map.addLayer === "function", hasNamespace: typeof maplibregl.fromLonLat === "function", zoom: map.getView().getZoom() };',
+      code: 'return { isOlMap: typeof map.getView === "function" && typeof map.addLayer === "function", hasNamespace: typeof ol.fromLonLat === "function", zoom: map.getView().getZoom() };',
     })) as { result: Record<string, unknown> };
     expect(result.result.isOlMap).toBe(true);
     expect(result.result.hasNamespace).toBe(true);
     expect(result.result.zoom).toBe(4);
+  });
+
+  it('does not expose the WebGL-only 3D tools on the OpenLayers engine', () => {
+    const agent = tools(map);
+    const toolNames = (agent.createTools() as Array<{ name: string }>).map(
+      (item) => item.name,
+    );
+    for (const hidden of [
+      'set_projection',
+      'add_terrain',
+      'clear_terrain',
+      'set_sky',
+      'remove_sky',
+      'add_3d_buildings',
+      'screenshot_map',
+    ]) {
+      expect(toolNames).not.toContain(hidden);
+    }
+    // The 2D-capable surface stays available.
+    expect(toolNames).toContain('add_geojson_data');
+    expect(toolNames).toContain('add_basemap');
+    expect(toolNames).toContain('run_maplibre_script');
+  });
+
+  it('describes run_maplibre_script with the OpenLayers API and the ol binding', () => {
+    const agent = tools(map);
+    const scriptTool = (
+      agent.createTools() as Array<{
+        name: string;
+        description: string;
+        toolSpec: {
+          inputSchema: {
+            properties: Record<string, { description?: string }>;
+          };
+        };
+      }>
+    ).find((item) => item.name === 'run_maplibre_script');
+    expect(scriptTool?.description).toMatch(/OpenLayers map/);
+    expect(scriptTool?.description).toMatch(/not MapLibre/);
+    expect(
+      scriptTool?.toolSpec.inputSchema.properties.code.description,
+    ).toMatch(/map, ol, and helpers/);
   });
 
   it('reports unsupported capabilities explicitly instead of failing silently', async () => {

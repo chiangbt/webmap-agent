@@ -49,7 +49,7 @@ const BASE_PROVIDER_CONFIGS: Record<
   },
 };
 
-const BROWSER_MAPLIBRE_SYSTEM_PROMPT = `You are an AI assistant embedded in a browser web app with direct access to a live web map through dedicated browser tools.
+const BROWSER_MAP_SYSTEM_PROMPT = `You are an AI assistant embedded in a browser web app with direct access to a live web map through dedicated browser tools.
 
 Workflow guidance:
 - Use browser map tools for map navigation, layer inspection, marker creation, GeoJSON display, layer visibility, feature queries, and screenshots.
@@ -60,9 +60,54 @@ Workflow guidance:
 - Do not ask the user to paste JavaScript or run Python for actions that the browser map tools can perform.
 - Keep responses concise and include layer names, locations, and tool results when useful.`;
 
-const BROWSER_MAPLIBRE_CODE_SYSTEM_PROMPT = `Browser JavaScript code execution is enabled for this local session. This tool runs arbitrary JavaScript in the page context and is not a safety boundary; treat it as a trusted, local-only escape hatch.
+/**
+ * Engine capability paragraph appended to the system prompt, so the agent
+ * knows the map's boundaries BEFORE it calls any tool — not only through a
+ * runtime error after the fact. Empty for maplibre-gl, whose capabilities the
+ * base prompt and the full tool list already describe.
+ *
+ * Exported for tests; the parameter is `options.mapEngine?.kind`.
+ */
+export function engineCapabilityPrompt(engineKind: string | undefined): string {
+  if (engineKind === 'leaflet') {
+    return `The live map is rendered by Leaflet, a 2D-only engine. Leaflet cannot render 3D: there is no globe projection, no terrain, no sky, no 3D buildings (fill-extrusion), and no map screenshot; the corresponding tools are not available on this map. Camera pitch and bearing are always 0, and the projection is always Web Mercator. If the user asks for a 3D effect, explain that Leaflet does not support it and offer a 2D alternative instead of attempting workarounds.`;
+  }
+  if (engineKind === 'openlayers') {
+    return `The live map is rendered by OpenLayers, a 2D engine in this integration. It cannot render 3D here: there is no globe projection, no terrain, no sky, no 3D buildings (fill-extrusion), and no map screenshot; the corresponding tools are not available on this map. Camera pitch is always 0 (bearing follows the view rotation), and the projection is always Web Mercator. If the user asks for a 3D effect, explain that the OpenLayers engine does not support it and offer a 2D alternative instead of attempting workarounds.`;
+  }
+  if (engineKind === 'mapbox') {
+    return `The live map is rendered by Mapbox GL JS. Sky specification tools are not supported by Mapbox GL JS (it draws sky through a style layer) and will report an error.`;
+  }
+  return '';
+}
 
-When no dedicated browser map tool can perform the requested MapLibre operation, write a short JavaScript snippet and run it with run_maplibre_script. The snippet executes in the browser with these names in scope: map, maplibregl, and helpers. Prefer MapLibre GL JS API calls, keep code focused on map operations, and avoid credential handling, storage access, unrelated DOM manipulation, or broad network operations.`;
+/**
+ * Code-execution paragraph for the system prompt. Engine-aware: the snippet
+ * bindings and the API the model must write differ per engine — on Leaflet the
+ * code receives the real L.Map and the L namespace, on OpenLayers the real
+ * ol/Map and the ol namespace, and MapLibre calls would fail there.
+ *
+ * Exported for tests; the parameter is `options.mapEngine?.kind`.
+ */
+export function codeExecutionPrompt(engineKind: string | undefined): string {
+  const base = `Browser JavaScript code execution is enabled for this local session. This tool runs arbitrary JavaScript in the page context and is not a safety boundary; treat it as a trusted, local-only escape hatch.`;
+  const guardrails = `Keep code focused on map operations, and avoid credential handling, storage access, unrelated DOM manipulation, or broad network operations.`;
+  if (engineKind === 'leaflet') {
+    return `${base}
+
+When no dedicated browser map tool can perform the requested operation, write a short JavaScript snippet and run it with run_maplibre_script. The snippet executes in the browser with these names in scope: map (the real Leaflet L.Map), L (the Leaflet namespace), and helpers. Write Leaflet API code — this map is not MapLibre, and MapLibre calls will fail. ${guardrails}`;
+  }
+  if (engineKind === 'openlayers') {
+    return `${base}
+
+When no dedicated browser map tool can perform the requested operation, write a short JavaScript snippet and run it with run_maplibre_script. The snippet executes in the browser with these names in scope: map (the real OpenLayers ol/Map), ol (the OpenLayers namespace object), and helpers. Write OpenLayers API code — this map is not MapLibre, and MapLibre calls will fail. ${guardrails}`;
+  }
+  const api = engineKind === 'mapbox' ? 'Mapbox GL JS' : 'MapLibre GL JS';
+  const namespaceName = engineKind === 'mapbox' ? 'mapboxgl' : 'maplibregl';
+  return `${base}
+
+When no dedicated browser map tool can perform the requested ${api} operation, write a short JavaScript snippet and run it with run_maplibre_script. The snippet executes in the browser with these names in scope: map, ${namespaceName}, and helpers. Prefer ${api} API calls, ${guardrails.toLowerCase()}`;
+}
 
 function storageGet(key: string): string | null {
   try {
@@ -1100,9 +1145,11 @@ export class GeoAgentCore {
       return this.agent;
     }
 
+    const engineKind = this.options.mapEngine?.kind;
     const systemPromptParts = [
-      BROWSER_MAPLIBRE_SYSTEM_PROMPT,
-      this.state.allowCodeExecution ? BROWSER_MAPLIBRE_CODE_SYSTEM_PROMPT : '',
+      BROWSER_MAP_SYSTEM_PROMPT,
+      engineCapabilityPrompt(engineKind),
+      this.state.allowCodeExecution ? codeExecutionPrompt(engineKind) : '',
       this.options.customSystemPrompt?.trim() ?? '',
     ].filter(Boolean);
     const systemPrompt = systemPromptParts.join('\n\n');

@@ -287,11 +287,14 @@ addGeoAgentToLeafletMap(agent, map, { position: 'topleft' });
   GeoJSON/raster/marker 覆盖物、图层可见性/透明度、要素查询
   （`query_rendered_features` 做像素级命中测试）、底图切换（具名 MapLibre
   样式会解析为 raster 瓦片 URL——矢量样式无法在 Leaflet 中渲染），以及
-  `run_maplibre_script`（用户代码拿到真实的 `L.Map` 与 `L` 命名空间，因此
+  `run_maplibre_script`（用户代码拿到真实的 `L.Map`（绑定名 `map`）与
+  Leaflet 命名空间（绑定名 `L`），工具描述会告知模型编写 Leaflet 代码——
   其中的脚本就是 Leaflet 脚本）。
-- `set_projection` 只接受 `'mercator'`（Leaflet 即 Web Mercator）；
-  `add_terrain`、`set_sky`/`clear_sky`、`fill-extrusion`/`heatmap` 图层与
-  `screenshot_map` 会报告不支持，而不是静默失败。
+- Leaflet 是纯 2D 引擎，且 agent 事先知情：仅 WebGL 引擎支持的工具
+  （`set_projection`、`add_terrain`/`clear_terrain`、`set_sky`/`remove_sky`、
+  `add_3d_buildings`、`screenshot_map`）在该引擎下会从工具列表中移除，
+  system prompt 也会声明 2D 能力边界。直接通过 `runCommand` 调用它们仍会
+  报告不支持，而不是静默失败。
 - Earth Engine 瓦片以普通 XYZ raster 覆盖物加载。
 
 ### 在 OpenLayers 上运行
@@ -356,11 +359,15 @@ addGeoAgentToOpenLayersMap(agent, map, { position: 'top-left' });
   （marker 变为 `ol/Overlay` 图钉，点击弹出 popup）、图层可见性/透明度、
   要素查询（`query_rendered_features` 做像素级命中测试，首帧渲染前退化为
   纯 Web Mercator 数学计算）、底图切换（具名 MapLibre 样式解析为 raster
-  瓦片 URL），以及 `run_maplibre_script`（用户代码拿到真实的 `ol/Map` 与你
-  提供的命名空间，因此其中的脚本就是 OpenLayers 脚本）。
-- `set_projection` 只接受 `'mercator'`；`add_terrain`、`set_sky`/`clear_sky`、
-  `fill-extrusion`/`heatmap` 图层、矢量瓦片 source 与 `screenshot_map` 会
-  报告不支持，而不是静默失败。
+  瓦片 URL），以及 `run_maplibre_script`（用户代码拿到真实的 `ol/Map`
+  （绑定名 `map`）与你提供的命名空间（绑定名 `ol`），工具描述会告知模型
+  编写 OpenLayers 代码——其中的脚本就是 OpenLayers 脚本）。
+- OpenLayers 在本集成中是 2D 引擎，且 agent 事先知情：仅 WebGL 引擎支持的
+  工具（`set_projection`、`add_terrain`/`clear_terrain`、
+  `set_sky`/`remove_sky`、`add_3d_buildings`、`screenshot_map`）在该引擎下
+  会从工具列表中移除，system prompt 也会声明 2D 能力边界。直接通过
+  `runCommand` 调用它们——或要求 `fill-extrusion`/`heatmap` 图层、矢量瓦片
+  source——仍会报告不支持，而不是静默失败。
 - Earth Engine 瓦片以普通 XYZ raster 覆盖物加载。
 
 ### Earth Engine 配置

@@ -337,11 +337,53 @@ describe('MapLibreAgentTools on a real Leaflet map (jsdom)', () => {
   it('hands run_maplibre_script the raw Leaflet map and the L namespace', async () => {
     const agent = tools(map);
     const result = (await agent.runCommand('run_maplibre_script', {
-      code: 'return { isLeaflet: typeof map.eachLayer === "function", hasNamespace: typeof maplibregl.map === "function", center: map.getCenter().lat };',
+      code: 'return { isLeaflet: typeof map.eachLayer === "function", hasNamespace: typeof L.map === "function", center: map.getCenter().lat };',
     })) as { result: Record<string, unknown> };
     expect(result.result.isLeaflet).toBe(true);
     expect(result.result.hasNamespace).toBe(true);
     expect(result.result.center).toBeCloseTo(39.8283, 3);
+  });
+
+  it('does not expose the WebGL-only 3D tools on the Leaflet engine', () => {
+    const agent = tools(map);
+    const toolNames = (agent.createTools() as Array<{ name: string }>).map(
+      (item) => item.name,
+    );
+    for (const hidden of [
+      'set_projection',
+      'add_terrain',
+      'clear_terrain',
+      'set_sky',
+      'remove_sky',
+      'add_3d_buildings',
+      'screenshot_map',
+    ]) {
+      expect(toolNames).not.toContain(hidden);
+    }
+    // The 2D-capable surface stays available.
+    expect(toolNames).toContain('add_geojson_data');
+    expect(toolNames).toContain('add_basemap');
+    expect(toolNames).toContain('run_maplibre_script');
+  });
+
+  it('describes run_maplibre_script with the Leaflet API and the L binding', () => {
+    const agent = tools(map);
+    const scriptTool = (
+      agent.createTools() as Array<{
+        name: string;
+        description: string;
+        toolSpec: {
+          inputSchema: {
+            properties: Record<string, { description?: string }>;
+          };
+        };
+      }>
+    ).find((item) => item.name === 'run_maplibre_script');
+    expect(scriptTool?.description).toMatch(/Leaflet map/);
+    expect(scriptTool?.description).toMatch(/not MapLibre/);
+    expect(
+      scriptTool?.toolSpec.inputSchema.properties.code.description,
+    ).toMatch(/map, L, and helpers/);
   });
 
   it('reports unsupported capabilities explicitly instead of failing silently', async () => {

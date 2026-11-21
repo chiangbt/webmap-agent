@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import L from 'leaflet';
-import { GeoAgentCore } from '../src/lib/core/GeoAgentCore';
+import {
+  GeoAgentCore,
+  codeExecutionPrompt,
+  engineCapabilityPrompt,
+} from '../src/lib/core/GeoAgentCore';
 
 function createMockMap() {
   const container = document.createElement('div');
@@ -329,5 +333,44 @@ describe('GeoAgentCore status', () => {
     core.dispose();
     core.commitApiKey('sk-after-dispose');
     expect(onStatus).toHaveBeenCalledTimes(1); // only the attach-time status
+  });
+});
+
+describe('engine-aware system prompt parts', () => {
+  it('states the 2D capability boundary before any tool call', () => {
+    const leaflet = engineCapabilityPrompt('leaflet');
+    expect(leaflet).toMatch(/Leaflet, a 2D-only engine/);
+    expect(leaflet).toMatch(
+      /no globe projection, no terrain, no sky, no 3D buildings/,
+    );
+    expect(leaflet).toMatch(/no map screenshot/);
+
+    const openlayers = engineCapabilityPrompt('openlayers');
+    expect(openlayers).toMatch(/OpenLayers, a 2D engine/);
+    expect(openlayers).toMatch(
+      /no globe projection, no terrain, no sky, no 3D buildings/,
+    );
+    // OpenLayers keeps a real bearing through the view rotation.
+    expect(openlayers).toMatch(/bearing follows the view rotation/);
+    expect(openlayers).not.toMatch(/bearing are always 0/);
+
+    // MapLibre needs no capability paragraph; Mapbox only warns about sky.
+    expect(engineCapabilityPrompt('maplibre')).toBe('');
+    expect(engineCapabilityPrompt(undefined)).toBe('');
+    expect(engineCapabilityPrompt('mapbox')).toMatch(/Sky specification tools/);
+  });
+
+  it('names the real snippet bindings per engine in the code prompt', () => {
+    expect(codeExecutionPrompt('leaflet')).toMatch(
+      /map \(the real Leaflet L\.Map\), L \(the Leaflet namespace\)/,
+    );
+    expect(codeExecutionPrompt('leaflet')).toMatch(/not MapLibre/);
+    expect(codeExecutionPrompt('openlayers')).toMatch(
+      /map \(the real OpenLayers ol\/Map\), ol \(the OpenLayers namespace object\)/,
+    );
+    expect(codeExecutionPrompt('maplibre')).toMatch(/map, maplibregl, and helpers/);
+    expect(codeExecutionPrompt('mapbox')).toMatch(/map, mapboxgl, and helpers/);
+    expect(codeExecutionPrompt('mapbox')).not.toMatch(/maplibregl/);
+    expect(codeExecutionPrompt('leaflet')).not.toMatch(/maplibregl/);
   });
 });

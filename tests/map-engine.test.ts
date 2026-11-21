@@ -180,12 +180,61 @@ describe('run_maplibre_script', () => {
     const agentTools = tools(fakeMap({ name: 'mercator' }), engine);
 
     const result = (await agentTools.runCommand('run_maplibre_script', {
-      code: 'return { tag: maplibregl.__tag, isEngineMarker: maplibregl.Marker === map.__expectedMarker };',
+      code: 'return { tag: mapboxgl.__tag, isEngineMarker: mapboxgl.Marker === map.__expectedMarker };',
       description: 'engine check',
     })) as Record<string, unknown>;
 
     expect(result.success).toBe(true);
     expect((result.result as Record<string, unknown>).tag).toBe('mapbox');
+  });
+
+  it('names the namespace binding after the engine in the tool schema', () => {
+    const { FakeMarker } = fakeMarkerClass();
+    const findScriptTool = (agentTools: ReturnType<typeof tools>) =>
+      (
+        agentTools.createTools() as Array<{
+          name: string;
+          description: string;
+          toolSpec: {
+            inputSchema: {
+              properties: Record<string, { description?: string }>;
+            };
+          };
+        }>
+      ).find((item) => item.name === 'run_maplibre_script');
+
+    const mapboxTool = findScriptTool(
+      tools(fakeMap({ name: 'mercator' }), mapboxEngine(FakeMarker)),
+    );
+    expect(mapboxTool?.description).toMatch(/Mapbox GL JS map/);
+    expect(
+      mapboxTool?.toolSpec.inputSchema.properties.code.description,
+    ).toMatch(/map, mapboxgl, and helpers/);
+
+    const maplibreTool = findScriptTool(tools(fakeMap({ type: 'mercator' })));
+    expect(maplibreTool?.description).toMatch(/MapLibre map/);
+    expect(
+      maplibreTool?.toolSpec.inputSchema.properties.code.description,
+    ).toMatch(/map, maplibregl, and helpers/);
+  });
+
+  it('keeps the WebGL-only tools on the Style-Spec engines', () => {
+    const toolNames = (
+      tools(fakeMap({ type: 'mercator' })).createTools() as Array<{
+        name: string;
+      }>
+    ).map((item) => item.name);
+    expect(toolNames).toEqual(
+      expect.arrayContaining([
+        'set_projection',
+        'add_terrain',
+        'clear_terrain',
+        'set_sky',
+        'remove_sky',
+        'add_3d_buildings',
+        'screenshot_map',
+      ]),
+    );
   });
 });
 

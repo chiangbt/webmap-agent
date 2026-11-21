@@ -465,6 +465,26 @@ const MAPLIBRE_ENGINE: GeoAgentMapEngine = {
   namespace: maplibregl as unknown as GeoAgentStyleSpecEngine["namespace"],
 };
 
+/**
+ * Tools whose capability only the WebGL Style-Spec engines (maplibre-gl,
+ * mapbox-gl) have: globe projection, 3D terrain, sky, fill-extrusion
+ * buildings, and WebGL canvas screenshots. The Leaflet and OpenLayers shims
+ * can only throw on every one of these calls, so on those engines the tools
+ * are not exposed to the model at all — capability gating belongs in the tool
+ * schema the agent reads up front, not only in a runtime error it has to
+ * trigger first. The shims keep throwing as the last line of defense (e.g.
+ * for hosts calling `runCommand` directly).
+ */
+export const WEBGL_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  "set_projection",
+  "add_terrain",
+  "clear_terrain",
+  "set_sky",
+  "remove_sky",
+  "add_3d_buildings",
+  "screenshot_map",
+]);
+
 export class MapLibreAgentTools {
   private readonly map: MapLibreMap;
   private readonly basemaps: Record<string, string | StyleSpecification>;
@@ -1001,16 +1021,16 @@ export class MapLibreAgentTools {
           }),
         );
       }
+      const scriptNamespace = this.scriptNamespaceName();
       tools.push(
         tool({
           name: "run_maplibre_script",
-          description:
-            "Run a short JavaScript snippet against the live browser MapLibre map when no dedicated tool fits.",
+          description: this.scriptToolDescription(scriptNamespace),
           inputSchema: z.object({
             code: z
               .string()
               .describe(
-                "JavaScript code to execute against map, maplibregl, and helpers.",
+                `JavaScript code to execute against map, ${scriptNamespace}, and helpers.`,
               ),
             description: z.string().optional(),
           }),
@@ -1134,7 +1154,67 @@ export class MapLibreAgentTools {
       );
     }
 
+    // Leaflet and OpenLayers are 2D engines: hide the WebGL-only tools (3D
+    // terrain/sky/globe/buildings, canvas screenshots) instead of exposing
+    // schemas whose every call can only throw.
+    if (this.is2DShimEngine()) {
+      return tools.filter((item) => !WEBGL_ONLY_TOOLS.has(item.name));
+    }
     return tools;
+  }
+
+  /** Whether the active engine renders through a 2D compatibility shim. */
+  private is2DShimEngine(): boolean {
+    return (
+      this.engine.kind === "leaflet" || this.engine.kind === "openlayers"
+    );
+  }
+
+  /**
+   * The binding name `run_maplibre_script` user code sees for the engine
+   * namespace: `maplibregl` on MapLibre, `mapboxgl` on Mapbox, `L` on Leaflet,
+   * `ol` on OpenLayers. Naming it honestly keeps the model from writing
+   * `maplibregl.Marker(...)` against a Leaflet map.
+   */
+  private scriptNamespaceName(): string {
+    switch (this.engine.kind) {
+      case "leaflet":
+        return "L";
+      case "openlayers":
+        return "ol";
+      case "mapbox":
+        return "mapboxgl";
+      default:
+        return "maplibregl";
+    }
+  }
+
+  /** Display name of the active engine, for schema text and result messages. */
+  private engineDisplayName(): string {
+    switch (this.engine.kind) {
+      case "leaflet":
+        return "Leaflet";
+      case "openlayers":
+        return "OpenLayers";
+      case "mapbox":
+        return "Mapbox GL JS";
+      default:
+        return "MapLibre";
+    }
+  }
+
+  /** Engine-specific description for the run_maplibre_script tool schema. */
+  private scriptToolDescription(namespaceName: string): string {
+    switch (this.engine.kind) {
+      case "leaflet":
+        return `Run a short JavaScript snippet against the live browser Leaflet map when no dedicated tool fits. The snippet runs in the page with these names in scope: map (the real L.Map), ${namespaceName} (the Leaflet namespace), and helpers. Write Leaflet API code: this map is not MapLibre, and MapLibre calls will fail.`;
+      case "openlayers":
+        return `Run a short JavaScript snippet against the live browser OpenLayers map when no dedicated tool fits. The snippet runs in the page with these names in scope: map (the real ol/Map), ${namespaceName} (the OpenLayers namespace object), and helpers. Write OpenLayers API code: this map is not MapLibre, and MapLibre calls will fail.`;
+      case "mapbox":
+        return `Run a short JavaScript snippet against the live browser Mapbox GL JS map when no dedicated tool fits. The snippet runs in the page with these names in scope: map, ${namespaceName}, and helpers.`;
+      default:
+        return "Run a short JavaScript snippet against the live browser MapLibre map when no dedicated tool fits.";
+    }
   }
 
   async runCommand(command: string, args: unknown = {}): Promise<JSONValue> {
@@ -2854,9 +2934,13 @@ export class MapLibreAgentTools {
       addMarkerOverlay: (input: JsonObject) => this.addMarkerOverlay(input),
       serializeScriptResult: toJsonValue,
     });
+    // The namespace binding is named after the engine actually drawing the
+    // map (maplibregl / mapboxgl / L / ol), matching what the tool schema
+    // tells the model is in scope.
+    const namespaceName = this.scriptNamespaceName();
     const fn = new Function(
       "map",
-      "maplibregl",
+      namespaceName,
       "helpers",
       `"use strict"; return (async () => {\n${code}\n})()`,
     ) as (
@@ -2881,7 +2965,7 @@ export class MapLibreAgentTools {
     );
     return {
       success: true,
-      message: description || "MapLibre script executed.",
+      message: description || `${this.engineDisplayName()} script executed.`,
       result: toJsonValue(result),
       description,
       maplibre_script: code,
