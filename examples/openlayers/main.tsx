@@ -16,11 +16,14 @@ import { GeoAgentPanel } from '@/react';
 import { ExampleShell } from '@/demo/example-shell';
 import { applyExamplePageLocale, resolveExamplesLocale } from '@/demo/locale';
 import { HOMEPAGE_I18N } from '@/demo/i18n';
+import { readLlmEnvConfig } from '@/demo/env';
 import '@/demo/demo.css';
 import 'ol/ol.css';
 
 // Follow the language chosen on the examples homepage (localStorage).
 const locale = resolveExamplesLocale();
+// Deployment defaults from .env (LLM_API_URL / LLM_API_KEY / LLM_API_MODEL).
+const llm = readLlmEnvConfig();
 applyExamplePageLocale(locale, {
   en: 'web-geoagent - OpenLayers Example',
   zh: 'web-geoagent - OpenLayers 示例',
@@ -91,6 +94,9 @@ function OpenLayersExample() {
             locale={locale}
             collapsed={false}
             showCollapseButton={false}
+          defaultBaseUrl={llm.baseUrl}
+          defaultApiKey={llm.apiKey}
+          defaultModel={llm.model}
             // Tell the tools this map is OpenLayers and hand them the
             // namespace above.
             mapEngine={{

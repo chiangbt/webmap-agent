@@ -171,6 +171,9 @@ export function GeoAgentPanel({
       return;
     }
     core.attach(map as Parameters<GeoAgentCore['attach']>[0]);
+    // attach() reloads the committed key (storage, apiKeys, or the
+    // deployment default) — sync it into the field so it is visible.
+    setApiKey(core.getCommittedApiKey());
     return () => core.detach();
   }, [core, map]);
 

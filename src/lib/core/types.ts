@@ -118,6 +118,21 @@ export interface GeoAgentControlOptions {
   apiKeys?: Partial<Record<GeoAgentProviderId, string>>;
 
   /**
+   * Fallback API key for every provider, used when there is no stored key and
+   * no provider-specific `apiKeys` entry (e.g. a deployment-wide credential
+   * injected from environment variables). Shown in the panel like a committed
+   * key and overridden by both of the sources above.
+   */
+  defaultApiKey?: string;
+
+  /**
+   * Fallback API base URL for the compatible providers, used when nothing is
+   * stored for the current provider (e.g. a deployment endpoint injected from
+   * environment variables). Shown in the panel and overridden by storage.
+   */
+  defaultBaseUrl?: string;
+
+  /**
    * Whether the optional MapLibre JavaScript execution tool starts enabled.
    * @default true
    */

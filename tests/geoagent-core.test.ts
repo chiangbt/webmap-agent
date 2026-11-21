@@ -119,6 +119,45 @@ describe('GeoAgentCore configuration state', () => {
     core.dispose();
   });
 
+  it('falls back to the deployment defaults and lets storage win', () => {
+    // With no stored values the env-injected defaults (defaultApiKey /
+    // defaultBaseUrl / defaultModel) fully configure the agent.
+    const envCore = new GeoAgentCore({
+      defaultProvider: 'openai-compatible',
+      defaultApiKey: 'env-key',
+      defaultBaseUrl: 'https://env.example.com/v1',
+      defaultModel: 'env-model',
+    });
+    envCore.attach(mapContext.map);
+    expect(envCore.getCommittedApiKey()).toBe('env-key');
+    expect(envCore.getState().baseUrl).toBe('https://env.example.com/v1');
+    expect(envCore.getState().modelId).toBe('env-model');
+    expect(envCore.isConfigured()).toBe(true);
+    envCore.dispose();
+    mapContext.cleanup();
+
+    // Stored values win over the deployment defaults.
+    sessionStorage.setItem('web-geoagent.stored.openai-compatible.api_key', 'stored-key');
+    sessionStorage.setItem(
+      'web-geoagent.stored.baseUrl.openai-compatible',
+      'https://stored.example.com/v1',
+    );
+    sessionStorage.setItem('web-geoagent.stored.model.openai-compatible', 'stored-model');
+    const storedCore = new GeoAgentCore({
+      storagePrefix: 'web-geoagent.stored',
+      defaultProvider: 'openai-compatible',
+      defaultApiKey: 'env-key',
+      defaultBaseUrl: 'https://env.example.com/v1',
+      defaultModel: 'env-model',
+    });
+    storedCore.attach(mapContext.map);
+    expect(storedCore.getCommittedApiKey()).toBe('stored-key');
+    expect(storedCore.getState().baseUrl).toBe('https://stored.example.com/v1');
+    expect(storedCore.getState().modelId).toBe('stored-model');
+    storedCore.dispose();
+    mapContext.cleanup();
+  });
+
   it('persists the provider choice and reloads its stored settings', () => {
     sessionStorage.setItem(
       'geoagent.switch.anthropic-compatible.api_key',

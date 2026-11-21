@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  // Expose LLM_* deployment defaults to the demo alongside VITE_* vars.
+  envPrefix: ['VITE_', 'LLM_'],
   plugins: [react(), tailwindcss()],
   base: '/web-geoagent/',
   build: {

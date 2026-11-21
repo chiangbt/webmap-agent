@@ -175,6 +175,23 @@ API key 只在你提交时（按回车或焦点移出输入框）写入 `session
 调用 provider 的模型列表接口。`OpenAI-Compatible (Custom)` 没有通用的最新
 模型，请填写该端点暴露的模型 ID。
 
+### 部署默认值（.env）
+
+宿主应用可以通过环境变量预填面板，让配置好的部署开箱即用。本仓库的演示站从
+`.env` 读取三个 Vite 变量（通过 `LLM_` `envPrefix` 暴露）：
+
+```env
+LLM_API_URL=https://llm.example.com/v1
+LLM_API_KEY=sk-...
+LLM_API_MODEL=your-model-id
+```
+
+它们映射到 `GeoAgentPanel` / `GeoAgentCore` 的 `defaultBaseUrl` /
+`defaultApiKey` / `defaultModel` 选项（演示站在 `src/demo/env.ts` 中读取，
+绝不会内联进发布的包）。优先级：面板保存的 `sessionStorage` 值 >
+`apiKeys` > 这些默认值；面板以它们预填，任何在面板中提交的修改都会持久化
+并接管。
+
 ### 语言
 
 将 `locale` 选项设为 `'zh-CN'` 即可以中文渲染面板的全部文案（标签、状态徽章、

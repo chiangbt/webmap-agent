@@ -7,6 +7,7 @@ import { GeoAgentPanel } from '@/react';
 import { ExampleShell } from '@/demo/example-shell';
 import { applyExamplePageLocale, resolveExamplesLocale } from '@/demo/locale';
 import { HOMEPAGE_I18N } from '@/demo/i18n';
+import { readLlmEnvConfig } from '@/demo/env';
 import '@/demo/demo.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import 'maplibre-gl-layer-control/style.css';
@@ -15,6 +16,8 @@ import milkywayUrl from '../assets/milkyway.jpg';
 
 // Follow the language chosen on the examples homepage (localStorage).
 const locale = resolveExamplesLocale();
+// Deployment defaults from .env (LLM_API_URL / LLM_API_KEY / LLM_API_MODEL).
+const llm = readLlmEnvConfig();
 applyExamplePageLocale(locale, {
   en: 'web-geoagent - Basic Example',
   zh: 'web-geoagent - 基础示例',
@@ -89,6 +92,9 @@ function BasicExample() {
             locale={locale}
             collapsed={false}
             showCollapseButton={false}
+          defaultBaseUrl={llm.baseUrl}
+          defaultApiKey={llm.apiKey}
+          defaultModel={llm.model}
           />
         )}
       </div>

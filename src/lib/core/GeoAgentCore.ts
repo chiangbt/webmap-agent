@@ -96,10 +96,16 @@ function defaultModelFor(
   providerId: GeoAgentProviderId,
   defaultModel: GeoAgentControlOptions['defaultModel'],
 ): string {
-  if (typeof defaultModel === 'string') {
-    return defaultModel;
+  const providerDefault = BASE_PROVIDER_CONFIGS[providerId].defaultModel;
+  if (defaultModel === undefined) {
+    return providerDefault;
   }
-  return defaultModel?.[providerId] ?? BASE_PROVIDER_CONFIGS[providerId].defaultModel;
+  // An empty string (or an empty per-provider entry) means "no host default"
+  // (e.g. an unset env model) — fall through to the provider's own default.
+  if (typeof defaultModel === 'string') {
+    return defaultModel || providerDefault;
+  }
+  return defaultModel[providerId] || providerDefault;
 }
 
 function markdownHeading(role: string): string {
@@ -214,6 +220,9 @@ export class GeoAgentCore {
       className: options.className ?? '',
       defaultProvider: options.defaultProvider ?? DEFAULT_PROVIDER,
       storagePrefix: options.storagePrefix ?? DEFAULT_STORAGE_PREFIX,
+      // Deployment-wide fallbacks (e.g. injected from .env by the host app).
+      defaultApiKey: options.defaultApiKey ?? '',
+      defaultBaseUrl: options.defaultBaseUrl ?? '',
       allowCodeExecutionDefault: options.allowCodeExecutionDefault ?? true,
       allowDestructiveToolsDefault: options.allowDestructiveToolsDefault ?? true,
       showPermissionToggles: options.showPermissionToggles ?? false,
@@ -554,7 +563,10 @@ export class GeoAgentCore {
   }
 
   private initialBaseUrl(providerId: GeoAgentProviderId): string {
-    return storageGet(this.baseUrlStorageKey(providerId)) || '';
+    return (
+      storageGet(this.baseUrlStorageKey(providerId)) ||
+      this.options.defaultBaseUrl
+    );
   }
 
   private earthEngineProjectIdStorageKey(): string {
@@ -563,12 +575,16 @@ export class GeoAgentCore {
 
   /**
    * Load the persisted settings (model, committed API key, base URL) for the
-   * current provider from sessionStorage. Host-supplied `apiKeys` act as the
-   * fallback and are never written to storage here.
+   * current provider from sessionStorage. Host-supplied `apiKeys` and the
+   * deployment-wide `defaultApiKey`/`defaultBaseUrl` fallbacks (e.g. injected
+   * from .env by the host app) fill in whatever storage does not provide, and
+   * are never written to storage here.
    */
   loadProviderSettings(): void {
     const provider = this.providerConfig(this.state.providerId);
-    const initialApiKey = this.options.apiKeys?.[provider.id]?.trim() ?? '';
+    const initialApiKey =
+      this.options.apiKeys?.[provider.id]?.trim() ||
+      this.options.defaultApiKey;
     this.state.modelId =
       storageGet(this.modelStorageKey(provider.id)) || provider.defaultModel;
     this.committedApiKey = storageGet(provider.storageKey) || initialApiKey;

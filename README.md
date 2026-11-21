@@ -184,6 +184,25 @@ model field to that configured default without calling a provider model-list
 endpoint. For `OpenAI-Compatible (Custom)`, there is no universal latest model,
 so enter the model ID exposed by that endpoint.
 
+### Deployment defaults (.env)
+
+Host applications can prefill the panel from environment variables so a
+configured deployment works without any panel setup. This repo's demo reads
+three Vite variables from `.env` (exposed through the `LLM_` `envPrefix`):
+
+```env
+LLM_API_URL=https://llm.example.com/v1
+LLM_API_KEY=sk-...
+LLM_API_MODEL=your-model-id
+```
+
+They map to the `defaultBaseUrl` / `defaultApiKey` / `defaultModel` options of
+`GeoAgentPanel` and `GeoAgentCore` (the demo reads them in `src/demo/env.ts` —
+never baked into the published package). Precedence: panel-saved
+`sessionStorage` values win over `apiKeys`, which win over these defaults; the
+panel starts prefilled with them and any committed panel edit persists and
+takes over.
+
 ### Language
 
 Set the `locale` option to `'zh-CN'` to render every panel label, status badge,

@@ -5,6 +5,8 @@ import { resolve } from 'path';
 import dts from 'vite-plugin-dts';
 
 export default defineConfig({
+  // Expose LLM_* deployment defaults to the demo alongside VITE_* vars.
+  envPrefix: ['VITE_', 'LLM_'],
   plugins: [
     react(),
     tailwindcss(),
