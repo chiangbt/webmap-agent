@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MESSAGES, t, type GeoAgentLocale } from "../src/lib/i18n";
 
-const LOCALES: GeoAgentLocale[] = ["en", "zh-CN"];
+const LOCALES: GeoAgentLocale[] = ["en", "zh-CN", "zh-TW"];
 
 describe("i18n messages", () => {
   it("keeps every locale's dictionary keys aligned with en", () => {
@@ -25,6 +25,12 @@ describe("i18n messages", () => {
     );
     expect(t("zh-CN", "logRunningTool", { tool: "add_marker" })).toBe(
       "正在运行 add_marker",
+    );
+    expect(t("zh-TW", "logRunningTool", { tool: "add_marker" })).toBe(
+      "正在執行 add_marker",
+    );
+    expect(t("zh-TW", "logReady", { engine: "MapLibre" })).toBe(
+      "瀏覽器端 Strands 智慧代理已就緒（MapLibre）。",
     );
     expect(t("en", "noteUsingLatestModel", { model: "gpt-test" })).toBe(
       "Using latest model: gpt-test.",

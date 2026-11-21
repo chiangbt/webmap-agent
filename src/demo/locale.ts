@@ -14,15 +14,23 @@ const LOCALE_KEY = 'geoagent.locale';
 export function resolveExamplesLocale(): GeoAgentLocale {
   try {
     const stored = localStorage.getItem(LOCALE_KEY);
-    if (stored === 'en' || stored === 'zh-CN') {
+    if (stored === 'en' || stored === 'zh-CN' || stored === 'zh-TW') {
       return stored;
     }
   } catch {
     // Ignore storage failures in private or restricted browser contexts.
   }
   try {
-    if ((navigator.language || '').toLowerCase().startsWith('zh')) {
-      return 'zh-CN';
+    const language = (navigator.language || '').toLowerCase();
+    if (language.startsWith('zh')) {
+      // Traditional-script regions get zh-TW; other Chinese locales (and a
+      // bare "zh") get simplified Chinese.
+      const traditional =
+        language.includes('-tw') ||
+        language.includes('-hk') ||
+        language.includes('-mo') ||
+        language.includes('hant');
+      return traditional ? 'zh-TW' : 'zh-CN';
     }
   } catch {
     // Fall through to the default locale.
@@ -47,8 +55,13 @@ export function persistExamplesLocale(locale: GeoAgentLocale): void {
  */
 export function applyExamplePageLocale(
   locale: GeoAgentLocale,
-  title: { en: string; zh: string },
+  title: { en: string; zh: string; tw?: string },
 ): void {
   document.documentElement.lang = locale;
-  document.title = locale === 'zh-CN' ? title.zh : title.en;
+  document.title =
+    locale === 'zh-CN'
+      ? title.zh
+      : locale === 'zh-TW'
+        ? (title.tw ?? title.zh)
+        : title.en;
 }

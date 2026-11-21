@@ -75,4 +75,29 @@ export const HOMEPAGE_I18N: Record<
     npm: 'npm',
     language: '语言',
   },
+  'zh-TW': {
+    title: 'web-geoagent 範例',
+    subtitle:
+      '一個純瀏覽器端執行的 Web 地圖 GeoAgent——支援 MapLibre、Leaflet、OpenLayers 與 ArcGIS Maps SDK（MapView 與 SceneView）。',
+    basicTitle: '基礎範例',
+    basicDesc: '在 MapLibre 地圖上使用原生 `GeoAgentControl`。',
+    reactTitle: 'React 範例',
+    reactDesc: '使用 `GeoAgentControlReact` 與 React 狀態 Hook。',
+    earthEngineTitle: 'Earth Engine 範例',
+    earthEngineDesc: '透過瀏覽器 OAuth 加入 Google Earth Engine 目錄圖層與指數。',
+    leafletTitle: 'Leaflet 範例',
+    leafletDesc: '透過相容引擎在 Leaflet 地圖上執行相同的 GeoAgent 工具。',
+    openlayersTitle: 'OpenLayers 範例',
+    openlayersDesc: '透過相容引擎在 OpenLayers 地圖上執行相同的 GeoAgent 工具。',
+    arcgisMapTitle: 'ArcGIS Map 範例',
+    arcgisMapDesc:
+      '用 ArcGIS 相容引擎驅動 @arcgis/map-components 的 <arcgis-map>（MapView，2D），示範資料經 agent 工具預置。',
+    arcgisSceneTitle: 'ArcGIS Scene 範例',
+    arcgisSceneDesc:
+      '驅動 <arcgis-scene>（含世界高程的 SceneView 3D 球體）——相機工具、DOM 圖釘與截圖全部經 shim 生效。',
+    home: '首頁',
+    github: 'GitHub',
+    npm: 'npm',
+    language: '語言',
+  },
 };

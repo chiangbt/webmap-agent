@@ -32,6 +32,7 @@ const llm = readLlmEnvConfig();
 applyExamplePageLocale(locale, {
   en: 'web-geoagent - ArcGIS Map Example',
   zh: 'web-geoagent - ArcGIS Map 示例',
+  tw: 'web-geoagent - ArcGIS Map 範例',
 });
 
 /**
@@ -178,7 +179,7 @@ function ArcGISMapExample() {
           <GeoAgentPanel
             core={core}
             map={mapEl}
-            title="GeoAgent"
+            title="GeoAgent ArcGIS MapView"
             locale={locale}
             collapsed={false}
             showCollapseButton={false}

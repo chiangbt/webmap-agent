@@ -27,6 +27,7 @@ const llm = readLlmEnvConfig();
 applyExamplePageLocale(locale, {
   en: 'web-geoagent - OpenLayers Example',
   zh: 'web-geoagent - OpenLayers 示例',
+  tw: 'web-geoagent - OpenLayers 範例',
 });
 
 // The only ol imports the shim needs, assembled once. Every key is required;

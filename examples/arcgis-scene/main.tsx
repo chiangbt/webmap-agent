@@ -32,6 +32,7 @@ const llm = readLlmEnvConfig();
 applyExamplePageLocale(locale, {
   en: 'web-geoagent - ArcGIS Scene Example',
   zh: 'web-geoagent - ArcGIS Scene 示例',
+  tw: 'web-geoagent - ArcGIS Scene 範例',
 });
 
 function ArcGISSceneExample() {
@@ -97,7 +98,7 @@ function ArcGISSceneExample() {
           <GeoAgentPanel
             core={core}
             map={mapEl}
-            title="GeoAgent"
+            title="GeoAgent ArcGIS SceneView"
             locale={locale}
             collapsed={false}
             showCollapseButton={false}

@@ -21,6 +21,7 @@ const llm = readLlmEnvConfig();
 applyExamplePageLocale(locale, {
   en: 'web-geoagent - React Example',
   zh: 'web-geoagent - React 示例',
+  tw: 'web-geoagent - React 範例',
 });
 
 function ReactExample() {
@@ -86,7 +87,7 @@ function ReactExample() {
         {map && (
           <GeoAgentPanel
             map={map}
-            title="GeoAgent"
+            title="GeoAgent MapLibre GL"
             locale={locale}
             collapsed={false}
             showCollapseButton={false}

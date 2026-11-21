@@ -85,7 +85,7 @@ export function App() {
   }, [locale, t.title]);
 
   const changeLocale = (value: string): void => {
-    if (value !== 'en' && value !== 'zh-CN') return;
+    if (value !== 'en' && value !== 'zh-CN' && value !== 'zh-TW') return;
     setLocale(value);
     persistExamplesLocale(value);
   };
@@ -106,7 +106,8 @@ export function App() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="en">English</SelectItem>
-              <SelectItem value="zh-CN">中文</SelectItem>
+              <SelectItem value="zh-CN">简体中文</SelectItem>
+              <SelectItem value="zh-TW">繁體中文</SelectItem>
             </SelectContent>
           </Select>
         </header>

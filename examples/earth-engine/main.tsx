@@ -18,6 +18,7 @@ const llm = readLlmEnvConfig();
 applyExamplePageLocale(locale, {
   en: 'web-geoagent - Earth Engine Example',
   zh: 'web-geoagent - Earth Engine 示例',
+  tw: 'web-geoagent - Earth Engine 範例',
 });
 
 const STORAGE_PREFIX = 'web-geoagent.ee-example';

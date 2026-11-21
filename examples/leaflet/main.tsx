@@ -16,6 +16,7 @@ const llm = readLlmEnvConfig();
 applyExamplePageLocale(locale, {
   en: 'web-geoagent - Leaflet Example',
   zh: 'web-geoagent - Leaflet 示例',
+  tw: 'web-geoagent - Leaflet 範例',
 });
 
 function LeafletExample() {
