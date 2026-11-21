@@ -6,20 +6,29 @@
 `maplibre-gl-layer-control`，以免已发布的 GeoAgent 库依赖这个可选的 UI
 控件。
 
-所有示例均采用左右布局：GeoAgent 面板停靠在左侧侧栏中，侧栏宽度随面板
-自适应，地图占据其余空间（`examples/shared/dock-panel.ts` +
-`dock-panel.css`）。由于面板在侧栏中始终可见，浮动切换按钮已被移除。
+演示站点是基于 Vite 的多页 React 应用，使用
+[shadcn/ui](https://ui.shadcn.com) 与 Tailwind CSS 4 构建样式：首页渲染
+shadcn 卡片与语言切换器，每个示例页共享 `src/demo/example-shell.tsx` 提供
+的页壳（返回链接、标题、GitHub 链接），各页的地图逻辑原样保留。共享的演示
+模块集中在 `src/demo/`（`demo.css`、`locale.ts`、`i18n.ts` 以及
+`src/demo/components/ui/` 下的 shadcn 组件）。npm 库本体提供无头
+`GeoAgentCore`，同时保留原生控件与 shadcn/ui React 面板两种 UI。
+
+所有示例均采用左右布局：shadcn/ui 的 `<GeoAgentPanel>` 直接渲染在左侧侧栏
+中（无需 dock 手术——面板填满自身容器），地图占据其余空间。Leaflet 与
+OpenLayers 页面传入与原生控件相同的 `mapEngine` 选项，面板在挂载时将核心
+attach 到地图。
 
 所有示例均跟随示例首页选择的语言：首页的 中文/English 下拉框会把选择保存在
 `localStorage`（`geoagent.locale`），每个示例页读取该选择并通过 `locale`
-选项传给 Agent 面板（`examples/shared/locale.ts`）。
+选项传给 Agent 面板（`src/demo/locale.ts`）。
 
 ## 基础示例
 
-一个原生 TypeScript 示例，演示将 `GeoAgentControl` 添加到 MapLibre 地图。
-它默认启用 MapLibre JavaScript 与图层删除能力，同时隐藏权限复选框。地图以
-globe 投影启动，底图下方叠加 `@geoql/maplibre-gl-starfield` 星空穹顶（ESO
-银河全景图，CC BY 4.0）。
+在 React 页面入口（`main.tsx`）中用 `GeoAgentPanel` 驱动 MapLibre 地图（默认
+的原生风格工具配置）。它默认启用 MapLibre JavaScript 与图层删除能力，同时
+隐藏权限复选框。地图以 globe 投影启动，底图下方叠加
+`@geoql/maplibre-gl-starfield` 星空穹顶（ESO 银河全景图，CC BY 4.0）。
 
 ```bash
 npm run dev
@@ -29,7 +38,7 @@ npm run dev
 
 ## Earth Engine 示例
 
-一个启用了 Google Earth Engine 工具的原生 TypeScript 示例。把
+通过面板的 `earthEngine` 选项启用 Google Earth Engine 工具。把
 `.env.example` 复制为 `.env` 并设置 Vite 环境变量：
 
 ```bash
@@ -56,8 +65,8 @@ npm run dev
 
 ## React 示例
 
-一个演示 `GeoAgentControlReact` 与 `useGeoAgentState` 的 React 示例。它使用
-与原生示例相同的默认权限行为。
+与基础示例相同的配置——演示面板驱动的示例页全部是 React。它使用与基础示例
+相同的默认权限行为。
 
 ```bash
 npm run dev
@@ -67,10 +76,9 @@ npm run dev
 
 ## Leaflet 示例
 
-一个在纯 [Leaflet](https://leafletjs.com/) 地图上运行同一套 agent 工具的原生
-TypeScript 示例。它向 `GeoAgentControl` 传入
-`mapEngine: { kind: 'leaflet', namespace: L }`，并通过
-`addGeoAgentToLeafletMap` 挂载控件。支持的命令范围见根 README 的
+在纯 [Leaflet](https://leafletjs.com/) 地图上运行同一套 agent 工具。页面向
+`GeoAgentPanel` 传入 `mapEngine: { kind: 'leaflet', namespace: L }`，面板在
+挂载时将核心 attach 到 Leaflet 地图。支持的命令范围见根 README 的
 「在 Leaflet 上运行」章节。
 
 ```bash
@@ -81,11 +89,10 @@ npm run dev
 
 ## OpenLayers 示例
 
-一个在纯 [OpenLayers](https://openlayers.org/) 地图上运行同一套 agent 工具
-的原生 TypeScript 示例。它组装 ol 类命名空间（`Feature`、`VectorLayer`、
-`GeoJSON`、样式类、投影辅助函数），传入
-`mapEngine: { kind: 'openlayers', namespace }`，并通过
-`addGeoAgentToOpenLayersMap` 挂载控件。支持的命令范围见根 README 的
+在纯 [OpenLayers](https://openlayers.org/) 地图上运行同一套 agent 工具。它
+组装 ol 类命名空间（`Feature`、`VectorLayer`、`GeoJSON`、样式类、投影辅助
+函数），向 `GeoAgentPanel` 传入
+`mapEngine: { kind: 'openlayers', namespace }`。支持的命令范围见根 README 的
 「在 OpenLayers 上运行」章节。
 
 ```bash

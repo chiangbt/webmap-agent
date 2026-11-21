@@ -14,7 +14,7 @@ inspect and operate on the live map through dedicated browser tools.
 ## Features
 
 - Collapsible MapLibre control with a floating chat panel
-- Browser provider UI for OpenAI Responses, OpenAI Chat, Anthropic, Google Gemini, Amazon Bedrock, and any OpenAI-compatible/custom endpoint
+- Browser provider UI for OpenAI Responses, OpenAI Chat, Anthropic, plus OpenAI-compatible and Anthropic-compatible custom endpoints
 - API keys are saved on commit (Enter or blur) with an inline confirmation; provider errors are shown when a prompt is sent
 - Provider, key, and model settings live in one collapsible section that folds away once configured; built-in providers default to their latest configured model, and the model can still be edited manually
 - Map tools for camera movement, projection, basemaps, markers, GeoJSON, XYZ tiles, layer visibility, opacity, feature queries, screenshots, and layer cleanup
@@ -22,7 +22,7 @@ inspect and operate on the live map through dedicated browser tools.
 - Optional MapLibre JavaScript execution tool, disabled by default
 - Destructive layer removal tools gated behind a separate toggle
 - Copy the visible conversation log as Markdown
-- React wrapper and state hook
+- Headless `GeoAgentCore`, a shadcn/ui-styled React `GeoAgentPanel`, plus the classic React wrapper and state hook
 
 ## Installation
 
@@ -107,6 +107,49 @@ function App() {
 }
 ```
 
+## React Panel (shadcn/ui)
+
+`GeoAgentPanel` renders the whole chat UI as React components styled with
+shadcn/ui + Tailwind CSS 4 (provider select, collapsible settings, conversation
+log, prompt form). It is the panel used by the project's demo site. Render it
+anywhere — a sidebar, a docked column, or a portal — and hand it the map; the
+headless core is created and disposed for you:
+
+```tsx
+import { GeoAgentPanel } from "maplibre-gl-geoagent/react";
+import "maplibre-gl-geoagent/style.css";
+
+<GeoAgentPanel map={map} collapsed={false} title="GeoAgent" showCollapseButton={false} />;
+```
+
+For Leaflet/OpenLayers hosts, pass the same `mapEngine` option as the vanilla
+control; the panel attaches to the map on mount and re-attaches when the map
+instance changes. To control the lifecycle yourself, construct a
+`GeoAgentCore` (exported from the main entry), call `core.attach(map)`, and pass
+it via the `core` prop — the panel then never disposes it:
+
+```tsx
+import { GeoAgentCore } from "maplibre-gl-geoagent";
+import { GeoAgentPanel } from "maplibre-gl-geoagent/react";
+
+const core = new GeoAgentCore({ title: "GeoAgent", locale: "en" });
+<GeoAgentPanel core={core} map={map} showCollapseButton={false} />;
+```
+
+Notes:
+
+- `GeoAgentPanel` does not include floating positioning or drag-to-resize; it
+  fills its container (default width 390px, override with `width`). The vanilla
+  `GeoAgentControl` still provides the floating, resizable panel.
+- Panel buttons are Send / Cancel / Copy Markdown. `GeoAgentCore`
+  still exposes `clearConversation()` for hosts that want a clear affordance.
+- Styles ship inside the package's single `maplibre-gl-geoagent/style.css`
+  export: Tailwind utilities compiled without preflight (no global resets leak
+  into your page) and design tokens under `--geoagent-*` prefixed variables.
+- **Breaking change vs earlier releases:** `GeoAgentState.bedrockRegion` was
+  removed together with the Google Gemini and Amazon Bedrock providers
+  (`GeoAgentProviderId` now also includes `anthropic-compatible`).
+
 ## Providers
 
 Supported providers:
@@ -114,18 +157,16 @@ Supported providers:
 - OpenAI Responses
 - OpenAI Chat
 - Anthropic
-- Google Gemini
-- Amazon Bedrock
 - OpenAI-Compatible (Custom)
+- Anthropic-Compatible (Custom)
 
-For Bedrock, select `Amazon Bedrock`, enter a Bedrock API key, choose a Bedrock
-Converse model ID, and set the AWS region. The default Bedrock model is
-`anthropic.claude-opus-4-8`, and the default region is `us-west-2`.
-
-For a custom or self-hosted model, select `OpenAI-Compatible (Custom)`, enter the
-API base URL of an OpenAI-compatible endpoint (for example a local LLM server or
-a private deployment), supply the API key, and enter a model ID. The endpoint is
-called with the OpenAI Chat Completions API shape.
+For a custom or self-hosted model, select `OpenAI-Compatible (Custom)` or
+`Anthropic-Compatible (Custom)`, enter the API base URL of the compatible
+endpoint (for example a local LLM server, a private deployment, or a gateway),
+supply the API key, and enter a model ID. OpenAI-compatible endpoints are called
+with the OpenAI Chat Completions API shape (`https://host/v1`); the
+Anthropic-compatible provider speaks the Anthropic Messages API
+(`https://host`).
 
 ### Saving keys and models
 
@@ -134,12 +175,11 @@ or move focus out of the field), so a half-typed key never flips the status
 badge to "Ready" or get written to storage.
 
 Built-in providers use the latest model configured by the package:
-`gpt-5.5` for OpenAI Responses and OpenAI Chat, `claude-opus-4-8` for Anthropic,
-`gemini-3.5-flash` for Google Gemini, and `anthropic.claude-opus-4-8` for Amazon
-Bedrock. The "Use latest" button resets the model field to that configured
-default without calling a provider model-list endpoint. For
-`OpenAI-Compatible (Custom)`, there is no universal latest model, so enter the
-model ID exposed by that endpoint.
+`gpt-5.5` for OpenAI Responses and OpenAI Chat, and `claude-opus-4-8` for
+Anthropic and Anthropic-Compatible. The "Use latest" button resets the model
+field to that configured default without calling a provider model-list endpoint.
+For `OpenAI-Compatible (Custom)`, there is no universal latest model, so enter
+the model ID exposed by that endpoint.
 
 ### Language
 
@@ -148,7 +188,7 @@ button, and runtime message in Chinese; the default `'en'` keeps English. Brand
 names and technical terms stay identical across locales. The examples homepage
 provides a language dropdown that persists the choice in `localStorage`
 (`geoagent.locale`), and every example page follows that choice — see
-`examples/shared/locale.ts`.
+`src/demo/locale.ts`.
 
 ## Options
 
@@ -377,8 +417,6 @@ new GeoAgentControl({
     "openai-responses": "OPENAI_API_KEY_VALUE",
     "openai-chat": "OPENAI_API_KEY_VALUE",
     anthropic: "ANTHROPIC_API_KEY_VALUE",
-    google: "GOOGLE_API_KEY_VALUE",
-    bedrock: "AWS_BEARER_TOKEN_BEDROCK_VALUE",
   },
 });
 ```
@@ -386,11 +424,6 @@ new GeoAgentControl({
 Saved `sessionStorage` values take precedence over `apiKeys`. Initial keys are
 kept in browser memory and are not written to storage unless the user edits the
 API key field.
-
-For Amazon Bedrock, this browser-only control uses Bedrock API-key bearer-token
-authentication. Do not enter AWS access key IDs, secret access keys, or session
-tokens in this UI. For production Bedrock deployments, prefer a backend proxy
-that calls Bedrock with IAM role credentials.
 
 The MapLibre JavaScript tool and layer removal tools are enabled by default.
 Their checkboxes are hidden by default; pass `showPermissionToggles: true` at
@@ -445,6 +478,11 @@ npm test
 npm run build
 npm run build:examples
 ```
+
+The demo site (homepage + examples) is a Vite multi-page React app styled
+with shadcn/ui and Tailwind CSS 4; its source lives in `src/demo/` and
+`examples/`. The published library itself stays framework-agnostic with its
+own stylesheet and is not affected by the demo stack.
 
 For the Earth Engine example, set `VITE_GEE_OAUTH_CLIENT_ID` in `.env`.
 `VITE_GEE_PROJECT_ID` is optional; when it is omitted, users can enter their

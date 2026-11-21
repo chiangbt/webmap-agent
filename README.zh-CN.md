@@ -14,7 +14,7 @@
 ## 功能特性
 
 - 可折叠的 MapLibre 控件，带浮动聊天面板
-- 浏览器端 provider 界面，支持 OpenAI Responses、OpenAI Chat、Anthropic、Google Gemini、Amazon Bedrock 以及任意 OpenAI 兼容/自定义端点
+- 浏览器端 provider 界面，支持 OpenAI Responses、OpenAI Chat、Anthropic，以及 OpenAI 兼容与 Anthropic 兼容的自定义端点
 - API key 在提交时（回车或失焦）才保存，并有行内确认提示；provider 报错在发送 prompt 时展示
 - provider、key 与模型设置集中在一个可折叠区块中，配置完成后自动收起；内置 provider 默认使用其最新配置模型，模型仍可手动修改
 - 地图工具覆盖相机移动、投影、底图、标记点、GeoJSON、XYZ 瓦片、图层可见性、透明度、要素查询、截图与图层清理
@@ -22,7 +22,7 @@
 - 可选的 MapLibre JavaScript 执行工具，默认关闭
 - 破坏性图层删除工具由独立开关控制
 - 可将可见的对话日志复制为 Markdown
-- 提供 React 包装组件与状态 hook
+- 提供无头 `GeoAgentCore`、shadcn/ui 风格的 React `GeoAgentPanel`，以及经典的 React 包装组件与状态 hook
 
 ## 安装
 
@@ -107,6 +107,47 @@ function App() {
 }
 ```
 
+## React 面板（shadcn/ui）
+
+`GeoAgentPanel` 把整个聊天 UI 渲染为 shadcn/ui + Tailwind CSS 4 风格的
+React 组件（供应商下拉、可折叠设置、对话日志、提示词表单），本项目演示站
+使用的就是它。可以把它渲染到任何位置——侧栏、停靠列或 Portal——并把地图
+交给它；无头核心会自动创建并在卸载时销毁：
+
+```tsx
+import { GeoAgentPanel } from "maplibre-gl-geoagent/react";
+import "maplibre-gl-geoagent/style.css";
+
+<GeoAgentPanel map={map} collapsed={false} title="GeoAgent" showCollapseButton={false} />;
+```
+
+Leaflet/OpenLayers 宿主与原生控件一样传入 `mapEngine` 选项；面板会在挂载时
+attach 地图，并在地图实例变化时重新 attach。若要自行控制生命周期，可以
+构造主入口导出的 `GeoAgentCore`，调用 `core.attach(map)` 后通过 `core`
+prop 传入——此时面板不会替你销毁它：
+
+```tsx
+import { GeoAgentCore } from "maplibre-gl-geoagent";
+import { GeoAgentPanel } from "maplibre-gl-geoagent/react";
+
+const core = new GeoAgentCore({ title: "GeoAgent", locale: "zh-CN" });
+<GeoAgentPanel core={core} map={map} showCollapseButton={false} />;
+```
+
+说明：
+
+- `GeoAgentPanel` 不包含浮动定位与拖拽调整尺寸；它填满容器（默认宽度
+  390px，可用 `width` 覆盖）。浮动的、可调整尺寸的面板仍由原生
+  `GeoAgentControl` 提供。
+- 面板按钮为 发送 / 取消 / 复制 Markdown。`GeoAgentCore` 仍暴露
+  `clearConversation()`，宿主可自行实现清空入口。
+- 样式随包内唯一的 `maplibre-gl-geoagent/style.css` 导出分发：Tailwind
+  工具类编译时不含 preflight（全局不会泄漏任何重置样式），设计令牌使用
+  `--geoagent-*` 前缀变量。
+- **相对早期版本的破坏性变更：** 随 Google Gemini 与 Amazon Bedrock
+  provider 一并移除，`GeoAgentState.bedrockRegion` 已删除
+  （`GeoAgentProviderId` 现在包含 `anthropic-compatible`）。
+
 ## 模型提供商
 
 支持的 provider：
@@ -114,17 +155,15 @@ function App() {
 - OpenAI Responses
 - OpenAI Chat
 - Anthropic
-- Google Gemini
-- Amazon Bedrock
 - OpenAI-Compatible（自定义）
+- Anthropic-Compatible（自定义）
 
-使用 Bedrock 时，选择 `Amazon Bedrock`，输入 Bedrock API key，选择 Bedrock
-Converse 模型 ID 并设置 AWS 区域。默认 Bedrock 模型为
-`anthropic.claude-opus-4-8`，默认区域为 `us-west-2`。
-
-使用自定义或自托管模型时，选择 `OpenAI-Compatible (Custom)`，输入
-OpenAI 兼容端点的 API base URL（例如本地 LLM 服务或私有化部署），提供 API
-key 并填写模型 ID。该端点按 OpenAI Chat Completions API 的请求格式调用。
+使用自定义或自托管模型时，选择 `OpenAI-Compatible (Custom)` 或
+`Anthropic-Compatible (Custom)`，输入对应兼容端点的 API base URL（例如本地
+LLM 服务、私有化部署或网关），提供 API key 并填写模型 ID。
+OpenAI 兼容端点按 OpenAI Chat Completions API 的请求格式调用
+（`https://host/v1`）；Anthropic 兼容 provider 走 Anthropic Messages API
+（`https://host`）。
 
 ### 保存 key 与模型
 
@@ -132,8 +171,7 @@ API key 只在你提交时（按回车或焦点移出输入框）写入 `session
 输入一半的 key 不会把状态徽章变成 "Ready"，也不会被写入存储。
 
 内置 provider 使用包内配置的最新模型：OpenAI Responses 与 OpenAI Chat 为
-`gpt-5.5`，Anthropic 为 `claude-opus-4-8`，Google Gemini 为
-`gemini-3.5-flash`，Amazon Bedrock 为 `anthropic.claude-opus-4-8`。
+`gpt-5.5`，Anthropic 与 Anthropic-Compatible 为 `claude-opus-4-8`。
 "Use latest" 按钮会把模型输入框重置为该配置默认值，不会调用 provider 的
 模型列表接口。`OpenAI-Compatible (Custom)` 没有通用的最新模型，请填写该
 端点暴露的模型 ID。
@@ -143,7 +181,7 @@ API key 只在你提交时（按回车或焦点移出输入框）写入 `session
 将 `locale` 选项设为 `'zh-CN'` 即可以中文渲染面板的全部文案（标签、状态徽章、
 按钮与运行时消息），默认 `'en'` 为英文。品牌名与技术术语在两种语言下保持一致。
 示例首页提供中英文下拉框，选择保存在 `localStorage`（`geoagent.locale`），
-各示例页会读取该选择并跟随显示，参见 `examples/shared/locale.ts`。
+各示例页会读取该选择并跟随显示，参见 `src/demo/locale.ts`。
 
 ## 配置项
 
@@ -357,18 +395,12 @@ new GeoAgentControl({
     "openai-responses": "OPENAI_API_KEY_VALUE",
     "openai-chat": "OPENAI_API_KEY_VALUE",
     anthropic: "ANTHROPIC_API_KEY_VALUE",
-    google: "GOOGLE_API_KEY_VALUE",
-    bedrock: "AWS_BEARER_TOKEN_BEDROCK_VALUE",
   },
 });
 ```
 
 已保存的 `sessionStorage` 值优先于 `apiKeys`。初始 key 只保留在浏览器内存
 中，除非用户编辑 API key 输入框，否则不会写入存储。
-
-Amazon Bedrock 方面，本纯浏览器控件使用 Bedrock API-key bearer-token 认证。
-不要在此 UI 中输入 AWS access key ID、secret access key 或 session token。
-生产环境的 Bedrock 部署优先使用以 IAM 角色凭据调用 Bedrock 的后端代理。
 
 MapLibre JavaScript 工具与图层删除工具默认启用。它们的复选框默认隐藏；初始化
 时传 `showPermissionToggles: true` 可让用户在面板中自行开关。启动时禁用某项
@@ -422,6 +454,10 @@ npm test
 npm run build
 npm run build:examples
 ```
+
+演示站点（首页 + 示例页）是基于 Vite 的多页 React 应用，使用 shadcn/ui 与
+Tailwind CSS 4 构建样式；其源码位于 `src/demo/` 与 `examples/`。已发布的
+npm 库本体保持框架无关并自带样式表，不受演示技术栈影响。
 
 Earth Engine 示例需要在 `.env` 中设置 `VITE_GEE_OAUTH_CLIENT_ID`。
 `VITE_GEE_PROJECT_ID` 可选；省略时用户可以在 GeoAgent 面板中自行输入其

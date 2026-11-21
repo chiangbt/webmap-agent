@@ -6,21 +6,33 @@ This directory contains example implementations of `maplibre-gl-geoagent`.
 The examples add `maplibre-gl-layer-control` directly so the published
 GeoAgent library does not depend on that optional UI control.
 
-All examples use a side-by-side layout: the GeoAgent panel is docked into a
-left sidebar whose width adapts to the panel, and the map fills the remaining
-space (`examples/shared/dock-panel.ts` + `dock-panel.css`). The floating
-toggle button is removed because the panel is always visible in the sidebar.
+The demo site is a Vite multi-page React app styled with
+[shadcn/ui](https://ui.shadcn.com) and Tailwind CSS 4: the homepage renders
+shadcn cards and a language selector, and every example page shares the
+`ExampleShell` chrome from `src/demo/example-shell.tsx` (back link, title,
+GitHub link) with the map-specific logic kept verbatim per page. Shared demo
+modules live in `src/demo/` (`demo.css`, `locale.ts`, `i18n.ts`, and the shadcn
+components under `src/demo/components/ui/`). The npm library itself ships the
+headless `GeoAgentCore` plus both the vanilla control and the shadcn/ui React
+panel.
+
+All examples use a side-by-side layout: the shadcn/ui `<GeoAgentPanel>` renders
+directly into a left sidebar (no dock surgery — the panel fills its container),
+and the map fills the remaining space. Leaflet and OpenLayers pass the same
+`mapEngine` option as the vanilla control; the panel attaches the core to the
+map on mount.
 
 All examples follow the language chosen on the examples homepage: the
 homepage's 中文/English dropdown persists the choice in `localStorage`
 (`geoagent.locale`), and each page passes it to the Agent panel as the
-`locale` option (`examples/shared/locale.ts`).
+`locale` option (`src/demo/locale.ts`).
 
 ## Basic Example
 
-A vanilla TypeScript example showing the `GeoAgentControl` added to a MapLibre map.
-It enables MapLibre JavaScript and layer removal by default while keeping the
-permission checkboxes hidden. The map starts in globe projection with the
+`GeoAgentPanel` driving a MapLibre map with the default (vanilla-style) tool
+configuration, rendered from a React page entry (`main.tsx`). It enables
+MapLibre JavaScript and layer removal by default while keeping the permission
+checkboxes hidden. The map starts in globe projection with the
 `@geoql/maplibre-gl-starfield` skybox (an ESO Milky Way panorama, CC BY 4.0)
 underneath the basemap.
 
@@ -32,7 +44,7 @@ Open <http://localhost:5173/examples/basic/>.
 
 ## Earth Engine Example
 
-A vanilla TypeScript example with Google Earth Engine tools enabled. Copy
+Google Earth Engine tools enabled via the panel's `earthEngine` option. Copy
 `.env.example` to `.env` and set the Vite environment variables:
 
 ```bash
@@ -59,8 +71,9 @@ Engine-enabled Google Cloud project ID in the GeoAgent panel.
 
 ## React Example
 
-A React example demonstrating `GeoAgentControlReact` and `useGeoAgentState`.
-It uses the same default permission behavior as the vanilla example.
+Same setup as the basic example — it demonstrates that the panel-driven demo
+pages are all React. It uses the same default permission behavior as the basic
+example.
 
 ```bash
 npm run dev
@@ -70,11 +83,11 @@ Open <http://localhost:5173/examples/react/>.
 
 ## Leaflet Example
 
-A vanilla TypeScript example running the same agent tools on a plain
-[Leaflet](https://leafletjs.com/) map. It passes
-`mapEngine: { kind: 'leaflet', namespace: L }` to `GeoAgentControl` and mounts
-the control with `addGeoAgentToLeafletMap`. See the "Running on Leaflet"
-section in the root README for the supported command set.
+The same agent tools running on a plain [Leaflet](https://leafletjs.com/)
+map. The page passes `mapEngine: { kind: 'leaflet', namespace: L }` to
+`GeoAgentPanel`, which attaches the core to the Leaflet map on mount. See
+the "Running on Leaflet" section in the root README for the supported command
+set.
 
 ```bash
 npm run dev
@@ -84,12 +97,12 @@ Open <http://localhost:5173/examples/leaflet/>.
 
 ## OpenLayers Example
 
-A vanilla TypeScript example running the same agent tools on a plain
-[OpenLayers](https://openlayers.org/) map. It assembles the ol class namespace
-(`Feature`, `VectorLayer`, `GeoJSON`, style classes, projection helpers),
-passes `mapEngine: { kind: 'openlayers', namespace }`, and mounts the control
-with `addGeoAgentToOpenLayersMap`. See the "Running on OpenLayers" section in
-the root README for the supported command set.
+The same agent tools running on a plain [OpenLayers](https://openlayers.org/)
+map. It assembles the ol class namespace (`Feature`, `VectorLayer`, `GeoJSON`,
+style classes, projection helpers) and passes
+`mapEngine: { kind: 'openlayers', namespace }` to `GeoAgentPanel`. See the
+"Running on OpenLayers" section in the root README for the supported command
+set.
 
 ```bash
 npm run dev

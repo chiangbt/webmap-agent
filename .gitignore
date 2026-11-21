@@ -36,3 +36,6 @@ dist-examples/
 .env.local
 .env.*.local
 .vite/
+
+# ZCode workspace
+.zcode/
