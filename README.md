@@ -29,6 +29,13 @@ core also attaches to Leaflet and OpenLayers maps via compatibility shims.
 npm install web-geoagent maplibre-gl
 ```
 
+`maplibre-gl` is an **optional** peer dependency: it is the default engine's
+namespace, imported lazily on the first tool call. Leaflet and OpenLayers
+hosts never load it at runtime and can install only what they use (e.g.
+`npm install web-geoagent leaflet`). Note that most bundlers still statically
+resolve the lazy `import("maplibre-gl")` at build time — if your bundler
+reports it as missing, add it as a dev dependency or mark it external.
+
 ## Vanilla Usage
 
 ```typescript
@@ -312,6 +319,8 @@ What works and what does not, by design:
   this engine, and the system prompt states the 2D boundary. Calling them
   through `runCommand` directly still reports unsupported instead of
   failing silently.
+- A Leaflet host never loads `maplibre-gl` at runtime: the package imports
+  it lazily, only for the default MapLibre engine.
 - Earth Engine tiles load as plain XYZ raster overlays.
 
 ### Running on OpenLayers
@@ -391,6 +400,8 @@ What works and what does not, by design:
   boundary. Calling them through `runCommand` directly — or asking for
   `fill-extrusion`/`heatmap` layers or vector tile sources — still reports
   unsupported instead of failing silently.
+- An OpenLayers host never loads `maplibre-gl` at runtime: the package
+  imports it lazily, only for the default MapLibre engine.
 - Earth Engine tiles load as plain XYZ raster overlays.
 
 ### Earth Engine Options

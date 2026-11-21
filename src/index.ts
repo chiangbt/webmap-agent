@@ -14,6 +14,7 @@ export {
   type JsonObject,
   type GeoAgentMapEngine,
   type GeoAgentStyleSpecEngine,
+  type GeoAgentStyleSpecNamespace,
   type GeoAgentLeafletEngine,
   type GeoAgentOpenLayersEngine,
   type GeoAgentMarker,

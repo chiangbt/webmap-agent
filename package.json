@@ -73,6 +73,9 @@
     "react-dom": ">=18.0.0"
   },
   "peerDependenciesMeta": {
+    "maplibre-gl": {
+      "optional": true
+    },
     "react": {
       "optional": true
     },

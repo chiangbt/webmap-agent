@@ -279,3 +279,24 @@ describe('GeoAgentControl mapEngine plumbing', () => {
     container.remove();
   });
 });
+
+describe('engine namespace resolution', () => {
+  it('rejects a mapbox engine that omits its namespace', async () => {
+    const agentTools = tools(fakeMap({ name: 'mercator' }), {
+      kind: 'mapbox',
+    });
+    await expect(
+      agentTools.runCommand('add_marker', { lat: 0, lon: 0, name: 'pin' }),
+    ).rejects.toThrow(/mapbox engine requires its namespace/);
+  });
+
+  it('rejects a namespace without a Marker constructor', async () => {
+    const agentTools = tools(fakeMap({ name: 'mercator' }), {
+      kind: 'maplibre',
+      namespace: {} as never,
+    });
+    await expect(
+      agentTools.runCommand('add_marker', { lat: 0, lon: 0, name: 'pin' }),
+    ).rejects.toThrow(/no Marker constructor/);
+  });
+});

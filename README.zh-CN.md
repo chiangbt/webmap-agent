@@ -28,6 +28,12 @@
 npm install web-geoagent maplibre-gl
 ```
 
+`maplibre-gl` 是**可选** peer 依赖：它只是默认引擎的命名空间，在第一次工具
+调用时才被惰性加载。Leaflet 与 OpenLayers 宿主在运行时永远不会加载它，可以
+只安装自己用到的包（如 `npm install web-geoagent leaflet`）。注意：多数
+bundler 在构建期仍会静态解析这条惰性 `import("maplibre-gl")`——如果构建时
+报告找不到该模块，把它加为 dev 依赖或标记为 external 即可。
+
 ## 原生 JS/TS 用法
 
 ```typescript
@@ -295,6 +301,8 @@ addGeoAgentToLeafletMap(agent, map, { position: 'topleft' });
   `add_3d_buildings`、`screenshot_map`）在该引擎下会从工具列表中移除，
   system prompt 也会声明 2D 能力边界。直接通过 `runCommand` 调用它们仍会
   报告不支持，而不是静默失败。
+- Leaflet 宿主在运行时永远不会加载 `maplibre-gl`：本包只在默认的 MapLibre
+  引擎下才惰性导入它。
 - Earth Engine 瓦片以普通 XYZ raster 覆盖物加载。
 
 ### 在 OpenLayers 上运行
@@ -368,6 +376,8 @@ addGeoAgentToOpenLayersMap(agent, map, { position: 'top-left' });
   会从工具列表中移除，system prompt 也会声明 2D 能力边界。直接通过
   `runCommand` 调用它们——或要求 `fill-extrusion`/`heatmap` 图层、矢量瓦片
   source——仍会报告不支持，而不是静默失败。
+- OpenLayers 宿主在运行时永远不会加载 `maplibre-gl`：本包只在默认的
+  MapLibre 引擎下才惰性导入它。
 - Earth Engine 瓦片以普通 XYZ raster 覆盖物加载。
 
 ### Earth Engine 配置

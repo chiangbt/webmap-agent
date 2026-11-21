@@ -1,9 +1,10 @@
 import { tool, type JSONValue, type Tool } from "@strands-agents/sdk";
-// Namespace import, not a default one: MapLibre v6 is ESM-only and dropped its
-// default export. A namespace (rather than named imports) because
-// run_maplibre_script hands the whole MapLibre API to user-authored scripts,
-// so this module needs the namespace object itself.
-import * as maplibregl from "maplibre-gl";
+// No static `maplibre-gl` value import here. It is only the DEFAULT engine's
+// namespace, and it is loaded lazily (see ensureEngineNamespace) so Leaflet
+// and OpenLayers hosts never pull in a WebGL library they do not use. When it
+// is loaded it is a namespace import, not a default one: MapLibre v6 is
+// ESM-only and dropped its default export, and run_maplibre_script hands the
+// whole namespace object to user-authored scripts.
 import type {
   FilterSpecification,
   LayerSpecification,
@@ -73,6 +74,13 @@ export interface GeoAgentPopup {
  * Defaults to `maplibre-gl`. A host rendering with Mapbox GL JS passes
  * `{ kind: "mapbox", namespace: mapboxgl }`.
  */
+/** The namespace shape the Style-Spec tools drive. */
+export interface GeoAgentStyleSpecNamespace {
+  Marker: new (options?: { color?: string }) => GeoAgentMarker;
+  Popup: new (options?: Record<string, unknown>) => GeoAgentPopup;
+  [key: string]: unknown;
+}
+
 export interface GeoAgentStyleSpecEngine {
   /** Which Style-Spec library {@link namespace} is. */
   kind: "maplibre" | "mapbox";
@@ -80,12 +88,13 @@ export interface GeoAgentStyleSpecEngine {
    * The library's own namespace. `Marker` and `Popup` are what the tools
    * construct; the whole object is what `run_maplibre_script` hands to
    * user-authored code, so it must be the real namespace, not a subset.
+   *
+   * Optional for `kind: "maplibre"`: when omitted, the package lazily imports
+   * its own `maplibre-gl` dependency on the first tool call, so Leaflet and
+   * OpenLayers hosts never load a WebGL library they do not use. Required at
+   * runtime for `kind: "mapbox"` — this package never imports mapbox-gl.
    */
-  namespace: {
-    Marker: new (options?: { color?: string }) => GeoAgentMarker;
-    Popup: new (options?: Record<string, unknown>) => GeoAgentPopup;
-    [key: string]: unknown;
-  };
+  namespace?: GeoAgentStyleSpecNamespace;
 }
 
 export interface GeoAgentLeafletEngine {
@@ -459,11 +468,8 @@ export interface MapLibreAgentToolsOptions {
   mapEngine?: GeoAgentMapEngine;
 }
 
-/** The default engine: this package's own `maplibre-gl`. */
-const MAPLIBRE_ENGINE: GeoAgentMapEngine = {
-  kind: "maplibre",
-  namespace: maplibregl as unknown as GeoAgentStyleSpecEngine["namespace"],
-};
+/** The default engine: this package's own `maplibre-gl`, imported lazily. */
+const MAPLIBRE_ENGINE: GeoAgentMapEngine = { kind: "maplibre" };
 
 /**
  * Tools whose capability only the WebGL Style-Spec engines (maplibre-gl,
@@ -494,6 +500,13 @@ export class MapLibreAgentTools {
   private readonly overlays = new globalThis.Map<string, Overlay>();
   private readonly earthEngine?: EarthEngineService;
   private readonly engine: GeoAgentMapEngine;
+  /**
+   * The engine namespace, resolved on the first command: the host-provided
+   * one, or — for the default `maplibre` engine — this package's own
+   * maplibre-gl loaded through a lazy dynamic import. Leaflet/OpenLayers
+   * hosts never trigger that import.
+   */
+  private resolvedNamespace?: GeoAgentStyleSpecNamespace;
 
   constructor(
     map: MapLibreMap | LeafletMapLike | OpenLayersMapLike,
@@ -530,6 +543,50 @@ export class MapLibreAgentTools {
   updateEarthEngineOptions(options: EarthEngineOptions): void {
     this.earthEngine?.updateOptions(options);
     this.publishEarthEngineState();
+  }
+
+  /**
+   * Resolve the engine namespace before any command touches it. Leaflet and
+   * OpenLayers hosts cache the namespace they injected; the default MapLibre
+   * engine lazily imports `maplibre-gl` here — the ONLY place this package
+   * loads it at runtime — so 2D-only hosts never pay for a WebGL library.
+   */
+  private async ensureEngineNamespace(): Promise<void> {
+    if (this.resolvedNamespace) {
+      return;
+    }
+    if (this.engine.kind === "leaflet" || this.engine.kind === "openlayers") {
+      this.resolvedNamespace =
+        this.engine.namespace as unknown as GeoAgentStyleSpecNamespace;
+      return;
+    }
+    const provided = this.engine.namespace;
+    if (provided) {
+      if (typeof provided.Marker !== "function") {
+        throw new Error(
+          `The ${this.engine.kind} engine namespace has no Marker constructor; pass the library's real namespace object.`,
+        );
+      }
+      this.resolvedNamespace = provided;
+      return;
+    }
+    if (this.engine.kind === "mapbox") {
+      throw new Error(
+        'The mapbox engine requires its namespace: pass mapEngine { kind: "mapbox", namespace: mapboxgl }. This package never imports mapbox-gl itself.',
+      );
+    }
+    const module = await import("maplibre-gl");
+    this.resolvedNamespace = module as unknown as GeoAgentStyleSpecNamespace;
+  }
+
+  /** The resolved namespace; valid after `ensureEngineNamespace` has run. */
+  private requireNamespace(): GeoAgentStyleSpecNamespace {
+    if (!this.resolvedNamespace) {
+      throw new Error(
+        "The map engine namespace is not resolved; drive the tools through runCommand.",
+      );
+    }
+    return this.resolvedNamespace;
   }
 
   destroy(): void {
@@ -1227,6 +1284,7 @@ export class MapLibreAgentTools {
     command: string,
     args: JsonObject = {},
   ): Promise<unknown> {
+    await this.ensureEngineNamespace();
     await this.waitForMapIdle();
 
     if (command === "list_layers") {
@@ -2890,8 +2948,7 @@ export class MapLibreAgentTools {
     if (isOpenLayersMapShim(this.map)) {
       return this.map.createMarker(color) as unknown as GeoAgentMarker;
     }
-    const namespace = (this.engine as GeoAgentStyleSpecEngine).namespace;
-    return new namespace.Marker({ color });
+    return new (this.requireNamespace().Marker)({ color });
   }
 
   private createEnginePopup(): GeoAgentPopup {
@@ -2901,8 +2958,7 @@ export class MapLibreAgentTools {
     if (isOpenLayersMapShim(this.map)) {
       return this.map.createPopup() as unknown as GeoAgentPopup;
     }
-    const namespace = (this.engine as GeoAgentStyleSpecEngine).namespace;
-    return new namespace.Popup();
+    return new (this.requireNamespace().Popup)();
   }
 
   private async runMapLibreScript(args: JsonObject): Promise<JsonObject> {
@@ -2945,7 +3001,7 @@ export class MapLibreAgentTools {
       `"use strict"; return (async () => {\n${code}\n})()`,
     ) as (
       map: MapLibreMap,
-      mapEngineApi: GeoAgentStyleSpecEngine["namespace"],
+      mapEngineApi: GeoAgentStyleSpecNamespace,
       helpersArg: Record<string, unknown>,
     ) => Promise<unknown>;
     // Hand user code the engine actually drawing the map, so a script that
@@ -2960,7 +3016,7 @@ export class MapLibreAgentTools {
         : this.map;
     const result = await fn(
       scriptMap,
-      this.engine.namespace as GeoAgentStyleSpecEngine["namespace"],
+      this.requireNamespace(),
       helpers,
     );
     return {
