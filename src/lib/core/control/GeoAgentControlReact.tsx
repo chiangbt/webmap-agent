@@ -21,6 +21,11 @@ export function GeoAgentControlReact({
 }: GeoAgentControlReactProps): null {
   // 缓存控件实例，供折叠受控同步与卸载清理使用。
   const controlRef = useRef<GeoAgentControl | null>(null);
+  // 用 ref 持有 onStateChange 回调，使订阅闭包始终转发最新引用；
+  // 与 GeoAgentPanel 的转发方式一致。
+  const onStateChangeRef = useRef(onStateChange);
+  // 每次渲染都同步最新回调（直接赋值，非 effect）。
+  onStateChangeRef.current = onStateChange;
 
   // 挂载/卸载效果：仅依赖 [map]，options 在创建控件时被捕获，
   // 后续 props 变化不会重建控件。
@@ -30,12 +35,10 @@ export function GeoAgentControlReact({
     const control = new GeoAgentControl(options);
     controlRef.current = control;
 
-    if (onStateChange) {
-      // 把控件事件里的状态快照转发给 React 侧回调。
-      control.on('statechange', (event) => {
-        onStateChange(event.state);
-      });
-    }
+    // 经 ref 转发状态快照：父组件重渲染传入新回调时无需重新绑定订阅。
+    control.on('statechange', (event) => {
+      onStateChangeRef.current?.(event.state);
+    });
 
     // 用宿主指定的角停靠控件；未指定时默认 top-right。
     map.addControl(control, options.position || 'top-right');
