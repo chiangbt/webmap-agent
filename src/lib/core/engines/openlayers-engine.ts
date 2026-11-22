@@ -24,6 +24,10 @@
 
 import type { Map as MapLibreMap } from "maplibre-gl";
 import type { GeoAgentControl } from "../control/GeoAgentControl";
+import type {
+  GeoAgentMapSurface,
+  GeoAgentStyleSnapshot,
+} from "../tools/geoagent-tools";
 import type { ExpressionContext, PixelProjector } from "./leaflet-engine";
 import { normalizeCorner, sanitizeCssColor } from "./shared";
 import {
@@ -554,7 +558,7 @@ class OlShimSource {
  * 在真实 ol/Map 之上呈现 GeoAgent 工具所需的 MapLibre Map API 表面。
  * 与 LeafletMapShim 镜像，契约说明见该类。
  */
-export class OpenLayersMapShim {
+export class OpenLayersMapShim implements GeoAgentMapSurface {
   /** 被包装的真实 ol 地图实例。 */
   private readonly raw: OpenLayersMapLike;
   /** 宿主传入并校验后的 ol 命名空间（类与投影工具函数）。 */
@@ -944,11 +948,7 @@ export class OpenLayersMapShim {
    * 以 Style Spec 文档形状回放当前注册表内容
    * （version 8 + sources + 按 layerOrder 排列的 layers）。
    */
-  getStyle(): {
-    version: number;
-    sources: Record<string, Record<string, unknown>>;
-    layers: Array<Record<string, unknown>>;
-  } {
+  getStyle(): GeoAgentStyleSnapshot {
     const sources: Record<string, Record<string, unknown>> = {};
     for (const [id, source] of this.sources) {
       // 深拷贝，避免调用方改动内部状态。
@@ -961,7 +961,8 @@ export class OpenLayersMapShim {
         layers.push(cloneJson(entry.spec));
       }
     }
-    return { version: 8, sources, layers };
+    // 注册表中的 spec 均按 Style-Spec 规格入库，此处还原类型视图。
+    return { version: 8, sources, layers } as unknown as GeoAgentStyleSnapshot;
   }
 
   /* ------------------------- 数据源与图层 --------------------------------- */

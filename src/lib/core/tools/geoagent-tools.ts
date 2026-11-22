@@ -19,10 +19,9 @@
  */
 import { tool, type JSONValue, type Tool } from "@strands-agents/sdk";
 import type {
+  AddLayerObject,
   FilterSpecification,
   LayerSpecification,
-  Map as MapLibreMap,
-  MapGeoJSONFeature,
   SourceSpecification,
   StyleSpecification,
 } from "maplibre-gl";
@@ -68,6 +67,118 @@ export interface GeoAgentMarker {
 /** marker 工具驱动的 popup 表面；同样由两种 Style-Spec 引擎共享。 */
 export interface GeoAgentPopup {
   setText(text: string): GeoAgentPopup;
+}
+
+/**
+ * getStyle 返回的 style 快照：工具层读取其中的图层清单与 source 规格做
+ * 依赖检查与清单展示。真实 maplibre-gl 地图的 StyleSpecification 天然满足；
+ * shim 引擎按注册表回放同一形状（入库的 spec 本就来自 Style-Spec）。
+ */
+export interface GeoAgentStyleSnapshot {
+  version?: number;
+  sources?: Record<string, SourceSpecification>;
+  layers?: LayerSpecification[];
+}
+
+/**
+ * querySourceFeatures / queryRenderedFeatures 返回的最小要素形状。
+ * 真实地图的 MapGeoJSONFeature 与 shim 自建的要素字面量都满足它。
+ */
+export interface GeoAgentSurfaceFeature {
+  type?: "Feature";
+  geometry?: GeoJSON.Geometry | null;
+  properties?: JsonObject | null;
+  id?: number | string | null;
+  layer?: { id: string; type: string; source?: string | null };
+}
+
+/**
+ * getCanvas 返回的最小形状：query_rendered_features 用它取默认点位；
+ * toDataURL 只有能合成单一画布的引擎（MapLibre/Mapbox/ArcGIS）提供，
+ * DOM 合成类引擎（Leaflet/OpenLayers）可以缺省或抛错。
+ */
+export interface GeoAgentSurfaceCanvas {
+  width: number;
+  height: number;
+  clientWidth: number;
+  clientHeight: number;
+  toDataURL?(type?: string): string;
+}
+
+/**
+ * 工具层驱动的地图命令表面：GeoAgentTools 实际调用的 map API 全集。
+ *
+ * 这是 GeoAgentTools 基类与各引擎实现之间的显式契约 —— 真实
+ * maplibre-gl / mapbox-gl 地图结构上天然满足；Leaflet / OpenLayers /
+ * ArcGIS 由各自 shim 显式 `implements`。此后 shim 缺方法或工具层新增
+ * 调用，都会成为编译错误，而不是运行到某条命令才暴露。
+ *
+ * 参数类型说明：spec/filter 类入参用 `XxxSpecification | Record<string,
+ * unknown>` 联合 —— 真实地图与 shim 各自按联合中自己那一侧匹配（方法
+ * 参数双变），两侧的既有签名都无需改动。`getProjection` 的返回用
+ * unknown 承接：maplibre v5 的 projection type 是表达式联合而非字符串。
+ */
+export interface GeoAgentMapSurface {
+  /* -------------------------- 相机与状态 -------------------------- */
+  getCenter(): { lng: number; lat: number };
+  getZoom(): number;
+  getBearing(): number;
+  getPitch(): number;
+  getBounds(): {
+    getWest(): number;
+    getSouth(): number;
+    getEast(): number;
+    getNorth(): number;
+  };
+  getProjection(): { type?: unknown; name?: unknown } | undefined;
+  jumpTo(options: { center?: [number, number]; zoom?: number }): void;
+  easeTo(options: { center?: [number, number]; zoom?: number }): void;
+  flyTo(options: { center?: [number, number]; zoom?: number }): void;
+  setZoom(zoom: number): void;
+  fitBounds(
+    bounds: [[number, number], [number, number]],
+    options?: { padding?: number; maxZoom?: number },
+  ): void;
+  loaded(): boolean;
+
+  /* ------------------------ style / source / layer ---------------- */
+  getStyle(): GeoAgentStyleSnapshot;
+  setStyle(style: string | StyleSpecification): void;
+  addSource(id: string, spec: SourceSpecification | Record<string, unknown>): void;
+  getSource(id: string): unknown;
+  removeSource(id: string): void;
+  addLayer(
+    layer: AddLayerObject | Record<string, unknown>,
+    beforeId?: string,
+  ): void;
+  /** 仅用于存在性判断与按需的类型读取；真实地图返回 StyleLayer，shim 返回注册表 spec。 */
+  getLayer(id: string): unknown;
+  removeLayer(id: string): void;
+  moveLayer(id: string, beforeId?: string): void;
+  setPaintProperty(id: string, property: string, value: unknown): void;
+  setLayoutProperty(id: string, property: string, value: unknown): void;
+  setFilter(id: string, filter: FilterSpecification | null): void;
+
+  /* ------------------------------ 查询 ---------------------------- */
+  querySourceFeatures(
+    sourceId: string,
+    options?: { sourceLayer?: string; filter?: FilterSpecification },
+  ): GeoAgentSurfaceFeature[];
+  queryRenderedFeatures(
+    point: [number, number],
+    options?: { layers?: string[] },
+  ): GeoAgentSurfaceFeature[];
+  getCanvas(): GeoAgentSurfaceCanvas;
+
+  /* ---------------------- 事件与渲染生命周期 ---------------------- */
+  once(type: string, listener: (event?: unknown) => void): void;
+  off?(type: string, listener: (event?: unknown) => void): void;
+  triggerRepaint?(): void;
+
+  /* ---------------- WebGL 专属能力（2D shim 抛能力错误） ---------- */
+  setTerrain(terrain: { source: string; exaggeration?: number } | null): void;
+  setSky?(sky: unknown): void;
+  setProjection?(projection: unknown): void;
 }
 
 /**
@@ -659,8 +770,11 @@ export type MapLibreAgentToolsOptions = GeoAgentToolsOptions;
  * 引擎无关的 agent 工具基类。子类如何拆分引擎专属表面见文件头注释。
  */
 export abstract class GeoAgentTools {
-  /** 所有共享命令驱动的 MapLibre 形状 surface（真地图或 shim）。 */
-  protected readonly map: MapLibreMap;
+  /**
+   * 所有共享命令驱动的地图命令 surface（真地图或 shim），显式契约见
+   * {@link GeoAgentMapSurface}。
+   */
+  protected readonly map: GeoAgentMapSurface;
   /** 合并 DEFAULT_BASEMAPS 与宿主自定义后的底图清单。 */
   private readonly basemaps: Record<string, string | StyleSpecification>;
   /** JS 代码执行开关的宿主策略（每次调用时实时判定）。 */
@@ -706,8 +820,8 @@ export abstract class GeoAgentTools {
     provided: GeoAgentMapEngine | undefined,
   ): GeoAgentMapEngine;
 
-  /** 把宿主原始地图包装成 MapLibre 形状的命令 surface。 */
-  protected abstract createSurface(map: unknown): MapLibreMap;
+  /** 把宿主原始地图包装成 {@link GeoAgentMapSurface} 形状的命令 surface。 */
+  protected abstract createSurface(map: unknown): GeoAgentMapSurface;
 
   /** 提供引擎 namespace（宿主注入或惰性导入）。 */
   protected abstract loadNamespace():
@@ -733,7 +847,7 @@ export abstract class GeoAgentTools {
   ): Promise<unknown>;
 
   /** 用户脚本拿到的地图对象（shim 引擎上是真实地图而非 shim）。 */
-  protected scriptMap(): MapLibreMap {
+  protected scriptMap(): GeoAgentMapSurface {
     return this.map;
   }
 
@@ -2176,7 +2290,8 @@ export abstract class GeoAgentTools {
       const layerIds = overlay ? overlay.layerIds : [name];
       let changed = false;
       for (const layerId of layerIds) {
-        const layer = this.map.getLayer(layerId);
+        // 真实地图返回 StyleLayer、shim 返回注册表 spec：这里只读类型字段。
+        const layer = this.map.getLayer(layerId) as { type?: string } | undefined;
         if (!layer) {
           continue;
         }
@@ -2742,8 +2857,8 @@ export abstract class GeoAgentTools {
     });
   }
 
-  /** 把 MapGeoJSONFeature 压缩成可序列化的普通 Feature（保留 geometry/properties 与 layer 摘要）。 */
-  private serializableFeature(feature: MapGeoJSONFeature): JsonObject {
+  /** 把 surface 查询要素压缩成可序列化的普通 Feature（保留 geometry/properties 与 layer 摘要）。 */
+  private serializableFeature(feature: GeoAgentSurfaceFeature): JsonObject {
     return {
       type: "Feature",
       geometry: feature.geometry ?? null,
@@ -3121,33 +3236,21 @@ export abstract class GeoAgentTools {
 
   /** 设置 sky 规格；当前地图引擎不支持 setSky 时抛出能力错误。 */
   protected setSky(sky: JsonObject): void {
-    // setSky 不在共享的 MapLibreMap 类型上： duck-typing 探测可用性。
-    const mapWithSky = this.map as unknown as {
-      setSky?: (sky: JsonObject) => void;
-    };
-    if (typeof mapWithSky.setSky !== "function") {
-      throw new Error(
-        // mapbox-gl 完全没有 setSky（天空经由 style layer 绘制），
-        // 所以 Mapbox 宿主与旧版 MapLibre 也会走到这里。
-        "Sky is not supported by this map engine.",
-      );
+    // setSky 在 surface 上是可选成员：mapbox-gl 完全没有 setSky（天空经由
+    // style layer 绘制），OL shim 也有意不提供，所以 Mapbox 宿主与 OL 宿主
+    // 都会走到这里。
+    if (typeof this.map.setSky !== "function") {
+      throw new Error("Sky is not supported by this map engine.");
     }
-    mapWithSky.setSky(sky);
+    this.map.setSky(sky);
   }
 
   /** 清除 sky 规格；可用性检查逻辑同 setSky。 */
   protected clearSky(): void {
-    const mapWithSky = this.map as unknown as {
-      setSky?: (sky: undefined) => void;
-    };
-    if (typeof mapWithSky.setSky !== "function") {
-      throw new Error(
-        // mapbox-gl 完全没有 setSky（天空经由 style layer 绘制），
-        // 所以 Mapbox 宿主与旧版 MapLibre 也会走到这里。
-        "Sky is not supported by this map engine.",
-      );
+    if (typeof this.map.setSky !== "function") {
+      throw new Error("Sky is not supported by this map engine.");
     }
-    mapWithSky.setSky(undefined);
+    this.map.setSky(undefined);
   }
 
   /**
@@ -3433,7 +3536,7 @@ export abstract class GeoAgentTools {
       "helpers",
       `"use strict"; return (async () => {\n${code}\n})()`,
     ) as (
-      map: MapLibreMap,
+      map: GeoAgentMapSurface,
       mapEngineApi: GeoAgentStyleSpecNamespace,
       helpersArg: Record<string, unknown>,
     ) => Promise<unknown>;

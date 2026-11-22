@@ -29,6 +29,10 @@
 
 import type { Map as MapLibreMap } from "maplibre-gl";
 import type { GeoAgentControl } from "../control/GeoAgentControl";
+import type {
+  GeoAgentMapSurface,
+  GeoAgentStyleSnapshot,
+} from "../tools/geoagent-tools";
 import type { ExpressionContext, PixelProjector } from "./leaflet-engine";
 import { normalizeCorner, sanitizeCssColor } from "./shared";
 import {
@@ -719,7 +723,7 @@ interface MarkerWrapper {
  * rendered 查询、marker/popup、截图与销毁清理。构造时即注册视图 watch
  * 与 click 监听，destroy 时统一注销。
  */
-export class ArcGISMapShim {
+export class ArcGISMapShim implements GeoAgentMapSurface {
   // 被适配的 ArcGIS MapView/SceneView。
   private readonly view: ArcGISViewLike;
   // 宿主提供的 esri 类集合：构造 WebTileLayer/FeatureLayer/Graphic/symbol 用。
@@ -1363,11 +1367,7 @@ export class ArcGISMapShim {
    * 还原一份 MapLibre 风格的 style 快照：version 8 加上当前 source/layer
    * 注册表的 spec 深拷贝，图层顺序与 layerOrder 一致。
    */
-  getStyle(): {
-    version: number;
-    sources: Record<string, Record<string, unknown>>;
-    layers: Array<Record<string, unknown>>;
-  } {
+  getStyle(): GeoAgentStyleSnapshot {
     const sources: Record<string, Record<string, unknown>> = {};
     for (const [id, source] of this.sources) {
       sources[id] = cloneJson(source.spec);
@@ -1379,7 +1379,19 @@ export class ArcGISMapShim {
         layers.push(cloneJson(entry.spec));
       }
     }
-    return { version: 8, sources, layers };
+    // 注册表中的 spec 均按 Style-Spec 规格入库，此处还原类型视图。
+    return { version: 8, sources, layers } as unknown as GeoAgentStyleSnapshot;
+  }
+
+  /**
+   * ArcGIS 引擎不支持 raster-dem 地形：MapView 无地形通道，SceneView 的
+   * 地形来自场景自带 ElevationLayers，瓦片格式不适用。调用即抛能力错误，
+   * 与 Leaflet / OpenLayers shim 的行为一致。
+   */
+  setTerrain(_terrain: unknown): never {
+    throw new Error(
+      "Terrain (raster-dem) is not supported by the ArcGIS engine; use the scene's ground ElevationLayers or a maplibre-gl map.",
+    );
   }
 
   /* --------------------------- source 与图层 ------------------------------- */

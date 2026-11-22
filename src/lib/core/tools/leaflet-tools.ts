@@ -10,13 +10,13 @@
  * 本文件从不导入 Leaflet；宿主经
  * `mapEngine: { kind: "leaflet", namespace: L }` 传入自己的 `L` namespace。
  */
-import type { Map as MapLibreMap } from "maplibre-gl";
 import type { Tool } from "@strands-agents/sdk";
 import {
   GeoAgentTools,
   stringArg,
   type GeoAgentLeafletEngine,
   type GeoAgentMapEngine,
+  type GeoAgentMapSurface,
   type GeoAgentMarker,
   type GeoAgentPopup,
   type GeoAgentStyleSpecNamespace,
@@ -47,11 +47,11 @@ export class LeafletAgentTools extends GeoAgentTools {
   }
 
   /** 把真实 Leaflet map 包装成 LeafletMapShim 作为命令 surface。 */
-  protected createSurface(map: unknown): MapLibreMap {
+  protected createSurface(map: unknown): GeoAgentMapSurface {
     return createLeafletMapShim(
       map as LeafletMapLike,
       (this.engine as GeoAgentLeafletEngine).namespace,
-    ) as unknown as MapLibreMap;
+    );
   }
 
   protected loadNamespace(): GeoAgentStyleSpecNamespace {
@@ -158,7 +158,7 @@ export class LeafletAgentTools extends GeoAgentTools {
   }
 
   /** 用户脚本拿到真实 L.Map 而非 shim（它们本身就是逃生舱）。 */
-  protected scriptMap(): MapLibreMap {
-    return this.shim().getRawMap() as unknown as MapLibreMap;
+  protected scriptMap(): GeoAgentMapSurface {
+    return this.shim().getRawMap() as unknown as GeoAgentMapSurface;
   }
 }

@@ -12,13 +12,13 @@
  * 传入自己的 namespace 集合（见 arcgis-engine.ts）。
  */
 import { tool, type Tool } from "@strands-agents/sdk";
-import type { Map as MapLibreMap } from "maplibre-gl";
 import { z } from "zod";
 import {
   GeoAgentTools,
   stringArg,
   type GeoAgentArcGISEngine,
   type GeoAgentMapEngine,
+  type GeoAgentMapSurface,
   type GeoAgentMarker,
   type GeoAgentPopup,
   type GeoAgentStyleSpecNamespace,
@@ -48,13 +48,13 @@ export class ArcGISTools extends GeoAgentTools {
     return provided;
   }
 
-  protected createSurface(map: unknown): MapLibreMap {
+  protected createSurface(map: unknown): GeoAgentMapSurface {
     // 接受 MapView 实例或就绪的 <arcgis-map> 组件元素。
     const view = resolveArcGISView(map);
     return createArcGISMapShim(
       view,
       (this.engine as GeoAgentArcGISEngine).namespace,
-    ) as unknown as MapLibreMap;
+    );
   }
 
   protected loadNamespace(): GeoAgentStyleSpecNamespace {
@@ -190,7 +190,7 @@ export class ArcGISTools extends GeoAgentTools {
   }
 
   /** 用户脚本拿到真实 MapView/SceneView 而非 shim（它们本身就是逃生舱）。 */
-  protected scriptMap(): MapLibreMap {
-    return this.shim().getRawView() as unknown as MapLibreMap;
+  protected scriptMap(): GeoAgentMapSurface {
+    return this.shim().getRawView() as unknown as GeoAgentMapSurface;
   }
 }

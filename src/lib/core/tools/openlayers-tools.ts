@@ -11,12 +11,12 @@
  * 本文件从不导入 "ol"；宿主经 `mapEngine: { kind: "openlayers", namespace }`
  * 传入自己的 namespace 集合。
  */
-import type { Map as MapLibreMap } from "maplibre-gl";
 import type { Tool } from "@strands-agents/sdk";
 import {
   GeoAgentTools,
   stringArg,
   type GeoAgentMapEngine,
+  type GeoAgentMapSurface,
   type GeoAgentMarker,
   type GeoAgentOpenLayersEngine,
   type GeoAgentPopup,
@@ -48,11 +48,11 @@ export class OpenLayersAgentTools extends GeoAgentTools {
   }
 
   /** 把真实 ol Map 包装成 OpenLayersMapShim 作为命令 surface。 */
-  protected createSurface(map: unknown): MapLibreMap {
+  protected createSurface(map: unknown): GeoAgentMapSurface {
     return createOpenLayersMapShim(
       map as OpenLayersMapLike,
       (this.engine as GeoAgentOpenLayersEngine).namespace,
-    ) as unknown as MapLibreMap;
+    );
   }
 
   protected loadNamespace(): GeoAgentStyleSpecNamespace {
@@ -152,7 +152,7 @@ export class OpenLayersAgentTools extends GeoAgentTools {
   }
 
   /** 用户脚本拿到真实 ol/Map 而非 shim（它们本身就是逃生舱）。 */
-  protected scriptMap(): MapLibreMap {
-    return this.shim().getRawMap() as unknown as MapLibreMap;
+  protected scriptMap(): GeoAgentMapSurface {
+    return this.shim().getRawMap() as unknown as GeoAgentMapSurface;
   }
 }

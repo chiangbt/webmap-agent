@@ -23,6 +23,7 @@ import {
   objectArg,
   stringArg,
   type GeoAgentMapEngine,
+  type GeoAgentMapSurface,
   type GeoAgentStyleSpecEngine,
   type GeoAgentStyleSpecNamespace,
 } from "./geoagent-tools";
@@ -59,9 +60,13 @@ export class MapLibreAgentTools extends GeoAgentTools {
     return engine;
   }
 
-  protected createSurface(map: unknown): MapLibreMap {
+  protected createSurface(map: unknown): GeoAgentMapSurface {
     // Style-Spec 引擎原样使用：地图本身就是命令 surface。
-    return map as MapLibreMap;
+    // 这里的赋值是静态契约检查：若 maplibre-gl 的 API 变化（或 surface 新增
+    // 了工具层会调用而 Map 缺失的成员），编译会在此处失败并指明具体缺口。
+    const candidate = map as MapLibreMap;
+    const surface: GeoAgentMapSurface = candidate;
+    return surface;
   }
 
   /**
@@ -240,9 +245,18 @@ export class MapLibreAgentTools extends GeoAgentTools {
           `Unsupported projection: ${projection}. Use globe or mercator.`,
         );
       }
+      // setProjection 在 surface 上是可选成员（2D shim 引擎不提供）；本
+      // 工具仅由本子类注册，真实 MapLibre/Mapbox 地图必有该方法。
+      const setProjection = this.map.setProjection;
+      if (typeof setProjection !== "function") {
+        throw new Error(
+          "set_projection is not supported by this map engine.",
+        );
+      }
       // MapLibre 接受 `{ type }`；mapbox-gl 接受名称字符串（或 `{ name }`），
       // 传 MapLibre 形状会抛错。
-      this.map.setProjection(
+      setProjection.call(
+        this.map,
         this.engine.kind === "mapbox"
           ? (projection as unknown as ProjectionSpecification)
           : ({ type: projection } as ProjectionSpecification),
@@ -330,7 +344,9 @@ export class MapLibreAgentTools extends GeoAgentTools {
       // 渲染回调内读取画布：此时 drawing buffer 尚未被清空。
       const onRender = () => {
         finish(() => {
-          const canvas = this.map.getCanvas();
+          // screenshot_map 只由本子类注册，真实 WebGL 画布必有 toDataURL；
+          // surface 画布类型对 DOM 合成类引擎可选该成员，此处收窄。
+          const canvas = this.map.getCanvas() as HTMLCanvasElement;
           resolve({
             data_url: canvas.toDataURL("image/png"),
             width: canvas.width,

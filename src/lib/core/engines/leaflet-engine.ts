@@ -21,6 +21,11 @@
 
 import type { Map as MapLibreMap } from "maplibre-gl";
 import type { GeoAgentControl } from "../control/GeoAgentControl";
+import type {
+  GeoAgentMapSurface,
+  GeoAgentStyleSnapshot,
+  GeoAgentSurfaceFeature,
+} from "../tools/geoagent-tools";
 import { normalizeCorner, sanitizeCssColor } from "./shared";
 
 /* -------------------------------------------------------------------------- */
@@ -1116,7 +1121,7 @@ const GEOJSON_LAYER_TYPES = ["fill", "line", "circle", "symbol"];
  * Leaflet 图层（瓦片层、L.GeoJSON、marker 标注）；Leaflet 确实缺失的
  * 能力（terrain、canvas 截图等）抛出明确错误。
  */
-export class LeafletMapShim {
+export class LeafletMapShim implements GeoAgentMapSurface {
   /** 被包装的真实 Leaflet 地图实例。 */
   private readonly raw: LeafletMapLike;
   /** 宿主命名空间校验后的 Leaflet 工厂方法集合（L）。 */
@@ -1438,16 +1443,13 @@ export class LeafletMapShim {
    * 以 Style Spec 文档的形状回放当前注册表内容：
    * version 8、sources 深拷贝、layers 按 layerOrder 顺序输出。
    */
-  getStyle(): {
-    version: number;
-    sources: Record<string, Record<string, unknown>>;
-    layers: Array<Record<string, unknown>>;
-  } {
+  getStyle(): GeoAgentStyleSnapshot {
     const sources: Record<string, Record<string, unknown>> = {};
     for (const [id, source] of this.sources) {
       // 深拷贝，避免调用方改动注册表内部状态。
       sources[id] = cloneJson(source.spec);
     }
+    // 注册表中的 spec 均按 Style-Spec 规格入库，此处还原类型视图。
     return {
       version: 8,
       sources,
@@ -1455,7 +1457,7 @@ export class LeafletMapShim {
       layers: this.layerOrder.map((id) =>
         cloneJson(this.layers.get(id)?.spec ?? { id }),
       ),
-    };
+    } as unknown as GeoAgentStyleSnapshot;
   }
 
   /* ------------------------- 数据源 ------------------------- */
@@ -1714,11 +1716,11 @@ export class LeafletMapShim {
   queryRenderedFeatures(
     point: [number, number],
     options?: { layers?: string[] },
-  ): Array<Record<string, unknown>> {
+  ): GeoAgentSurfaceFeature[] {
     const [x, y] = point;
     const wanted = options?.layers;
     const zoom = this.raw.getZoom();
-    const results: Array<Record<string, unknown>> = [];
+    const results: GeoAgentSurfaceFeature[] = [];
     for (const id of this.layerOrder) {
       // 限制返回数量，防止大数据集拖垮交互。
       if (results.length >= 50) {
