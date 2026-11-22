@@ -854,6 +854,11 @@ export class GeoAgentCore {
   /** 提交（持久化）输入的 API key 并刷新连接状态。 */
   commitApiKey(value: string): void {
     const apiKey = value.trim();
+    // 幂等：与已提交值相同（React 面板每次 blur 都会提交）时不重写
+    // storage、不失效 agent、不重复弹提示。
+    if (apiKey === this.committedApiKey) {
+      return;
+    }
     this.committedApiKey = apiKey;
     const storageKey = this.providerConfig(this.state.providerId).storageKey;
     // 有值写入 storage；清空则移除，回到宿主兜底值/空的状态。
@@ -1524,8 +1529,14 @@ export class GeoAgentCore {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (abortController.signal.aborted) {
-        // 取消导致的异常不算错误：会话记一条取消答复，徽标展示 Cancelled。
-        this.appendEntry('assistant', this.translate('answerCancelled'), true);
+        // 取消导致的异常不算错误：与成功路径一致，在已有流式条目上落定
+        // 取消答复，而不是另起一条（否则已吐字的会话会出现"半截回答 +
+        // 已取消"两条并存）。
+        if (this.streamingEntryId) {
+          this.updateEntry(this.streamingEntryId, this.translate('answerCancelled'));
+        } else {
+          this.appendEntry('assistant', this.translate('answerCancelled'), true);
+        }
         this.setTransientStatus(this.translate('statusCancelled'), 'connected');
       } else {
         // 真实错误：会话追加 error 条目，徽标进入 error 状态。
