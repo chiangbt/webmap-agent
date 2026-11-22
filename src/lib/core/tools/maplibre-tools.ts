@@ -20,17 +20,18 @@ import type {
 import { z } from "zod";
 import {
   GeoAgentTools,
+  clampUnit,
   objectArg,
   stringArg,
   type GeoAgentMapEngine,
   type GeoAgentMapSurface,
   type GeoAgentStyleSpecEngine,
   type GeoAgentStyleSpecNamespace,
+  type JsonObject,
 } from "./geoagent-tools";
 
 /** 截图等待 render 帧的超时上限（毫秒）。 */
 const MAP_EVENT_TIMEOUT_MS = 8000;
-import type { JsonObject } from "./geoagent-tools";
 
 // 原样转发基类导出，维持历史导入路径的兼容性。
 export * from "./geoagent-tools";
@@ -448,10 +449,10 @@ export class MapLibreAgentTools extends GeoAgentTools {
               ],
               // 基底高度：指定属性缺失时落到 0（贴地）。
               "fill-extrusion-base": ["coalesce", ["get", baseProperty], 0],
-              // 透明度夹取到 [0,1]，默认 0.6。
-              "fill-extrusion-opacity": Math.max(
-                0,
-                Math.min(1, Number(args.fill_extrusion_opacity ?? 0.6)),
+              // 透明度夹取到 [0,1]；非数值（NaN 路径）回退默认 0.6。
+              "fill-extrusion-opacity": clampUnit(
+                args.fill_extrusion_opacity ?? 0.6,
+                0.6,
               ),
             },
           } as LayerSpecification,

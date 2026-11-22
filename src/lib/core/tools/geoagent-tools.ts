@@ -380,12 +380,31 @@ export function numberArg(args: JsonObject, key: string): number {
   if (typeof value !== "number" && typeof value !== "string") {
     throw new Error(`Expected numeric argument: ${key}`);
   }
+  // 空串/空白串经 Number 会静默变成 0（Number("") === 0），必须显式拒绝。
+  if (typeof value === "string" && value.trim() === "") {
+    throw new Error(`Expected numeric argument: ${key}`);
+  }
   const numberValue = Number(value);
   // NaN / Infinity 会污染地图相机与几何计算，必须显式拒绝。
   if (!Number.isFinite(numberValue)) {
     throw new Error(`Expected finite numeric argument: ${key}`);
   }
   return numberValue;
+}
+
+/**
+ * 把未知值转成有限数值；转换失败（NaN/Infinity/非数值字符串）时返回兜底
+ * 值。Math.min/max 会放行 NaN，所以每个来自模型入参的数值样式值都必须先
+ * 经此防御。
+ */
+export function finiteOr(value: unknown, fallback: number): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+/** 把未知值夹取到 [0, 1]；转换失败时返回 fallback。 */
+export function clampUnit(value: unknown, fallback: number): number {
+  return Math.max(0, Math.min(1, finiteOr(value, fallback)));
 }
 
 /**
@@ -613,14 +632,6 @@ export function geojsonLayerPaint(style: JsonObject): {
   line: JsonObject;
   circle: JsonObject;
 } {
-  // 用夹取防御 NaN（Math.min/max 会放行 NaN），所以每个数值样式值在非有限时
-  // 回退到默认值，而不是污染 paint 属性。
-  const finiteOr = (value: unknown, fallback: number): number => {
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : fallback;
-  };
-  const clamp01 = (value: unknown, fallback: number): number =>
-    Math.max(0, Math.min(1, finiteOr(value, fallback)));
   // 基础色：优先 `color`，其次 `line-color`，都没有时用默认蓝。
   const color =
     stringArg(style, "color") || stringArg(style, "line-color") || "#1c7ed6";
@@ -645,7 +656,7 @@ export function geojsonLayerPaint(style: JsonObject): {
     fill: {
       "fill-color": fillColor,
       "fill-outline-color": lineColor,
-      "fill-opacity": clamp01(opacity, 0.35),
+      "fill-opacity": clampUnit(opacity, 0.35),
     },
     line: {
       "line-color": lineColor,
@@ -1947,11 +1958,9 @@ export abstract class GeoAgentTools {
         name,
         url,
         attribution: stringArg(args, "attribution") || provider?.attribution,
-        // opacity 夹取到 [0,1]，防越界值。
+        // opacity 夹取到 [0,1]，非数值（NaN 路径）回退为 1。
         opacity:
-          args.opacity == null
-            ? undefined
-            : Math.max(0, Math.min(1, Number(args.opacity))),
+          args.opacity == null ? undefined : clampUnit(args.opacity, 1),
       });
       return `Added basemap ${name}.`;
     
@@ -2017,7 +2026,8 @@ export abstract class GeoAgentTools {
       const url = stringArg(args, "url");
       // 四角坐标逐个校验合法性（数量、格式、有限性）。
       const coordinates = this.cornerCoordinates(args.coordinates);
-      const opacity = Math.max(0, Math.min(1, Number(args.opacity ?? 1)));
+      // opacity 夹取到 [0,1]；非数值（NaN 路径）回退为 1。
+      const opacity = clampUnit(args.opacity ?? 1, 1);
       const sourceId = `${id}-source`;
       await this.addNativeOverlay({
         name: id,
@@ -3407,10 +3417,8 @@ export abstract class GeoAgentTools {
     const sourceId = `${slug(name)}-source`;
     const fillLayerId = slug(name);
     const lineLayerId = `${slug(name)}-outline`;
-    const fillOpacity = Math.max(
-      0,
-      Math.min(1, Number(args.fill_opacity ?? 0.7)),
-    );
+    // opacity 夹取到 [0,1]；非数值（NaN 路径）回退默认 0.7。
+    const fillOpacity = clampUnit(args.fill_opacity ?? 0.7, 0.7);
     await this.addNativeOverlay({
       name,
       sourceSpecs: {
