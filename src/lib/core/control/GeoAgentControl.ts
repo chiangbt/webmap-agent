@@ -94,6 +94,12 @@ export class GeoAgentControl implements IControl {
   private suggestionBlurTimer: ReturnType<typeof setTimeout> | null = null;
   // 上一次控件刷新时 agent 是否已配置完成；用于在配置首次完成时收起设置区。
   private wasConfigured = false;
+  // 流式 markdown 渲染的合帧缓冲：entryId → 最新内容。每个文本增量都全量
+  // 重跑 marked + DOMPurify 是 O(n²)，合帧成每帧最多渲染一轮（取每个条目
+  // 的最新内容）。
+  private pendingMarkdownUpdates = new globalThis.Map<string, string>();
+  /** 尚未触发的 markdown 合帧句柄；null 表示没有排队的渲染。 */
+  private markdownFlushHandle: number | null = null;
 
   /**
    * 构造命令式控件：选项原样交给 GeoAgentCore 保存并归一化。
@@ -176,6 +182,12 @@ export class GeoAgentControl implements IControl {
       clearTimeout(this.suggestionBlurTimer);
       this.suggestionBlurTimer = null;
     }
+    // 取消尚未触发的 markdown 合帧渲染。
+    if (this.markdownFlushHandle !== null) {
+      cancelAnimationFrame(this.markdownFlushHandle);
+      this.markdownFlushHandle = null;
+    }
+    this.pendingMarkdownUpdates.clear();
     this.core.dispose();
     this.panel?.parentNode?.removeChild(this.panel);
     this.container?.parentNode?.removeChild(this.container);
@@ -258,6 +270,8 @@ export class GeoAgentControl implements IControl {
       }
       if (change.type === 'reset') {
         this.ui.log.replaceChildren();
+        // 缓冲里的条目 DOM 已整体拆除：清空待渲染缓冲，避免渲染到失效 id。
+        this.pendingMarkdownUpdates.clear();
       } else if (change.type === 'append' && change.entry) {
         this.appendLogEntry(change.entry);
       } else if (change.type === 'update' && change.entry) {
@@ -908,12 +922,42 @@ export class GeoAgentControl implements IControl {
     const textEl = el.querySelector<HTMLElement>('.geoagent-text');
     if (textEl) {
       if (entry.markdown) {
-        this.renderAssistantMarkdown(textEl, entry.content);
+        // markdown 条目在流式期间被高频增量更新：缓冲最新内容，合帧成
+        // 每帧至多一轮渲染，避免对累计全文逐 delta 重跑净化管线。
+        this.pendingMarkdownUpdates.set(entry.id, entry.content);
+        this.scheduleMarkdownFlush();
       } else {
         textEl.textContent = entry.content;
       }
     }
     this.ui.log.scrollTop = this.ui.log.scrollHeight;
+  }
+
+  /** 安排一次合帧渲染；已有排队渲染时合并（缓冲里总是最新内容）。 */
+  private scheduleMarkdownFlush(): void {
+    if (this.markdownFlushHandle !== null) {
+      return;
+    }
+    this.markdownFlushHandle = requestAnimationFrame(() => {
+      this.markdownFlushHandle = null;
+      this.flushPendingMarkdown();
+    });
+  }
+
+  /** 渲染合帧缓冲里的全部条目内容；条目 DOM 已被拆除（reset 等）时跳过。 */
+  private flushPendingMarkdown(): void {
+    if (!this.ui || this.pendingMarkdownUpdates.size === 0) {
+      return;
+    }
+    for (const [entryId, content] of Array.from(this.pendingMarkdownUpdates)) {
+      this.pendingMarkdownUpdates.delete(entryId);
+      const textEl = this.ui.log.querySelector<HTMLElement>(
+        `.geoagent-entry[data-entry-id="${entryId}"] .geoagent-text`,
+      );
+      if (textEl) {
+        this.renderAssistantMarkdown(textEl, content);
+      }
+    }
   }
 
   /** 把 markdown 渲染为经过净化的 HTML：marked 转换 + DOMPurify 白名单过滤。 */
