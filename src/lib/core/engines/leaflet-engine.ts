@@ -65,6 +65,8 @@ export interface LeafletMapLike {
   getBounds(): LeafletBoundsLike;
   getSize(): LeafletPointLike;
   setView(center: unknown, zoom?: number, options?: unknown): unknown;
+  /** 通知 Leaflet 容器尺寸已变化并重算地图尺寸；flyTo 起飞前刷新容器用。 */
+  invalidateSize(options?: unknown): unknown;
   flyTo(center: unknown, zoom?: number, options?: unknown): unknown;
   fitBounds(bounds: unknown, options?: unknown): unknown;
   setZoom(zoom: number, options?: unknown): unknown;
