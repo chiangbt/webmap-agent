@@ -86,7 +86,7 @@
   "devDependencies": {
     "@arcgis/core": "^5.2.7",
     "@arcgis/map-components": "^5.2.7",
-    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@geoql/maplibre-gl-starfield": "^0.1.4",
     "@opentelemetry/api": "^1.10.0",
     "@tailwindcss/vite": "^4.3.5",
     "@testing-library/dom": "^10.4.2",
@@ -118,7 +118,6 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
-    "@geoql/maplibre-gl-starfield": "^0.1.4",
     "@google/earthengine": "^1.7.25",
     "@radix-ui/react-checkbox": "^1.4.1",
     "@radix-ui/react-collapsible": "^1.2.1",
@@ -134,7 +133,6 @@
     "marked": "^18.0.3",
     "openai": "^6.37.0",
     "tailwind-merge": "^3.7.1",
-    "three": "^0.187.0",
     "zod": "^4.1.12"
   }
 }
