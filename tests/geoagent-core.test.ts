@@ -225,6 +225,40 @@ describe('GeoAgentCore conversation', () => {
       mapContext.cleanup();
     });
 
+    it('segments narration around tool calls so entries follow chronological order', () => {
+      const core = new GeoAgentCore();
+      core.attach(mapContext.map);
+      const handle = handleStream(core);
+      const delta = (text: string) =>
+        handle({
+          type: 'modelStreamUpdateEvent',
+          event: {
+            type: 'modelContentBlockDeltaEvent',
+            delta: { type: 'textDelta', text },
+          },
+        });
+
+      delta('Adding the marker now.');
+      handle({ type: 'beforeToolCallEvent', toolUse: { name: 'add_marker' } });
+      handle({ type: 'afterToolCallEvent', toolUse: { name: 'add_marker' } });
+      delta('Done. The marker is in place.');
+      handle({ type: 'agentResultEvent', result: { toString: () => 'ok' } });
+
+      const entries = (
+        core as unknown as { entries: { role: string; content: string }[] }
+      ).entries.filter((entry) => entry.role !== 'system');
+      // 顺序：开场白 → 工具行 → 工具后的新一段文本（不再写回开场白条目）。
+      expect(entries.map((entry) => entry.role)).toEqual([
+        'assistant',
+        'tool',
+        'assistant',
+      ]);
+      expect(entries[0].content).toBe('Adding the marker now.');
+      expect(entries[2].content).toContain('Done. The marker is in place.');
+      core.dispose();
+      mapContext.cleanup();
+    });
+
     it('starts a new group when streaming text appears between tool calls', () => {
       const core = new GeoAgentCore();
       core.attach(mapContext.map);

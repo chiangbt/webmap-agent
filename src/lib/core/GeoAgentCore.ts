@@ -1419,6 +1419,11 @@ export class GeoAgentCore {
     if (event.type === 'beforeToolCallEvent') {
       // 相邻的工具调用合并进同一行：运行中只显示「正在执行工具（第 N 步）」，
       // 不逐个刷日志；整轮结束后再由 finalizeToolRun 展开逐条详情。
+      // 同时封存当前流式文本条目：模型“边说边做”时，说话与工具调用按时序
+      // 交错成多段，避免后续文本继续写入工具调用之前的那段，造成“答案在
+      // 上、工具在下”的错位观感。
+      this.streamingEntryId = null;
+      this.streamingAssistantText = '';
       const name = event.toolUse.name;
       if (!this.toolRunEntryId) {
         const entry = this.appendEntry(
