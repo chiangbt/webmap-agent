@@ -615,6 +615,14 @@ describe("MapLibreAgentTools Earth Engine tools", () => {
       earthEngine: { oauthClientId: "client", projectId: "project" },
     });
 
+    // 片段拿到的是脱敏 ee 门面：访问 ee.data 鉴权命名空间即抛错，
+    // 防止片段读出 access token 外传。
+    const blocked = await agent.runCommand("run_gee_javascript_snippet", {
+      code: "await ee.data.getAuthToken();",
+    });
+    expect(blocked).toMatchObject({ success: false });
+    expect(JSON.stringify(blocked)).toContain("ee.data");
+
     const snippet = await agent.runCommand("run_gee_javascript_snippet", {
       code: "await addLayer(new ee.Image('SRTM'), {min: 0, max: 1}, 'Snippet SRTM');",
     });

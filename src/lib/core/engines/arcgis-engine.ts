@@ -716,6 +716,8 @@ interface MarkerWrapper {
   element: HTMLElement;
   lngLat: [number, number] | null;
   popupElement: HTMLElement | null;
+  /** createMarker 时由返回的 self.remove 回填：destroy 时据此摘除 marker。 */
+  remove?: () => void;
 }
 
 /**
@@ -2143,6 +2145,11 @@ export class ArcGISMapShim {
         return undefined;
       },
     };
+    // 回填 remove 引用：shim destroy 时据此清理所有存活 marker
+    // （wrapper 本身没有可调用的 remove 方法，不回填会导致清理空操作）。
+    wrapper.remove = () => {
+      self.remove();
+    };
     return self;
   }
 
@@ -2244,8 +2251,8 @@ export class ArcGISMapShim {
       this.clickHandle = null;
     }
     for (const wrapper of Array.from(this.markers)) {
-      // 经包装对象的 remove() 摘除 DOM 元素并注销。
-      (wrapper as unknown as { remove?: () => void }).remove?.();
+      // 经 createMarker 回填的 remove() 摘除 DOM 元素并从注册表注销。
+      wrapper.remove?.();
     }
     this.markers.clear();
   }

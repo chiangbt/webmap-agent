@@ -83,6 +83,13 @@ describe('leaflet pure helpers', () => {
     expect(evaluateExpression(['==', 'kind', 'city'], context)).toBe(true);
     expect(evaluateExpression(['!=', 'kind', 'city'], context)).toBe(false);
     expect(evaluateExpression(['!has', 'missing'], context)).toBe(true);
+    // legacy "in": property membership against literal list
+    expect(evaluateExpression(['in', 'kind', 'city', 'town'], context)).toBe(true);
+    expect(evaluateExpression(['in', 'kind', 'village'], context)).toBe(false);
+    expect(evaluateExpression(['!in', 'kind', 'village'], context)).toBe(true);
+    // modern "in" expression（第一操作数为表达式取值）不受 legacy 分支影响
+    expect(evaluateExpression(['in', ['get', 'kind'], ['literal', ['city', 'town']]], context)).toBe(true);
+    expect(evaluateExpression(['in', ['get', 'kind'], ['literal', ['village']]], context)).toBe(false);
     // non-expressions pass through
     expect(evaluateExpression('#ff0000', context)).toBe('#ff0000');
   });

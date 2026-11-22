@@ -137,7 +137,9 @@ export interface GeoAgentControlOptions {
 
   /**
    * 可选的 MapLibre JavaScript 执行工具（run_maplibre_script）是否默认启用。
-   * @default true
+   * 该工具经 `new Function` 在页面上下文执行模型生成的代码，并非安全沙箱；
+   * 仅应在可信环境显式开启。
+   * @default false
    */
   allowCodeExecutionDefault?: boolean;
 

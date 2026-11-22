@@ -1785,9 +1785,14 @@ export class EarthEngineService {
 
   /**
    * 受控执行 LLM 生成的 GEE JavaScript 片段。
-   * 沙箱方式：new Function 注入受限的 ee / Map / addLayer / getEeLayer /
-   * listEeLayers 形参，代码包在 async IIFE 中执行；Map.addLayer 的三个
-   * 别名都归一到同一个 addEeLayer 包装，负责记录新增图层。
+   * 执行方式：new Function 注入脱敏的 ee 门面（屏蔽 ee.data 鉴权命名空间）
+   * 与受限的 Map / addLayer / getEeLayer / listEeLayers 形参，代码包在
+   * async IIFE 中执行；Map.addLayer 的三个别名都归一到同一个 addEeLayer
+   * 包装，负责记录新增图层。
+   *
+   * 注意：new Function 并非安全沙箱——片段仍可访问 document、fetch、
+   * sessionStorage 等页面全局。真正的边界是宿主的代码执行权限开关；
+   * 仅应在可信环境开启该工具。
    *
    * @param code - GEE JavaScript 代码片段
    * @param addLayer - 宿主提供的图层注册回调（实际把 tile URL 加到地图）
@@ -1834,6 +1839,19 @@ export class EarthEngineService {
       add_ee_layer: addEeLayer,
     });
     // 把用户代码包进 strict 模式的 async IIFE，通过形参暴露受限 API。
+    // 注意：new Function 并非安全沙箱（片段仍可访问 document/fetch 等），
+    // 这里只做"脱敏门面"——屏蔽 ee.data 鉴权命名空间，防止片段经
+    // ee.data.getAuthToken() 读出 access token 后外传。
+    const eeFacade = new Proxy(ee, {
+      get(target, prop) {
+        if (prop === 'data') {
+          throw new Error(
+            'ee.data (the authentication namespace) is not available inside snippets.',
+          );
+        }
+        return Reflect.get(target, prop);
+      },
+    });
     const fn = new Function(
       "ee",
       "Map",
@@ -1848,14 +1866,28 @@ export class EarthEngineService {
       getEeLayerArg: (name: string) => unknown,
       listEeLayersArg: () => EarthEngineLayerRecord[],
     ) => Promise<unknown>;
-    const result = await fn(
-      ee,
-      mapAdapter,
-      addEeLayer,
-      // getEeLayer：按名取已注册图层的 ee 对象，供片段间复用。
-      (name: string) => this.getLayerPayload(name).eeObject,
-      () => this.listLoadedLayers(),
-    );
+    let result: unknown;
+    try {
+      result = await fn(
+        eeFacade,
+        mapAdapter,
+        addEeLayer,
+        // getEeLayer：按名取已注册图层的 ee 对象，供片段间复用。
+        (name: string) => this.getLayerPayload(name).eeObject,
+        () => this.listLoadedLayers(),
+      );
+    } catch (error) {
+      // 片段抛错（含访问被屏蔽的 ee.data）返回结构化失败而非向上抛异常，
+      // 与"没加任何图层"的失败路径保持同一返回契约。
+      return {
+        success: false,
+        error: `The generated Earth Engine JavaScript snippet threw: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        layers_added: [],
+        earth_engine_javascript_snippet: code,
+      };
+    }
     // 执行成功但没加任何图层：视为失败并提示调用 Map.addLayer。
     if (layersAdded.length === 0) {
       return {

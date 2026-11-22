@@ -245,7 +245,8 @@ describe("GeoAgentControl", () => {
       collapsed: true,
       panelWidth: 390,
       providerId: "openai-compatible",
-      allowCodeExecution: true,
+      // 任意 JS 执行工具默认关闭：new Function 并非安全沙箱，须宿主显式开启。
+      allowCodeExecution: false,
       allowDestructiveTools: true,
     });
     expect(
@@ -261,7 +262,11 @@ describe("GeoAgentControl", () => {
 
   it("can show permission toggles during initialization", () => {
     const map = new MockMap();
-    const control = new GeoAgentControl({ showPermissionToggles: true });
+    // 代码执行开关默认关闭；显式开启以验证开关 UI 反映状态。
+    const control = new GeoAgentControl({
+      showPermissionToggles: true,
+      allowCodeExecutionDefault: true,
+    });
     const container = control.onAdd(map as never);
     map.controlStack.appendChild(container);
 

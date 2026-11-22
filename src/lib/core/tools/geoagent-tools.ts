@@ -2382,19 +2382,23 @@ export abstract class GeoAgentTools {
     return new Promise((resolve) => {
       // settled 防御超时与事件双路径竞争：先到者生效，后到者被忽略。
       let settled = false;
+      // 超时路径也要注销 once 监听器，避免事件迟迟不触发时监听器永久残留。
+      const handler = () => finish(true);
       const finish = (value: boolean) => {
         if (settled) {
           return;
         }
         settled = true;
         window.clearTimeout(timeoutId);
+        // off 用可选调用：宿主地图包装器可能只实现 once。
+        this.map.off?.(eventName, handler);
         resolve(value);
       };
       const timeoutId = window.setTimeout(
         () => finish(false),
         MAP_EVENT_TIMEOUT_MS,
       );
-      this.map.once(eventName, () => finish(true));
+      this.map.once(eventName, handler);
     });
   }
 

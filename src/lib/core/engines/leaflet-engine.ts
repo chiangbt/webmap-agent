@@ -530,16 +530,26 @@ export function evaluateExpression(
       }
     }
     case "in": {
-      const needle = evaluate(args[0]);
-      const haystack = evaluate(args[1]);
-      // 第二个操作数为数组：判断成员包含；为字符串且 needle 也是字符串：判断子串。
-      if (Array.isArray(haystack)) {
-        return haystack.some((item) => looseEquals(item, needle));
+      // 与 "==" / "!in" 同一约定：第一个操作数为字符串即旧式 filter，
+      // 直接按属性名取值，其余操作数是字面量集合 ["in", "prop", v1, v2...]。
+      const legacy = typeof args[0] === "string";
+      const needle = legacy
+        ? context.properties?.[args[0] as string]
+        : evaluate(args[0]);
+      const haystack = legacy ? args.slice(1) : [evaluate(args[1])];
+      // 现代形式第二个操作数为数组时判断成员包含；为字符串且 needle 也是
+      // 字符串时判断子串；其余形式不匹配。
+      if (!legacy) {
+        const value = haystack[0];
+        if (Array.isArray(value)) {
+          return value.some((item) => looseEquals(item, needle));
+        }
+        if (typeof value === "string" && typeof needle === "string") {
+          return value.includes(needle);
+        }
+        return false;
       }
-      if (typeof haystack === "string" && typeof needle === "string") {
-        return haystack.includes(needle);
-      }
-      return false;
+      return haystack.some((item) => looseEquals(item, needle));
     }
     case "!has": {
       // 旧式否定存在性 filter：["!has", "prop"]。
@@ -1271,9 +1281,9 @@ export class LeafletMapShim {
       this.raw.getCenter().lng,
       this.raw.getCenter().lat,
     ];
-    // 用 0.3 秒的 flyTo 模拟 MapLibre easeTo 的快速缓动。
+    // 用 0.3 秒的 flyTo 模拟 MapLibre easeTo 的快速缓动（Leaflet duration 单位是毫秒）。
     this.raw.flyTo([center[1], center[0]], options.zoom ?? this.raw.getZoom(), {
-      duration: 0.3,
+      duration: 300,
     });
   }
 

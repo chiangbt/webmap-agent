@@ -373,7 +373,9 @@ export class GeoAgentCore {
       // 部署级兜底值（如宿主应用从 .env 注入）。
       defaultApiKey: options.defaultApiKey ?? '',
       defaultBaseUrl: options.defaultBaseUrl ?? '',
-      allowCodeExecutionDefault: options.allowCodeExecutionDefault ?? true,
+      // 任意 JS 执行工具默认关闭：new Function 并非安全沙箱，片段可访问
+      // document/sessionStorage（含 API key）。宿主必须显式 opt-in。
+      allowCodeExecutionDefault: options.allowCodeExecutionDefault ?? false,
       allowDestructiveToolsDefault: options.allowDestructiveToolsDefault ?? true,
       showPermissionToggles: options.showPermissionToggles ?? false,
       defaultModel: options.defaultModel,
@@ -440,6 +442,9 @@ export class GeoAgentCore {
       },
     });
     this.loadProviderSettings();
+    // 工具集已重建：强制失效缓存的 agent，避免旧 agent 继续持有已销毁的
+    // 工具集（其签名不含 tools 标识，单靠签名比对不会触发重建）。
+    this.invalidateAgent();
     this.applyIdleStatus(true);
     this.appendEntry('system', this.readyLogMessage());
   }
@@ -1021,9 +1026,19 @@ export class GeoAgentCore {
       return false;
     }
     try {
-      // 能被 URL 构造器解析且协议为 http/https 才算合法（拒绝相对路径与非 http 协议）。
       const url = new URL(trimmed);
-      return url.protocol === 'http:' || url.protocol === 'https:';
+      // https 一律放行；http 仅放行本机回环（本地 LLM 如 Ollama 的常见部署），
+      // 其余 http 端点会明文传输 API key，直接拒绝。相对路径与非 http 协议同样拒绝。
+      if (url.protocol === 'https:') {
+        return true;
+      }
+      return (
+        url.protocol === 'http:' &&
+        (url.hostname === 'localhost' ||
+          url.hostname === '127.0.0.1' ||
+          url.hostname === '[::1]' ||
+          url.hostname === '::1')
+      );
     } catch {
       return false;
     }

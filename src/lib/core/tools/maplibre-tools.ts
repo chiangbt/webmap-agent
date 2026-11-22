@@ -327,12 +327,26 @@ export class MapLibreAgentTools extends GeoAgentTools {
     return new Promise((resolve, reject) => {
       // settled 保证超时与 render 两条路径只有先到者生效。
       let settled = false;
+      // 渲染回调内读取画布：此时 drawing buffer 尚未被清空。
+      const onRender = () => {
+        finish(() => {
+          const canvas = this.map.getCanvas();
+          resolve({
+            data_url: canvas.toDataURL("image/png"),
+            width: canvas.width,
+            height: canvas.height,
+          });
+        });
+      };
       const finish = (action: () => void): void => {
         if (settled) {
           return;
         }
         settled = true;
         window.clearTimeout(timeoutId);
+        // 超时路径同样注销 render 监听器；off 用可选调用，宿主地图包装器
+        // 可能只实现 once。
+        this.map.off?.("render", onRender);
         action();
       };
       const timeoutId = window.setTimeout(() => {
@@ -344,17 +358,7 @@ export class MapLibreAgentTools extends GeoAgentTools {
           ),
         );
       }, MAP_EVENT_TIMEOUT_MS);
-      // 渲染回调内读取画布：此时 drawing buffer 尚未被清空。
-      this.map.once("render", () => {
-        finish(() => {
-          const canvas = this.map.getCanvas();
-          resolve({
-            data_url: canvas.toDataURL("image/png"),
-            width: canvas.width,
-            height: canvas.height,
-          });
-        });
-      });
+      this.map.once("render", onRender);
       // 主动触发一次重绘，确保即使地图静止也能等到 render 帧。
       this.map.triggerRepaint?.();
     });
