@@ -180,6 +180,18 @@ describe('LeafletAgentTools on a real Leaflet map (jsdom)', () => {
     container.remove();
   });
 
+  it('uses flyTo for set_center so Leaflet centers transition smoothly', async () => {
+    const agent = tools(map);
+    // spy 并短路真实动画；断言 set_center 落在 flyTo（平滑）而非 setView（跳转）。
+    const flyToSpy = vi.spyOn(map, 'flyTo').mockImplementation(() => map);
+    await agent.runCommand('set_center', { lat: 41, lon: -100, zoom: 5 });
+    expect(flyToSpy).toHaveBeenCalledTimes(1);
+    // shim 把 MapLibre 顺序的 [lng, lat] 转成 Leaflet 的 [lat, lng]。
+    expect(flyToSpy.mock.calls[0][0]).toEqual([41, -100]);
+    expect(flyToSpy.mock.calls[0][1]).toBe(5);
+    agent.destroy();
+  });
+
   it('reports map state through the shim', async () => {
     const agent = tools(map);
     const state = (await agent.runCommand('get_map_state')) as {

@@ -81,6 +81,15 @@ export class LeafletAgentTools extends GeoAgentTools {
   }
 
   /**
+   * set_center 在 Leaflet 上使用 flyTo 平滑过渡到目标中心/缩放级别，
+   * 而不是 jumpTo 的瞬时跳转；center 为 [lng, lat]（MapLibre 顺序），
+   * shim 的 flyTo 内部会转换成 Leaflet 的 [lat, lng]。
+   */
+  protected setCenterCamera(center: [number, number], zoom: number): void {
+    this.map.flyTo({ center, zoom });
+  }
+
+  /**
    * 明确的能力错误，与 shim 的消息一致（对用户脚本而言 shim 仍是最后一道
    * 防线）。`set_projection: "mercator"` 保留为无操作成功，与 shim 契约一致。
    */

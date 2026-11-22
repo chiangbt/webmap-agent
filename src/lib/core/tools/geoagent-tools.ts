@@ -1756,6 +1756,15 @@ export abstract class GeoAgentTools {
     };
   }
 
+  /**
+   * set_center 的相机操作 hook：center 为 [lng, lat]（MapLibre 顺序）。
+   * 默认无动画跳转（jumpTo）；引擎子类可覆写——例如 Leaflet 用 flyTo
+   * 平滑过渡到目标中心。
+   */
+  protected setCenterCamera(center: [number, number], zoom: number): void {
+    this.map.jumpTo({ center, zoom });
+  }
+
   /** 视角导航命令：中心点、飞行、缩放、范围缩放。 */
   private navigationCommands(): Record<string, (args: JsonObject) => Promise<unknown>> {
     return {
@@ -1763,12 +1772,9 @@ export abstract class GeoAgentTools {
       // zoom 与 lat/lon 一样走有限数值校验，坏值会干净地报错，
       // 而不是把 NaN 交给相机。
       const zoom = args.zoom == null ? this.map.getZoom() : numberArg(args, "zoom");
-      this.map.jumpTo({
-        center: [numberArg(args, "lon"), numberArg(args, "lat")],
-        zoom,
-      });
+      this.setCenterCamera([numberArg(args, "lon"), numberArg(args, "lat")], zoom);
       return "Centered map.";
-    
+
       },
       fly_to: async (args) => {
       // zoom 缺省保持当前级别；numberArg 校验传入了的 zoom。
