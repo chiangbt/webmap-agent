@@ -10,6 +10,10 @@ core also attaches to Leaflet, OpenLayers, and ArcGIS Maps SDK maps (MapView / S
 [![npm version](https://img.shields.io/npm/v/web-geoagent.svg)](https://www.npmjs.com/package/web-geoagent)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+## Architecture
+
+![web-geoagent architecture](docs/architecture.png)
+
 ## Features
 
 - Collapsible MapLibre control with a floating chat panel

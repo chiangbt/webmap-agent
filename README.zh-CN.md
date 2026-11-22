@@ -9,6 +9,10 @@
 [![npm version](https://img.shields.io/npm/v/web-geoagent.svg)](https://www.npmjs.com/package/web-geoagent)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+## 架构总览
+
+![web-geoagent 架构图](docs/architecture.png)
+
 ## 功能特性
 
 - 可折叠的 MapLibre 控件，带浮动聊天面板
