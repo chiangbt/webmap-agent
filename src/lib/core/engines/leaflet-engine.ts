@@ -1269,7 +1269,20 @@ export class LeafletMapShim {
       this.raw.getCenter().lng,
       this.raw.getCenter().lat,
     ];
-    this.raw.flyTo([center[1], center[0]], options.zoom ?? this.raw.getZoom());
+    const target: [number, number] = [center[1], center[0]];
+    const zoom = options.zoom ?? this.raw.getZoom();
+    // 动画结束后保证视图中心精确等于目标点：用户中途拖拽打断、连续调用
+    // 时从中间状态起飞等情况会把中心留在半路，此时无动画校正到位。
+    this.raw.once('moveend', () => {
+      const current = this.raw.getCenter();
+      const drifted =
+        Math.abs(current.lat - target[0]) > 1e-9 ||
+        Math.abs(current.lng - target[1]) > 1e-9;
+      if (drifted) {
+        this.raw.setView(target, zoom, { animate: false });
+      }
+    });
+    this.raw.flyTo(target, zoom);
   }
 
   /**

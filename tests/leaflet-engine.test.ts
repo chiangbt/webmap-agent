@@ -192,6 +192,25 @@ describe('LeafletAgentTools on a real Leaflet map (jsdom)', () => {
     agent.destroy();
   });
 
+  it('snaps the center to the flyTo target when the animation is interrupted', async () => {
+    const shim = createLeafletMapShim(map as never, L as never);
+    // 让动画立即结束但停在中途（模拟用户拖拽打断 flyTo）。
+    const flyToSpy = vi
+      .spyOn(map, 'flyTo')
+      .mockImplementation(((_target: [number, number], _zoom?: number) => {
+        map.setView([40, -99], { animate: false });
+        map.fire('moveend');
+        return map;
+      }) as never);
+    shim.flyTo({ center: [-100, 41], zoom: 5 });
+    expect(flyToSpy).toHaveBeenCalledTimes(1);
+    // moveend 校正：中心被无动画地拉回到目标点，视图中心精确等于 flyTo 目标。
+    const center = map.getCenter();
+    expect(center.lat).toBeCloseTo(41, 9);
+    expect(center.lng).toBeCloseTo(-100, 9);
+    expect(map.getZoom()).toBe(5);
+  });
+
   it('reports map state through the shim', async () => {
     const agent = tools(map);
     const state = (await agent.runCommand('get_map_state')) as {
