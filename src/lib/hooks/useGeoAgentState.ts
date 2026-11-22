@@ -1,7 +1,12 @@
 import { useCallback, useState } from 'react';
 import type { GeoAgentProviderId, GeoAgentState } from '../core/types';
 
-/** 面板状态的默认值：默认收起、宽 390px、空闲、OpenAI 兼容 provider。 */
+/**
+ * 面板状态的默认值：默认收起、宽 390px、空闲、OpenAI 兼容 provider。
+ * 与 GeoAgentCore 构造时的默认值保持一致——尤其 allowCodeExecution 必须
+ * 默认为 false：run_maplibre_script 经 new Function 执行，并非安全沙箱，
+ * 需要宿主显式 opt-in。
+ */
 const DEFAULT_STATE: GeoAgentState = {
   collapsed: true,
   panelWidth: 390,
@@ -9,7 +14,7 @@ const DEFAULT_STATE: GeoAgentState = {
   providerId: 'openai-compatible',
   modelId: '',
   baseUrl: '',
-  allowCodeExecution: true,
+  allowCodeExecution: false,
   allowDestructiveTools: true,
   data: {},
 };
