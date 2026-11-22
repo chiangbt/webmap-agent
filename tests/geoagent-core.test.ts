@@ -213,7 +213,7 @@ describe('GeoAgentCore conversation', () => {
       handle({ type: 'beforeToolCallEvent', toolUse: { name: 'add_marker' } });
       // 三个相邻调用只产生一行合并记录，且步数持续更新。
       expect(toolEntries(core)).toHaveLength(1);
-      expect(toolEntries(core)[0].content).toBe('Running tools (step 3)');
+      expect(toolEntries(core)[0].content).toBe('Running tool add_marker (step 3)');
 
       handle({ type: 'agentResultEvent', result: { toString: () => 'done' } });
       // 整轮结束后同一行展开为逐条详情。

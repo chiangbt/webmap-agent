@@ -1423,7 +1423,7 @@ export class GeoAgentCore {
       if (!this.toolRunEntryId) {
         const entry = this.appendEntry(
           'tool',
-          this.translate('logRunningToolsGroup', { step: 1 }),
+          this.translate('logRunningToolsGroup', { tool: name, step: 1 }),
         );
         this.toolRunEntryId = entry.id;
         this.toolRunNames = [name];
@@ -1431,7 +1431,10 @@ export class GeoAgentCore {
         this.toolRunNames.push(name);
         this.updateEntry(
           this.toolRunEntryId,
-          this.translate('logRunningToolsGroup', { step: this.toolRunNames.length }),
+          this.translate('logRunningToolsGroup', {
+            tool: name,
+            step: this.toolRunNames.length,
+          }),
         );
       }
       return undefined;

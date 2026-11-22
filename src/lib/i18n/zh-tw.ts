@@ -68,7 +68,7 @@ export const zhTW: Record<GeoAgentMessageKey, string> = {
   logChatCleared: '對話已清空。',
   logCancelRequested: '已請求取消。',
   logRunningTool: '正在執行 {tool}',
-  logRunningToolsGroup: '正在執行工具（第 {step} 步）',
+  logRunningToolsGroup: '正在執行工具 {tool}（第 {step} 步）',
   logToolsCompleted: '已完成 {count} 次工具呼叫：',
   logToolStep: '{step}. {tool}',
   answerCancelled: '已取消。',
