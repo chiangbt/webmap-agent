@@ -21,9 +21,19 @@ export default defineConfig({
         'tests/',
         'examples/',
         'dist/',
+        // 演示站点不是 npm 包代码，不参与覆盖率统计与阈值。
+        'src/demo/',
         '**/*.test.ts',
         '**/*.test.tsx',
       ],
+      // 全局阈值：取当前实测水平（行 69.9 / 分支 68.8 / 函数 76）略低一档，
+      // 目标是防覆盖显著回退，而不是精确锁死现状。
+      thresholds: {
+        lines: 65,
+        statements: 65,
+        functions: 70,
+        branches: 64,
+      },
     },
   },
 });
