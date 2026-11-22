@@ -1264,6 +1264,9 @@ export class LeafletMapShim {
 
   /** 飞行动画到指定中心/缩放级别（Leaflet 默认时长）。 */
   flyTo(options: { center?: [number, number]; zoom?: number }): void {
+    // 容器尺寸可能已变（面板收起/展开后 Leaflet 并不知道），起飞前刷新，
+    // 避免动画按过期尺寸计算终点导致目标点偏离视图中心。
+    this.raw.invalidateSize();
     // 缺省参数保持当前值；坐标顺序转换为 Leaflet 的 [lat, lng]。
     const center = options.center ?? [
       this.raw.getCenter().lng,
@@ -1271,16 +1274,11 @@ export class LeafletMapShim {
     ];
     const target: [number, number] = [center[1], center[0]];
     const zoom = options.zoom ?? this.raw.getZoom();
-    // 动画结束后保证视图中心精确等于目标点：用户中途拖拽打断、连续调用
-    // 时从中间状态起飞等情况会把中心留在半路，此时无动画校正到位。
+    // 动画结束后无条件把视图中心无动画地钉到目标点：flyTo 的终点按起飞
+    // 时的容器尺寸计算，用户中途拖拽、连续调用、尺寸变化都会让最终中心
+    // 偏离目标；终态校正保证 marker 永远落在视图正中。
     this.raw.once('moveend', () => {
-      const current = this.raw.getCenter();
-      const drifted =
-        Math.abs(current.lat - target[0]) > 1e-9 ||
-        Math.abs(current.lng - target[1]) > 1e-9;
-      if (drifted) {
-        this.raw.setView(target, zoom, { animate: false });
-      }
+      this.raw.setView(target, zoom, { animate: false });
     });
     this.raw.flyTo(target, zoom);
   }
