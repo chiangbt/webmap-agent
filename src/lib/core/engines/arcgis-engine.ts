@@ -34,7 +34,14 @@ import type {
   GeoAgentStyleSnapshot,
 } from "../tools/geoagent-tools";
 import type { ExpressionContext, PixelProjector } from "./leaflet-engine";
-import { normalizeCorner, sanitizeCssColor } from "./shared";
+import {
+  cloneJson,
+  emptyFeatureCollection,
+  isRecord,
+  normalizeCorner,
+  parseCssColor,
+  sanitizeCssColor,
+} from "./shared";
 import {
   colorValueFrom,
   computeClusteredFeatures,
@@ -269,11 +276,6 @@ const REQUIRED_ARCGIS_KEYS: Array<keyof ArcGISNamespace> = [
   "PictureMarkerSymbol",
 ];
 
-/** 狭义对象判断：typeof 为 object、非 null 且非数组。 */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
  * 校验宿主 namespace 是否带齐 shim 要构造的全部 esri 类，缺一则抛出
  * 列明缺失项的错误；校验通过后按 ArcGISNamespace 类型收窄返回。
@@ -404,93 +406,12 @@ function mercatorYToLat(y: number): number {
     (180 / Math.PI);
 }
 
-/** 深拷贝纯 JSON 数据（undefined/函数会丢失），用于 spec 快照。 */
-function cloneJson<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-/** 构造空 GeoJSON FeatureCollection，作为 geojson source 的初始 data。 */
-function emptyFeatureCollection(): GeoJSON.FeatureCollection {
-  return { type: "FeatureCollection", features: [] };
-}
-
 /** 把数值夹紧到 [0, 1]；非有限值（如 NaN）按 1（完全不透明）处理。 */
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) {
     return 1;
   }
   return Math.min(1, Math.max(0, value));
-}
-
-/** 解析后的 RGBA 颜色：r/g/b 为 0–255，a 为 0–1。 */
-interface Rgba {
-  r: number;
-  g: number;
-  b: number;
-  a: number;
-}
-
-/**
- * 解析 CSS 颜色为 RGBA。支持 #RGB/#RGBA/#RRGGBB/#RRGGBBAA 的缩写与完整
- * hex，以及 rgb()/rgba()（兼容逗号/空格分隔、百分比通道与斜杠 alpha）。
- * 无法解析时返回 null。
- */
-function parseCssColor(value: string): Rgba | null {
-  const trimmed = value.trim();
-  // 十六进制形态。
-  const hex = /^#([0-9a-f]{3,8})$/i.exec(trimmed);
-  if (hex) {
-    const digits = hex[1];
-    // 1 位缩写重复两次展开为 2 位再转十进制。
-    const expand = (pair: string): number =>
-      pair.length === 1 ? parseInt(pair.repeat(2), 16) : parseInt(pair, 16);
-    // 3/4 位是缩写写法，逐位展开；第 4 位是 alpha。
-    if (digits.length === 3 || digits.length === 4) {
-      return {
-        r: expand(digits.slice(0, 1)),
-        g: expand(digits.slice(1, 2)),
-        b: expand(digits.slice(2, 3)),
-        a: digits.length === 4 ? expand(digits.slice(3, 4)) / 255 : 1,
-      };
-    }
-    // 6/8 位是完整写法，按两位一组解析；第 4 组是 alpha。
-    if (digits.length === 6 || digits.length === 8) {
-      return {
-        r: expand(digits.slice(0, 2)),
-        g: expand(digits.slice(2, 4)),
-        b: expand(digits.slice(4, 6)),
-        a: digits.length === 8 ? expand(digits.slice(6, 8)) / 255 : 1,
-      };
-    }
-    // hex 长度落在 5/7 等非法值上。
-    return null;
-  }
-  // rgb()/rgba() 形态：分隔符兼容逗号、空白与斜杠（"rgb(1 2 3 / 50%)"）。
-  const rgb = /^rgba?\(([^)]+)\)$/i.exec(trimmed);
-  if (rgb) {
-    const parts = rgb[1].split(/[,\s/]+/).filter((part) => part.length > 0);
-    // 百分比通道换算到 0–255；缺参返回 NaN，交给后面的统一非法判定。
-    const number = (part: string | undefined): number => {
-      if (part === undefined) {
-        return NaN;
-      }
-      return part.endsWith("%")
-        ? (parseFloat(part) / 100) * 255
-        : parseFloat(part);
-    };
-    const r = number(parts[0]);
-    const g = number(parts[1]);
-    const b = number(parts[2]);
-    // 未写 alpha 视为不透明。
-    const a = parts.length > 3 ? parseFloat(parts[3]) : 1;
-    // 任一通道解析失败即整体判为不可解析。
-    if ([r, g, b, a].some((value2) => !Number.isFinite(value2))) {
-      return null;
-    }
-    return { r, g, b, a };
-  }
-  // 关键字颜色（"red" 等）不在支持范围内。
-  return null;
 }
 
 /**

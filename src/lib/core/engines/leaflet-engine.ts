@@ -26,7 +26,16 @@ import type {
   GeoAgentStyleSnapshot,
   GeoAgentSurfaceFeature,
 } from "../tools/geoagent-tools";
-import { normalizeCorner, sanitizeCssColor } from "./shared";
+import {
+  cloneJson,
+  emptyFeatureCollection,
+  escapeHtml,
+  isRecord,
+  normalizeCorner,
+  parseCssColor,
+  sanitizeCssColor,
+  type Rgba,
+} from "./shared";
 
 /* -------------------------------------------------------------------------- */
 /* 结构化的 Leaflet 类型（shim 从不直接 import leaflet 本体）                 */
@@ -204,40 +213,6 @@ export function isLeafletMap(value: unknown): value is LeafletMapLike {
 /* -------------------------------------------------------------------------- */
 
 /**
- * 判断值是否为非空对象（不含 null），用于收敛 unknown 类型的鸭子类型访问。
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-/**
- * 通过 JSON 序列化/反序列化做一次深拷贝（仅适用于可 JSON 化的数据）。
- */
-function cloneJson<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-/**
- * 转义 HTML 特殊字符，防止模型生成的弹窗/标注文本被当作 HTML 注入 DOM。
- */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-
-/**
- * 构造一个空的 GeoJSON FeatureCollection，作为数据源的初始值/兜底返回。
- */
-function emptyFeatureCollection(): GeoJSON.FeatureCollection {
-  return { type: "FeatureCollection", features: [] };
-}
-
-/**
  * 把任意输入归一化为 GeoJSON.FeatureCollection：
  * - 已是 FeatureCollection 且 features 为数组：原样返回；
  * - 是单个 Feature：包装成单要素的 FeatureCollection；
@@ -353,69 +328,9 @@ function compareValues(left: unknown, right: unknown): number {
 }
 
 /**
- * parseColor 的解析结果：各通道 0-255 的 RGB 值与 0-1 的 alpha。
+ * 把 Rgba 格式化为 "#rrggbb" 字符串（丢弃 alpha，各通道钳制到 0-255）。
  */
-interface RgbColor {
-  r: number;
-  g: number;
-  b: number;
-  a: number;
-}
-
-/**
- * 把 CSS 颜色字符串解析为 RgbColor，供 interpolate 做颜色插值。
- * 支持 3/4/6/8 位 hex 与 rgb()/rgba() 函数形式；无法解析时返回 null。
- */
-function parseColor(value: unknown): RgbColor | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const text = value.trim();
-  // 先尝试 hex 形式（#rgb/#rgba/#rrggbb/#rrggbbaa）。
-  const hex = /^#([0-9a-fA-F]{3,8})$/.exec(text);
-  if (hex) {
-    const digits = hex[1];
-    // 3/4 位缩写：每位重复两次展开成完整字节。
-    if (digits.length === 3 || digits.length === 4) {
-      const parts = digits.split("").map((digit) => parseInt(digit + digit, 16));
-      return {
-        r: parts[0],
-        g: parts[1],
-        b: parts[2],
-        a: parts.length > 3 ? parts[3] / 255 : 1,
-      };
-    }
-    // 6/8 位完整形式：两两一组解析各通道。
-    if (digits.length === 6 || digits.length === 8) {
-      return {
-        r: parseInt(digits.slice(0, 2), 16),
-        g: parseInt(digits.slice(2, 4), 16),
-        b: parseInt(digits.slice(4, 6), 16),
-        a: digits.length === 8 ? parseInt(digits.slice(6, 8), 16) / 255 : 1,
-      };
-    }
-    return null;
-  }
-  // 再尝试 rgb()/rgba() 函数形式。
-  const rgb = /^rgba?\(([^)]+)\)$/.exec(text);
-  if (rgb) {
-    const parts = rgb[1].split(/[,\s/]+/).filter(Boolean).map(Number);
-    if (parts.length >= 3 && parts.slice(0, 3).every(Number.isFinite)) {
-      return {
-        r: parts[0],
-        g: parts[1],
-        b: parts[2],
-        a: parts.length > 3 && Number.isFinite(parts[3]) ? parts[3] : 1,
-      };
-    }
-  }
-  return null;
-}
-
-/**
- * 把 RgbColor 格式化为 "#rrggbb" 字符串（丢弃 alpha，各通道钳制到 0-255）。
- */
-function formatColor(color: RgbColor): string {
+function formatColor(color: Rgba): string {
   const clamp = (value: number): number =>
     Math.max(0, Math.min(255, Math.round(value)));
   const toHex = (value: number): string =>
@@ -424,9 +339,9 @@ function formatColor(color: RgbColor): string {
 }
 
 /**
- * 按 ratio 对两个 RgbColor 做逐通道线性插值（含 alpha）。
+ * 按 ratio 对两个 Rgba 做逐通道线性插值（含 alpha）。
  */
-function lerpColor(from: RgbColor, to: RgbColor, ratio: number): RgbColor {
+function lerpColor(from: Rgba, to: Rgba, ratio: number): Rgba {
   return {
     r: from.r + (to.r - from.r) * ratio,
     g: from.g + (to.g - from.g) * ratio,
@@ -655,8 +570,8 @@ export function evaluateExpression(
           if (Number.isFinite(number0) && Number.isFinite(number1)) {
             return number0 + (number1 - number0) * ratio;
           }
-          const color0 = parseColor(value0);
-          const color1 = parseColor(value1);
+          const color0 = parseCssColor(value0);
+          const color1 = parseCssColor(value1);
           // 两侧输出都是颜色：做 RGB 逐通道插值。
           if (color0 && color1) {
             return formatColor(lerpColor(color0, color1, ratio));

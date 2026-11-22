@@ -29,7 +29,14 @@ import type {
   GeoAgentStyleSnapshot,
 } from "../tools/geoagent-tools";
 import type { ExpressionContext, PixelProjector } from "./leaflet-engine";
-import { normalizeCorner, sanitizeCssColor } from "./shared";
+import {
+  cloneJson,
+  emptyFeatureCollection,
+  isRecord,
+  normalizeCorner,
+  parseCssColor,
+  sanitizeCssColor,
+} from "./shared";
 import {
   colorValueFrom,
   computeClusteredFeatures,
@@ -208,13 +215,6 @@ const REQUIRED_OPENLAYERS_KEYS: Array<keyof OpenLayersNamespace> = [
 ];
 
 /**
- * 判断值是否为非空对象（不含 null 与数组），用于收敛 unknown 类型的鸭子类型访问。
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
  * 把宿主传入的命名空间校验并收窄为 OpenLayersNamespace。
  * 逐个检查必需的 ol 类与工具函数是否存在，缺失时抛错并列出全部缺项。
  * @param namespace 宿主组装的 ol 类与工具函数集合
@@ -251,20 +251,6 @@ export function isOpenLayersMap(value: unknown): value is OpenLayersMapLike {
 }
 
 /**
- * 通过 JSON 序列化/反序列化做一次深拷贝（仅适用于可 JSON 化的数据）。
- */
-function cloneJson<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-/**
- * 构造一个空的 GeoJSON FeatureCollection，作为数据源的初始值/兜底返回。
- */
-function emptyFeatureCollection(): GeoJSON.FeatureCollection {
-  return { type: "FeatureCollection", features: [] };
-}
-
-/**
  * 把数值钳制到 [0, 1]；非有限数（NaN 等）按 1 处理（视作完全不透明）。
  */
 function clamp01(value: number): number {
@@ -278,77 +264,6 @@ function clamp01(value: number): number {
 /* -------------------------------------------------------------------------- */
 /* 颜色工具（为 Fill/Stroke 颜色混合不透明度）                                */
 /* -------------------------------------------------------------------------- */
-
-/**
- * parseCssColor 的解析结果：各通道 0-255 的 RGB 值与 0-1 的 alpha。
- */
-interface Rgba {
-  r: number;
-  g: number;
-  b: number;
-  a: number;
-}
-
-/**
- * 把 CSS 颜色字符串解析为 Rgba，供 withOpacity 做透明度混合。
- * 支持 3/4/6/8 位 hex 与 rgb()/rgba()（含百分比分量）；无法解析时返回 null。
- */
-function parseCssColor(value: string): Rgba | null {
-  const trimmed = value.trim();
-  // 先尝试 hex 形式（大小写均可）。
-  const hex = /^#([0-9a-f]{3,8})$/i.exec(trimmed);
-  if (hex) {
-    const digits = hex[1];
-    // 单位 digit 重复成两位展开。
-    const expand = (pair: string): number =>
-      pair.length === 1
-        ? parseInt(pair.repeat(2), 16)
-        : parseInt(pair, 16);
-    // 3/4 位缩写形式逐位展开。
-    if (digits.length === 3 || digits.length === 4) {
-      return {
-        r: expand(digits.slice(0, 1)),
-        g: expand(digits.slice(1, 2)),
-        b: expand(digits.slice(2, 3)),
-        a: digits.length === 4 ? expand(digits.slice(3, 4)) / 255 : 1,
-      };
-    }
-    // 6/8 位完整形式两两解析。
-    if (digits.length === 6 || digits.length === 8) {
-      return {
-        r: expand(digits.slice(0, 2)),
-        g: expand(digits.slice(2, 4)),
-        b: expand(digits.slice(4, 6)),
-        a: digits.length === 8 ? expand(digits.slice(6, 8)) / 255 : 1,
-      };
-    }
-    return null;
-  }
-  // 再尝试 rgb()/rgba() 函数形式。
-  const rgb = /^rgba?\(([^)]+)\)$/i.exec(trimmed);
-  if (rgb) {
-    const parts = rgb[1].split(/[,\s/]+/).filter((part) => part.length > 0);
-    // 分量可带 %：百分比值换算到 0-255。
-    const number = (part: string | undefined): number => {
-      if (part === undefined) {
-        return NaN;
-      }
-      return part.endsWith("%")
-        ? (parseFloat(part) / 100) * 255
-        : parseFloat(part);
-    };
-    const r = number(parts[0]);
-    const g = number(parts[1]);
-    const b = number(parts[2]);
-    const a = parts.length > 3 ? parseFloat(parts[3]) : 1;
-    // 任一分量非有限数即视为解析失败。
-    if ([r, g, b, a].some((value2) => !Number.isFinite(value2))) {
-      return null;
-    }
-    return { r, g, b, a };
-  }
-  return null;
-}
 
 /**
  * 把不透明度混合进 CSS 颜色：alpha 已为 1 或颜色无法解析时原样返回，
