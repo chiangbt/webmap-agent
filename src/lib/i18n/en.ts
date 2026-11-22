@@ -74,6 +74,9 @@ export const en = {
   logChatCleared: 'Chat cleared.',
   logCancelRequested: 'Cancellation requested.',
   logRunningTool: 'Running {tool}',
+  logRunningToolsGroup: 'Running tools (step {step})',
+  logToolsCompleted: 'Completed {count} tool calls:',
+  logToolStep: '{step}. {tool}',
   answerCancelled: 'Cancelled.',
   answerDone: 'Done.',
 

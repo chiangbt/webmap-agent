@@ -188,6 +188,72 @@ describe('GeoAgentCore conversation', () => {
     mapContext = createMockMap();
   });
 
+  describe('adjacent tool-call grouping', () => {
+    function handleStream(core: InstanceType<typeof GeoAgentCore>) {
+      return (event: unknown) =>
+        (
+          core as unknown as {
+            handleAgentStreamEvent: (e: unknown) => string | undefined;
+          }
+        ).handleAgentStreamEvent(event);
+    }
+
+    function toolEntries(core: InstanceType<typeof GeoAgentCore>) {
+      return (core as unknown as { entries: { role: string; content: string }[] })
+        .entries.filter((entry) => entry.role === 'tool');
+    }
+
+    it('merges adjacent tool calls into one entry and expands details at the end', () => {
+      const core = new GeoAgentCore();
+      core.attach(mapContext.map);
+      const handle = handleStream(core);
+
+      handle({ type: 'beforeToolCallEvent', toolUse: { name: 'move_map' } });
+      handle({ type: 'beforeToolCallEvent', toolUse: { name: 'add_marker' } });
+      handle({ type: 'beforeToolCallEvent', toolUse: { name: 'add_marker' } });
+      // 三个相邻调用只产生一行合并记录，且步数持续更新。
+      expect(toolEntries(core)).toHaveLength(1);
+      expect(toolEntries(core)[0].content).toBe('Running tools (step 3)');
+
+      handle({ type: 'agentResultEvent', result: { toString: () => 'done' } });
+      // 整轮结束后同一行展开为逐条详情。
+      expect(toolEntries(core)).toHaveLength(1);
+      expect(toolEntries(core)[0].content).toBe(
+        'Completed 3 tool calls:\n1. move_map\n2. add_marker\n3. add_marker',
+      );
+      core.dispose();
+      mapContext.cleanup();
+    });
+
+    it('starts a new group when streaming text appears between tool calls', () => {
+      const core = new GeoAgentCore();
+      core.attach(mapContext.map);
+      const handle = handleStream(core);
+
+      handle({ type: 'beforeToolCallEvent', toolUse: { name: 'zoom_to' } });
+      handle({
+        type: 'modelStreamUpdateEvent',
+        event: {
+          type: 'modelContentBlockDeltaEvent',
+          delta: { type: 'textDelta', text: 'Let me check.' },
+        },
+      });
+      handle({ type: 'beforeToolCallEvent', toolUse: { name: 'query_features' } });
+      handle({ type: 'beforeToolCallEvent', toolUse: { name: 'query_features' } });
+      handle({ type: 'agentResultEvent', result: { toString: () => 'ok' } });
+
+      const entries = toolEntries(core);
+      // 文本增量断开了合并组：前后各一行，分别展开各自步数的详情。
+      expect(entries).toHaveLength(2);
+      expect(entries[0].content).toBe('Completed 1 tool calls:\n1. zoom_to');
+      expect(entries[1].content).toBe(
+        'Completed 2 tool calls:\n1. query_features\n2. query_features',
+      );
+      core.dispose();
+      mapContext.cleanup();
+    });
+  });
+
   it('records a ready entry on attach and clears with a system entry', () => {
     const core = new GeoAgentCore({
       defaultProvider: 'anthropic-compatible',

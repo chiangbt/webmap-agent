@@ -306,6 +306,13 @@ export class GeoAgentCore {
   private streamingEntryId: string | null = null;
   /** 本轮流式输出累计的 assistant 文本。 */
   private streamingAssistantText = '';
+  /**
+   * 相邻工具调用的合并行条目 id；null 表示当前没有未定稿的合并组。
+   * 运行中该行展示「正在执行工具（第 N 步）」，定稿后展开为逐条详情。
+   */
+  private toolRunEntryId: string | null = null;
+  /** 当前合并组内已执行的工具名序列（按调用顺序）。 */
+  private toolRunNames: string[] = [];
   /** 会话条目列表（核心持有；UI 层经事件镜像，core 不依赖 UI）。 */
   private entries: GeoAgentConversationEntry[] = [];
   /** 已发送 prompt 的历史（ArrowUp/ArrowDown 导航用）。 */
@@ -1379,6 +1386,9 @@ export class GeoAgentCore {
     if (!text) {
       return;
     }
+    // 流式文本夹在工具调用之间说明代理在讲话：先定稿当前工具合并组，
+    // 之后到来的工具调用会另起新组（保持“相邻调用合并”语义）。
+    this.finalizeToolRun();
     // 本轮尚无流式条目时先创建一个空的 markdown assistant 条目占位。
     if (!this.streamingEntryId) {
       const entry = this.appendEntry('assistant', '', true);
@@ -1407,16 +1417,52 @@ export class GeoAgentCore {
     }
 
     if (event.type === 'beforeToolCallEvent') {
-      // 每次工具调用前展示“正在执行某工具”，让用户能看到代理的动作。
-      this.appendEntry('tool', this.translate('logRunningTool', { tool: event.toolUse.name }));
+      // 相邻的工具调用合并进同一行：运行中只显示「正在执行工具（第 N 步）」，
+      // 不逐个刷日志；整轮结束后再由 finalizeToolRun 展开逐条详情。
+      const name = event.toolUse.name;
+      if (!this.toolRunEntryId) {
+        const entry = this.appendEntry(
+          'tool',
+          this.translate('logRunningToolsGroup', { step: 1 }),
+        );
+        this.toolRunEntryId = entry.id;
+        this.toolRunNames = [name];
+      } else {
+        this.toolRunNames.push(name);
+        this.updateEntry(
+          this.toolRunEntryId,
+          this.translate('logRunningToolsGroup', { step: this.toolRunNames.length }),
+        );
+      }
       return undefined;
     }
 
     if (event.type === 'agentResultEvent') {
+      // 最终答案到来时本轮工具已全部执行完，先把合并行展开成详情。
+      this.finalizeToolRun();
       return event.result.toString();
     }
 
     return undefined;
+  }
+
+  /**
+   * 定稿当前工具合并组：把「正在执行工具（第 N 步）」的那一行更新为
+   * 「已完成 N 次工具调用」加逐条编号明细。没有进行中的组时不做任何事。
+   */
+  private finalizeToolRun(): void {
+    if (!this.toolRunEntryId) {
+      return;
+    }
+    const lines = [
+      this.translate('logToolsCompleted', { count: this.toolRunNames.length }),
+      ...this.toolRunNames.map(
+        (name, index) => this.translate('logToolStep', { step: index + 1, tool: name }),
+      ),
+    ];
+    this.updateEntry(this.toolRunEntryId, lines.join('\n'));
+    this.toolRunEntryId = null;
+    this.toolRunNames = [];
   }
 
   /**
@@ -1433,6 +1479,8 @@ export class GeoAgentCore {
     this.appendEntry('user', trimmed);
     this.streamingEntryId = null;
     this.streamingAssistantText = '';
+    this.toolRunEntryId = null;
+    this.toolRunNames = [];
     this.state.busy = true;
     this.cancelRequested = false;
     // 每次运行一个独立的 AbortController；挂在 core 上供 cancelActiveRun 使用。
@@ -1477,6 +1525,8 @@ export class GeoAgentCore {
         this.setTransientStatus(this.translate('statusError'), 'error');
       }
     } finally {
+      // 本轮结束时兜底定稿：取消、错误路径同样把合并行展开成详情。
+      this.finalizeToolRun();
       this.state.busy = false;
       // 只有当挂着的仍是本次运行的控制器时才清空，防止误清新一轮运行的控制器。
       if (this.activeAbortController === abortController) {
