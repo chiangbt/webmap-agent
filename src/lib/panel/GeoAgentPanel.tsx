@@ -130,14 +130,14 @@ export function GeoAgentPanel({
   ...options
 }: GeoAgentPanelProps) {
   // 传入 core 就复用，否则自行持有；options 仅在挂载时捕获一次。
-  const [ownedCore] = useState(() => controlledCore ?? new GeoAgentCore(options));
+  const [ownedCore] = useState(() => new GeoAgentCore(options));
   const core = controlledCore ?? ownedCore;
 
   // 从 core 的当前快照初始化各状态，避免首帧闪烁。
   const [state, setState] = useState<GeoAgentState>(() => core.getState());
   const [entries, setEntries] = useState(() => core.getConversation());
   const [status, setStatus] = useState<GeoAgentStatusState>(() => core.getStatus());
-  const [note, setNote] = useState<GeoAgentNoteState>(() => ({ text: '', kind: null }));
+  const [note, setNote] = useState<GeoAgentNoteState>(() => core.getNote());
   const [apiKey, setApiKey] = useState(() => core.getCommittedApiKey());
   const [prompt, setPrompt] = useState('');
   // 未完成配置时默认展开设置区，方便用户先填 key。
@@ -170,20 +170,9 @@ export function GeoAgentPanel({
   // Earth Engine 设置区是否渲染：仅当配置了 earthEngine 且未被显式禁用时显示。
   const earthEngineEnabled = !!core.options.earthEngine && core.options.earthEngine.enabled !== false;
 
-  // 会话增量应用：core 的 updateEntry 是原地改写条目内容（引用不变），
-  // 这里对被更新的条目做浅拷贝产生新引用，让 memo 化的条目组件感知变化；
-  // 其余条目引用保持稳定，流式期间只有正在输出的那一条重渲染。
+  // Core 对更新条目生成新引用；完整快照保留同一帧所有条目的变化。
   const applyConversation = useCallback(
-    (change: GeoAgentConversationChange, next: GeoAgentConversationEntry[]) => {
-      if (change.type === 'update' && change.entry) {
-        const updatedId = change.entry.id;
-        const updated = change.entry;
-        setEntries(
-          next.map((entry) => (entry.id === updatedId ? { ...updated } : entry)),
-        );
-        return;
-      }
-      // append/reset：快照已是新数组，未变更条目的引用保持稳定。
+    (_change: GeoAgentConversationChange, next: GeoAgentConversationEntry[]) => {
       setEntries(next);
     },
     [],
@@ -231,8 +220,23 @@ export function GeoAgentPanel({
     core.onStatus(onStatus);
     core.onNote(onNote);
     core.on('statechange', onStateChange);
+    // 订阅不会重放历史；更换 core 时主动读取完整快照。
+    setState(core.getState());
+    setEntries(core.getConversation());
+    setStatus(core.getStatus());
+    setNote(core.getNote());
+    setApiKey(core.getCommittedApiKey());
+    setEarthEngineProjectId(core.getEarthEngineProjectId());
+    setSettingsOpen(!core.isConfigured());
+    const ee = core.options.earthEngine;
+    setEarthEngineOpen(!(ee?.oauthClientId?.trim() || ee?.accessToken?.trim()) || !core.getEarthEngineProjectId());
+    setPrompt('');
+    wasConfiguredRef.current = core.isConfigured();
+
     // 卸载时解除全部订阅，并取消尚未触发的合帧，避免卸载后 setState。
     return () => {
+      pendingChangeRef.current = null;
+      pendingSnapshotRef.current = [];
       core.offConversation(onConversation);
       core.offStatus(onStatus);
       core.offNote(onNote);
@@ -273,6 +277,11 @@ export function GeoAgentPanel({
       log.scrollTop = log.scrollHeight;
     }
   }, [entries]);
+
+  // 宿主通过 setState 切换 provider 时，也同步 key，避免旧输入被提交给新 provider。
+  useEffect(() => {
+    setApiKey(core.getCommittedApiKey());
+  }, [core, state.providerId]);
 
   // 首次完成配置时自动收起设置区（与命令式控件相同的边沿规则：
   // 绝不自动展开，尊重用户手动重新展开的操作）。

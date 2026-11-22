@@ -27,3 +27,5 @@ export type {
   GeoAgentState,
   GeoAgentStatusState,
 } from './lib/core/types';
+
+export type { GeoJsonLimits } from './lib/utils/geojson';

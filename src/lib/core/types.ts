@@ -1,3 +1,4 @@
+import type { GeoJsonLimits } from '../utils/geojson';
 /**
  * 核心共享类型：控件选项、状态快照、会话条目、provider 配置与事件签名。
  * 命令式控件、React 面板与无头引擎共同依赖这份定义。
@@ -32,6 +33,8 @@ export interface GeoAgentProviderConfig {
 
 /** GeoAgent 控件的全部可配置项（缺失项由 GeoAgentCore 构造时填默认值）。 */
 export interface GeoAgentControlOptions {
+  /** GeoJSON request/body/geometry limits. Defaults: 30s, 10 MiB, 100k features, 1m positions. */
+  geoJsonLimits?: GeoJsonLimits;
   /**
    * 面板是否以折叠状态启动。
    * @default true
@@ -221,11 +224,11 @@ export interface GeoAgentState {
 /** 代理会话中的一行渲染条目。列表由 core 持有；vanilla DOM 面板与 React
  * 面板都通过事件镜像这份列表。 */
 export interface GeoAgentConversationEntry {
-  id: string;
-  role: 'system' | 'user' | 'assistant' | 'tool' | 'error';
-  content: string;
+  readonly id: string;
+  readonly role: 'system' | 'user' | 'assistant' | 'tool' | 'error';
+  readonly content: string;
   /** assistant 条目带 markdown，走净化后的 markdown 渲染管线；其余条目按纯文本渲染。 */
-  markdown?: boolean;
+  readonly markdown?: boolean;
 }
 
 /** 应用于会话列表的增量变更（追加、更新或整体重置）。 */

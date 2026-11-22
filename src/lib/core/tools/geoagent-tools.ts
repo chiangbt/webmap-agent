@@ -1,3 +1,5 @@
+import { fetchBoundedText } from '../../utils/request';
+import { validateGeoJson, type GeoJsonLimits } from '../../utils/geojson';
 /**
  * GeoAgentTools — agent 工具层的引擎无关基类。
  *
@@ -720,6 +722,7 @@ export function toJsonValue(value: unknown): JSONValue {
 
 /** GeoAgentTools 的构造选项。 */
 export interface GeoAgentToolsOptions {
+  geoJsonLimits?: GeoJsonLimits;
   /** 追加/覆盖 DEFAULT_BASEMAPS 的底图清单（style id → URL 或 StyleSpecification）。 */
   basemaps?: Record<string, string | StyleSpecification>;
   /** 是否允许执行 run_maplibre_script 等 JS 代码的判定函数（宿主策略）。 */
@@ -752,6 +755,7 @@ export abstract class GeoAgentTools {
    */
   protected readonly map: GeoAgentMapSurface;
   /** 合并 DEFAULT_BASEMAPS 与宿主自定义后的底图清单。 */
+  private readonly geoJsonLimits: GeoJsonLimits;
   private readonly basemaps: Record<string, string | StyleSpecification>;
   /** JS 代码执行开关的宿主策略（每次调用时实时判定）。 */
   private readonly allowCodeExecution: () => boolean;
@@ -775,6 +779,7 @@ export abstract class GeoAgentTools {
 
   constructor(map: unknown, options: GeoAgentToolsOptions) {
     // 先确定引擎声明（子类校验 kind 合法性），再据此把宿主地图包装成命令 surface。
+    this.geoJsonLimits = options.geoJsonLimits ?? {};
     this.engine = this.resolveEngine(options.mapEngine);
     this.map = this.createSurface(map);
     // 宿主自定义底图覆盖同名默认项。
@@ -861,8 +866,45 @@ export abstract class GeoAgentTools {
     return this.resolvedNamespace;
   }
 
-  /** 销毁工具集：移除所有 agent 添加的 overlay，恢复地图原状。 */
+  /** 工具生命周期与命令批次；取消后已排队的批次不可再执行。 */
+  private destroyed = false;
+  private commandController = new AbortController();
+  protected activeCommandSignal = this.commandController.signal;
+
+  /** 取消当前及排队命令；后续新命令使用独立 signal。 */
+  cancelPendingCommands(): void {
+    this.commandController.abort();
+    this.commandController = new AbortController();
+  }
+
+  protected assertCommandActive(signal = this.activeCommandSignal): void {
+    if (this.destroyed) throw new Error("Map tools have been destroyed.");
+    signal.throwIfAborted();
+  }
+
+  /** 外部异步工作结束或取消后，不允许旧 continuation 再写地图。 */
+  protected async awaitCommand<T>(promise: Promise<T>): Promise<T> {
+    const signal = this.activeCommandSignal;
+    this.assertCommandActive(signal);
+    let onAbort: () => void = () => {};
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+    try {
+      const result = await Promise.race([promise, aborted]);
+      this.assertCommandActive(signal);
+      return result;
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+
+  /** 销毁工具集；资源清理不受用户的图层删除权限限制。 */
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.cancelPendingCommands();
     this.clearOverlays();
   }
 
@@ -916,9 +958,14 @@ export abstract class GeoAgentTools {
     // 命令串行执行：agent 并行工具调用时，change_basemap 的 overlay 快照/
     // 重放与 add_marker 等写操作交错会互相覆盖注册表，链式队列保证一次
     // 只跑一条命令。异常不中断队列（后续命令照常执行），只对本次调用抛出。
-    const run = this.commandChain.then(async () =>
-      toJsonValue(await this.executeCommand(command, (args ?? {}) as JsonObject)),
-    );
+    const signal = this.commandController.signal;
+    const run = this.commandChain.then(async () => {
+      this.assertCommandActive(signal);
+      this.activeCommandSignal = signal;
+      const result = await this.executeCommand(command, (args ?? {}) as JsonObject);
+      this.assertCommandActive(signal);
+      return toJsonValue(result);
+    });
     this.commandChain = run.then(
       () => undefined,
       () => undefined,
@@ -935,8 +982,9 @@ export abstract class GeoAgentTools {
    */
   private async executeCommand(command: string, args: JsonObject = {}): Promise<unknown> {
     // namespace 惰性解析 + 等待地图空闲，保证后续 addSource/addLayer 落在可用状态上。
-    await this.ensureEngineNamespace();
+    await this.awaitCommand(this.ensureEngineNamespace());
     await this.waitForMapIdle();
+    this.assertCommandActive();
 
     // 命令表惰性构建：六个语义域的处理器合并成一张表，按命令名分发。
     this.commandTable ??= {
@@ -1220,6 +1268,7 @@ export abstract class GeoAgentTools {
         return `Added choropleth layer ${stringArg(args, "name")}.`;
       },
       remove_layer: async (args) => {
+        this.requireDestructiveApproval("Layer removal");
         const name = stringArg(args, "name");
         // removeOverlay 按 slug 比对查找；找不到说明不是用户添加的图层。
         if (!this.removeOverlay(name)) {
@@ -1228,6 +1277,7 @@ export abstract class GeoAgentTools {
         return `Removed layer ${name}.`;
       },
       clear_layers: async () => {
+        this.requireDestructiveApproval("Clearing layers");
         this.clearOverlays();
         return "Cleared user-added layers.";
       },
@@ -1478,7 +1528,7 @@ export abstract class GeoAgentTools {
           max_results: args.max_results == null ? undefined : Number(args.max_results),
           include_community:
             args.include_community == null ? undefined : Boolean(args.include_community),
-        });
+        }, this.activeCommandSignal);
       },
       get_gee_dataset_info: async (args) => {
         const assetId = stringArg(args, "asset_id");
@@ -1489,19 +1539,21 @@ export abstract class GeoAgentTools {
         return this.requireEarthEngine().getDatasetInfo(
           assetId,
           args.include_community == null ? true : Boolean(args.include_community),
+          this.activeCommandSignal,
         );
       },
       summarize_gee_catalog: async (args) => {
         return this.requireEarthEngine().summarizeCatalog(
           args.include_community == null ? true : Boolean(args.include_community),
+          this.activeCommandSignal,
         );
       },
       initialize_earth_engine: async (args) => {
-        const result = await this.requireEarthEngine().initialize({
+        const result = await this.awaitCommand(this.requireEarthEngine().initialize({
           oauthClientId: stringArg(args, "oauth_client_id") || undefined,
           projectId: stringArg(args, "project_id") || undefined,
           force: Boolean(args.force),
-        });
+        }));
         // 初始化结果（已初始化标志、图层计数）同步到宿主面板状态。
         this.publishEarthEngineState();
         return result;
@@ -1509,7 +1561,7 @@ export abstract class GeoAgentTools {
       load_gee_dataset: async (args) => {
         // 三步走：服务层构建 ee 对象 → 渲染登记（换瓦片 URL → overlay →
         // GEE 服务侧记账 → 缩放）→ 组装结果。
-        const layer = await this.requireEarthEngine().buildDatasetLayer(args);
+        const layer = await this.awaitCommand(this.requireEarthEngine().buildDatasetLayer(args));
         const tileUrl = await this.renderAndRegisterGeeLayer(
           layer,
           {
@@ -1542,7 +1594,7 @@ export abstract class GeoAgentTools {
       },
       calculate_gee_normalized_difference: async (args) => {
         // 服务层负责组合 normalizedDifference 表达式；工具层负责渲染与登记。
-        const layer = await this.requireEarthEngine().buildNormalizedDifferenceLayer(args);
+        const layer = await this.awaitCommand(this.requireEarthEngine().buildNormalizedDifferenceLayer(args));
         const tileUrl = await this.renderAndRegisterGeeLayer(
           layer,
           {
@@ -1580,7 +1632,7 @@ export abstract class GeoAgentTools {
         return { count: layers.length, layers };
       },
       set_gee_layer_visualization: async (args) => {
-        const result = await this.requireEarthEngine().setLayerVisualization(args);
+        const result = await this.awaitCommand(this.requireEarthEngine().setLayerVisualization(args));
         // 按新可视化参数重新生成瓦片并叠加（overlay 名相同则覆盖旧层）。
         await this.addTileOverlay({
           kind: "gee",
@@ -1612,7 +1664,7 @@ export abstract class GeoAgentTools {
         // 统计可能因区域过大 / 像素超限失败：捕获后返回带 hint 的结构化错误，
         // 让模型能自行降参重试，而不是直接中断对话。
         try {
-          return await this.requireEarthEngine().calculateLayerStatistics(args);
+          return await this.awaitCommand(this.requireEarthEngine().calculateLayerStatistics(args));
         } catch (error) {
           return {
             success: false,
@@ -1636,13 +1688,16 @@ export abstract class GeoAgentTools {
         const code = stringArg(args, "code").trim();
         // runSnippet 在脚本调用 addLayer 等辅助函数时回调本闭包：
         // 即时换取瓦片 URL、叠加图层并登记，实现"边执行边渲染"。
-        const result = await this.requireEarthEngine().runSnippet(
+        const signal = this.activeCommandSignal;
+        const result = await this.awaitCommand(this.requireEarthEngine().runSnippet(
           code,
           async (eeObject, visParams, name) => {
-            const tileUrl = await this.requireEarthEngine().getTileUrl(
+            this.assertCommandActive(signal);
+            const tileUrl = await this.awaitCommand(this.requireEarthEngine().getTileUrl(
               eeObject as never,
               visParams,
-            );
+            ));
+            this.assertCommandActive(signal);
             await this.addTileOverlay({ name, url: tileUrl, kind: "gee" });
             this.requireEarthEngine().registerLayer({
               name,
@@ -1655,7 +1710,7 @@ export abstract class GeoAgentTools {
               eeObject,
             });
           },
-        );
+        ));
         this.publishEarthEngineState();
         return { ...result, description: stringArg(args, "description") };
       },
@@ -1681,12 +1736,15 @@ export abstract class GeoAgentTools {
    * @returns 触发返回 true；超过 MAP_EVENT_TIMEOUT_MS 返回 false
    */
   private waitForMapEvent(eventName: string): Promise<boolean> {
-    return new Promise((resolve) => {
+    this.assertCommandActive();
+    const signal = this.activeCommandSignal;
+    return new Promise((resolve, reject) => {
       // settled 防御超时与事件双路径竞争：先到者生效，后到者被忽略。
       let settled = false;
       // 超时路径也要注销 once 监听器，避免事件迟迟不触发时监听器永久残留。
       const handler = () => finish(true);
-      const finish = (value: boolean) => {
+      const onAbort = () => finish(false, true);
+      const finish = (value: boolean, aborted = false) => {
         if (settled) {
           return;
         }
@@ -1694,15 +1752,19 @@ export abstract class GeoAgentTools {
         window.clearTimeout(timeoutId);
         // off 用可选调用：宿主地图包装器可能只实现 once。
         this.map.off?.(eventName, handler);
-        resolve(value);
+        signal.removeEventListener("abort", onAbort);
+        if (aborted) reject(signal.reason);
+        else resolve(value);
       };
       const timeoutId = window.setTimeout(() => finish(false), MAP_EVENT_TIMEOUT_MS);
+      signal.addEventListener("abort", onAbort, { once: true });
       this.map.once(eventName, handler);
     });
   }
 
   /** 等待地图进入 idle（全部 tile/渲染就绪）；已 loaded 时立即返回。 */
   private async waitForMapIdle(): Promise<void> {
+    this.assertCommandActive();
     if (this.map.loaded()) {
       return;
     }
@@ -1800,18 +1862,21 @@ export abstract class GeoAgentTools {
    * @param name - overlay 名称（大小写/空格差异经 slug 归一）
    * @returns 是否成功移除
    */
-  protected removeOverlay(name: string): boolean {
+  private overlayKey(name: string): string | undefined {
     // 先精确匹配；slug 归一仅在没有精确命中且候选唯一时兜底——
     // 多个显示名归一后同 slug（如 "Layer - 1" 与 "layer_1"）时按其中
     // 一个名字删除会命中错误对象，此时宁可不删也不误删。
     const keys = Array.from(this.overlays.keys());
-    const key =
-      keys.find((item) => item === name) ??
+    return keys.find((item) => item === name) ??
       (() => {
         const target = slug(name);
         const candidates = keys.filter((item) => slug(item) === target);
         return candidates.length === 1 ? candidates[0] : undefined;
       })();
+  }
+
+  protected removeOverlay(name: string, cleanup = false): boolean {
+    const key = this.overlayKey(name);
     if (!key) {
       return false;
     }
@@ -1819,6 +1884,7 @@ export abstract class GeoAgentTools {
     if (!overlay) {
       return false;
     }
+    if (!cleanup) this.requireDestructiveApproval("Layer removal or replacement");
     // terrain/sky 是全局状态而非图层：随 overlay 一起清除。
     if (overlay.terrain) {
       this.clearTerrain();
@@ -1936,7 +2002,7 @@ export abstract class GeoAgentTools {
   /** 清空全部用户 overlay；拷贝 key 列表后再逐个删除，避免遍历时修改集合。 */
   private clearOverlays(): void {
     for (const name of Array.from(this.overlays.keys())) {
-      this.removeOverlay(name);
+      this.removeOverlay(name, true);
     }
   }
 
@@ -1956,6 +2022,7 @@ export abstract class GeoAgentTools {
    * 工具结果会被注入对话历史，撑爆 provider 的输入上限。
    */
   protected publishStateData(data: Record<string, unknown>): void {
+    this.assertCommandActive();
     this.onStateDataChange?.(data);
   }
 
@@ -1991,11 +2058,13 @@ export abstract class GeoAgentTools {
 
   /** 拉取远程 GeoJSON；非 2xx 响应抛出带状态码的错误（不静默吞掉）。 */
   private async fetchGeoJson(url: string): Promise<GeoJSON.GeoJSON> {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Could not fetch GeoJSON (${response.status}) from ${url}`);
-    }
-    return (await response.json()) as GeoJSON.GeoJSON;
+    const text = await fetchBoundedText(url, {
+      ...this.geoJsonLimits, signal: this.activeCommandSignal, label: "GeoJSON",
+    });
+    let data: unknown;
+    try { data = JSON.parse(text); } catch { throw new Error("Invalid GeoJSON: response is not valid JSON."); }
+    validateGeoJson(data, this.geoJsonLimits);
+    return data;
   }
 
   /**
@@ -2031,7 +2100,7 @@ export abstract class GeoAgentTools {
 
   /**
    * 添加 GeoJSON overlay：建 geojson source + 按 geometry 类型生成的一组图层，
-   * 登记到注册表，并可选缩放到数据范围。同名旧 overlay 先移除（幂等重建）。
+   * 新资源创建成功后替换同名旧 overlay；创建失败时只清理本次资源。
    */
   private async addGeoJsonOverlay(overlay: {
     name: string;
@@ -2041,6 +2110,7 @@ export abstract class GeoAgentTools {
     zoomTo?: boolean;
   }): Promise<void> {
     await this.waitForMapIdle();
+    this.assertCommandActive();
     const sourceId = this.uniqueSourceId(`${slug(overlay.name)}-source`);
     const style = overlay.style ?? {};
     const paint = geojsonLayerPaint(style);
@@ -2051,8 +2121,12 @@ export abstract class GeoAgentTools {
       // 先 fetch 再删旧 overlay：网络失败时用户原有的同名数据不丢。
       sourceData = await this.fetchGeoJson(overlay.url);
     }
-    // 同名旧 overlay 先移除（幂等重建）；数据已就绪，删除不会造成回退。
-    this.removeOverlay(overlay.name);
+    // 数据就绪后先校验；新资源完整创建之前保留旧 overlay。
+    this.assertCommandActive();
+    sourceData ??= { type: "FeatureCollection", features: [] };
+    validateGeoJson(sourceData, this.geoJsonLimits);
+    const previousKey = this.overlayKey(overlay.name);
+    if (previousKey) this.requireDestructiveApproval("Layer replacement");
     // 先按原名探测一次图层组合，只为取得 suffix 集合做整体改名检查；
     // 若整组 id 冲突则统一加 `-N` 后缀重建，保证 fill/line/point 三件套命名一致。
     const initialLayerDefs = geojsonLayerDefs(slug(overlay.name), paint, sourceData);
@@ -2061,29 +2135,31 @@ export abstract class GeoAgentTools {
       initialLayerDefs.map((item) => item.suffix),
     );
     const layerDefs = geojsonLayerDefs(baseId, paint, sourceData);
-    this.map.addSource(sourceId, {
-      type: "geojson",
-      // 有实测数据用数据；否则把 URL 交给 MapLibre 自己拉取；都没有给空集合兜底。
-      data:
-        sourceData ??
-        overlay.url ??
-        ({
-          type: "FeatureCollection",
-          features: [],
-        } as GeoJSON.FeatureCollection),
-    });
-    for (const layer of layerDefs) {
-      // 剥掉内部记账用的 suffix 字段，其余直接作为 layer 规格。
-      const { suffix: _suffix, ...layerDefinition } = layer;
-      this.map.addLayer({
-        ...layerDefinition,
-        source: sourceId,
-      } as LayerSpecification);
+    try {
+      this.map.addSource(sourceId, { type: "geojson", data: sourceData });
+      if (!this.map.getSource(sourceId)) throw new Error(`Could not create source ${sourceId}.`);
+      for (const layer of layerDefs) {
+        // 剥掉内部记账用的 suffix 字段，其余直接作为 layer 规格。
+        const { suffix: _suffix, ...layerDefinition } = layer;
+        this.map.addLayer({
+          ...layerDefinition,
+          source: sourceId,
+        } as LayerSpecification);
+        if (!this.map.getLayer(layer.id)) throw new Error(`Could not create layer ${layer.id}.`);
+      }
+      // 所有新资源就绪后才移除旧 overlay；创建失败时旧图层完全不动。
+      if (previousKey) this.removeOverlay(previousKey);
+    } catch (error) {
+      for (const layer of [...layerDefs].reverse()) {
+        if (this.map.getLayer(layer.id)) this.map.removeLayer(layer.id);
+      }
+      if (this.map.getSource(sourceId)) this.map.removeSource(sourceId);
+      throw error;
     }
     this.overlays.set(overlay.name, {
       kind: "geojson",
       name: overlay.name,
-      data: overlay.data,
+      data: sourceData,
       url: overlay.url,
       style,
       sourceIds: [sourceId],
@@ -2112,6 +2188,7 @@ export abstract class GeoAgentTools {
     beneathUserLayers?: boolean;
   }): Promise<void> {
     await this.waitForMapIdle();
+    this.assertCommandActive();
     this.removeOverlay(spec.name);
     const sourceId = this.uniqueSourceId(`${slug(spec.name)}-source`);
     const layerId = this.uniqueLayerBaseId(slug(spec.name), [""]);
@@ -2177,12 +2254,13 @@ export abstract class GeoAgentTools {
     objectType: string,
   ): Promise<string> {
     const ee = this.requireEarthEngine();
-    const tileUrl = await ee.getTileUrl(layer.eeObject as never, layer.vis_params);
+    const tileUrl = await this.awaitCommand(ee.getTileUrl(layer.eeObject as never, layer.vis_params));
     await this.addTileOverlay({
       kind: "gee",
       name: layer.layer_name,
       url: tileUrl,
     });
+    this.assertCommandActive();
     // 注册到 GEE 服务侧记账，供后续可视化调整 / 统计 / 列表使用。
     ee.registerLayer({
       name: layer.layer_name,
@@ -2220,6 +2298,7 @@ export abstract class GeoAgentTools {
     sky?: JsonObject;
   }): Promise<void> {
     await this.waitForMapIdle();
+    this.assertCommandActive();
     this.removeOverlay(overlay.name);
     const sourceSpecs = overlay.sourceSpecs ? this.cloneSpec(overlay.sourceSpecs) : undefined;
     const layerSpecs = overlay.layerSpecs ? this.cloneSpec(overlay.layerSpecs) : undefined;
@@ -2249,6 +2328,7 @@ export abstract class GeoAgentTools {
    */
   private async replayNativeOverlay(overlay: Overlay, allowExisting = true): Promise<void> {
     await this.waitForMapIdle();
+    this.assertCommandActive();
     for (const [sourceId, sourceSpec] of Object.entries(overlay.sourceSpecs ?? {})) {
       if (this.map.getSource(sourceId)) {
         if (!allowExisting) {
@@ -2567,12 +2647,18 @@ export abstract class GeoAgentTools {
       throw new Error(`No ${this.engineDisplayName()} JavaScript code was provided.`);
     }
     const description = stringArg(args, "description");
+    const signal = this.activeCommandSignal;
+    const guard = <T>(action: () => T): T => {
+      this.assertCommandActive(signal);
+      return action();
+    };
     // 脚本可用的 helpers：封装常用内部能力；removeOverlay 仍要过破坏性开关。
     const helpers = Object.freeze({
-      overlayNames: () => Array.from(this.overlays.keys()),
-      waitForMapIdle: () => this.waitForMapIdle(),
+      overlayNames: () => guard(() => Array.from(this.overlays.keys())),
+      waitForMapIdle: () => guard(() => this.waitForMapIdle()),
       slug,
       removeOverlay: (name: string) => {
+        this.assertCommandActive(signal);
         this.requireDestructiveApproval("Layer removal");
         return this.removeOverlay(name);
       },
@@ -2582,10 +2668,10 @@ export abstract class GeoAgentTools {
         url?: string;
         style?: JsonObject;
         zoomTo?: boolean;
-      }) => this.addGeoJsonOverlay(overlay),
+      }) => guard(() => this.addGeoJsonOverlay(overlay)),
       addRasterOverlay: (overlay: { name: string; url: string; attribution?: string }) =>
-        this.addTileOverlay({ ...overlay, kind: "raster" }),
-      addMarkerOverlay: (input: JsonObject) => this.addMarkerOverlay(input),
+        guard(() => this.addTileOverlay({ ...overlay, kind: "raster" })),
+      addMarkerOverlay: (input: JsonObject) => guard(() => this.addMarkerOverlay(input)),
       serializeScriptResult: toJsonValue,
     });
     // namespace 绑定名取自实际绘制地图的引擎（maplibregl / mapboxgl / L / ol），
@@ -2607,7 +2693,7 @@ export abstract class GeoAgentTools {
     // 时用的是正确的类。Leaflet 宿主上是真实 L.Map 加 L namespace；
     // OpenLayers 宿主上是真实 ol/Map 加 ol namespace —— 那里的用户脚本写
     // 原生引擎代码而非 MapLibre 代码，绕过 shim 注册表（这正是逃生舱）。
-    const result = await fn(this.scriptMap(), this.requireNamespace(), helpers);
+    const result = await this.awaitCommand(fn(this.scriptMap(), this.requireNamespace(), helpers));
     return {
       success: true,
       message: description || `${this.engineDisplayName()} script executed.`,
@@ -2701,7 +2787,12 @@ export abstract class GeoAgentTools {
       ...overlay,
     }));
     this.overlays.clear();
+    // Marker 不随 setStyle 消失：保留注册，取消/销毁时仍可清理。
     for (const overlay of saved) {
+      if (overlay.kind === "marker") this.overlays.set(overlay.name, overlay);
+    }
+    for (const overlay of saved) {
+      this.assertCommandActive();
       try {
         if (overlay.kind === "geojson") {
           await this.addGeoJsonOverlay({
@@ -2741,6 +2832,7 @@ export abstract class GeoAgentTools {
           await this.replayNativeOverlay(overlay);
         }
       } catch (error) {
+        this.assertCommandActive();
         // 单个 overlay 恢复失败不影响其余 overlay，也不让 change_basemap 整体失败。
         console.error(`Failed to restore overlay "${overlay.name}" after style change:`, error);
       }

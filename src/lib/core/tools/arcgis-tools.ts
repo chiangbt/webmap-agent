@@ -151,7 +151,7 @@ export class ArcGISTools extends GeoAgentTools {
           "3D fill-extrusion layers (add_3d_buildings) are not supported by the ArcGIS engine; vector-tile building layers require maplibre-gl or mapbox-gl.",
         );
       case "screenshot_map": {
-        const screenshot = await this.shim().takeScreenshot();
+        const screenshot = await this.awaitCommand(this.shim().takeScreenshot());
         // base64 图片只发给宿主 UI，绝不进入模型上下文。
         this.publishStateData({ screenshot });
         return `Screenshot captured: ${screenshot.width}x${screenshot.height} png. The image was published to the panel state (screenshot.data_url) for the host UI to display; it is intentionally not included in this conversation.`;

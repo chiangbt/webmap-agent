@@ -601,3 +601,32 @@ Tailwind CSS 4 构建样式；其源码位于 `src/demo/` 与 `examples/`。示�
 Earth Engine 示例需要在 `.env` 中设置 `VITE_GEE_OAUTH_CLIENT_ID`。
 `VITE_GEE_PROJECT_ID` 可选；省略时用户可以在 GeoAgent 面板中自行输入其
 启用 Earth Engine 的 Google Cloud 项目 ID。
+
+### 数据请求、会话快照与工具结果
+
+可通过 `geoJsonLimits` 设置远程 GeoJSON 的请求超时和解码后的响应字节上限，
+以及远程/内联 GeoJSON 的要素数和坐标位置数上限：
+
+```typescript
+new GeoAgentControl({
+  geoJsonLimits: {
+    timeoutMs: 30_000,
+    maxBytes: 10 * 1024 * 1024,
+    maxFeatures: 100_000,
+    maxCoordinates: 1_000_000,
+  },
+});
+```
+
+上述值也是默认值。数据会在修改地图前验证；超时、取消、超限和非法数据会返回
+明确错误。GeoJSON 替换先创建新 source 和全部 layer，创建失败时清理新资源并
+保留原图层。Earth Engine 目录请求共用有界读取机制，单次默认 30 秒、20 MiB；
+取消不会触发备用目录重试。
+
+`getConversation()` 返回独立数组，条目为冻结的只读对象；核心更新条目时生成
+新引用，未变更条目保持引用稳定。`getState()` 复制 `data` 中的普通对象、数组
+和日期；SDK/DOM 实例等不透明句柄仍保留引用，不应通过快照修改这些实例。
+
+React 面板更换 `core` 后重新读取会话、配置、状态和提示，并清除旧草稿与旧订阅。
+工具日志区分成功、失败、取消、结果未知，记录耗时和最多 300 字符的错误摘要；
+缺少结果事件的调用不会被标成成功。

@@ -647,3 +647,24 @@ stack.
 For the Earth Engine example, set `VITE_GEE_OAUTH_CLIENT_ID` in `.env`.
 `VITE_GEE_PROJECT_ID` is optional; when it is omitted, users can enter their
 own Earth Engine-enabled Google Cloud project ID in the GeoAgent panel.
+
+### Request limits, snapshots, and tool outcomes
+
+`geoJsonLimits` configures GeoJSON requests and validation. Defaults are
+`{ timeoutMs: 30000, maxBytes: 10485760, maxFeatures: 100000, maxCoordinates: 1000000 }`.
+The timeout includes body reads; the byte limit applies to the decoded response.
+Feature and position limits apply to remote and inline GeoJSON. Invalid data is
+rejected before modifying the map. Replacement creates the new source and layers
+first; creation failure removes partial resources and preserves the original layer.
+Earth Engine catalog requests use bounded reads too (30 seconds, 20 MiB per request);
+cancellation does not trigger a fallback request.
+
+`getConversation()` returns an independent array of frozen, readonly entries.
+Updates replace entries; unchanged entries retain stable references. `getState()`
+copies plain objects, arrays, and dates within `data`; opaque SDK/DOM instances
+remain references and must not be mutated through snapshots.
+
+Changing a React panel's `core` refreshes conversation, configuration, status, and
+notes, clears its draft, and unsubscribes from the previous core. Tool logs distinguish
+success, failure, cancellation, and unknown outcomes, with elapsed time and error
+summaries capped at 300 characters. Missing result events never imply success.

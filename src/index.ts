@@ -110,3 +110,5 @@ export type {
 
 // 面板 UI 文案支持的 locale 类型。
 export type { GeoAgentLocale } from './lib/i18n';
+
+export type { GeoJsonLimits } from './lib/utils/geojson';

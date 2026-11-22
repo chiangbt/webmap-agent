@@ -1,3 +1,4 @@
+import { cloneSnapshot } from '../utils/snapshot';
 /**
  * 无头引擎 GeoAgentCore 的实现：provider 配置与 sessionStorage 持久化、
  * Strands agent 生命周期、会话/状态/提示三路订阅流、system prompt 组装，
@@ -272,6 +273,7 @@ export class GeoAgentCore {
       GeoAgentControlOptions,
       | 'defaultModel'
       | 'basemaps'
+      | 'geoJsonLimits'
       | 'earthEngine'
       | 'apiKeys'
       | 'panelHeight'
@@ -284,6 +286,7 @@ export class GeoAgentCore {
       GeoAgentControlOptions,
       | 'defaultModel'
       | 'basemaps'
+      | 'geoJsonLimits'
       | 'earthEngine'
       | 'apiKeys'
       | 'panelHeight'
@@ -312,7 +315,11 @@ export class GeoAgentCore {
    */
   private toolRunEntryId: string | null = null;
   /** 当前合并组内已执行的工具名序列（按调用顺序）。 */
-  private toolRunNames: string[] = [];
+  private toolRunCalls: Array<{
+    id?: string; name: string; startedAt: number; elapsedMs?: number;
+    status: 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
+    error?: string;
+  }> = [];
   /** 会话条目列表（核心持有；UI 层经事件镜像，core 不依赖 UI）。 */
   private entries: GeoAgentConversationEntry[] = [];
   /** 已发送 prompt 的历史（ArrowUp/ArrowDown 导航用）。 */
@@ -388,6 +395,7 @@ export class GeoAgentCore {
       defaultModel: options.defaultModel,
       apiKeys: options.apiKeys,
       basemaps: options.basemaps,
+      geoJsonLimits: options.geoJsonLimits,
       earthEngine: options.earthEngine,
       customTools: options.customTools,
       customSystemPrompt: options.customSystemPrompt,
@@ -419,11 +427,8 @@ export class GeoAgentCore {
    * 读取持久化的 provider 设置，并追加就绪/缺配置的系统日志条目。
    */
   attach(map: MapLibreMap): void {
-    // 重新绑定（如 React 面板的地图实例发生变化）时销毁旧工具绑定，避免泄漏。
-    if (this.tools) {
-      this.tools.destroy();
-      this.tools = undefined;
-    }
+    // 先终止旧绑定的运行；迟到的事件只能属于旧运行，不能写入新绑定。
+    this.detach();
     this.mapInstance = map;
     // MapLibre/Mapbox/Leaflet 宿主暴露 getContainer()；OpenLayers 地图暴露
     // getTargetElement()；ArcGIS MapView 暴露 `container` 属性——
@@ -439,6 +444,7 @@ export class GeoAgentCore {
     // 工具产生的 data 变更合并回状态并广播 statechange。
     this.tools = createGeoAgentTools(map, {
       basemaps: { ...DEFAULT_BASEMAPS, ...this.options.basemaps },
+      geoJsonLimits: this.options.geoJsonLimits,
       allowCodeExecution: () => this.state.allowCodeExecution,
       allowDestructiveTools: () => this.state.allowDestructiveTools,
       earthEngine: this.options.earthEngine,
@@ -456,23 +462,37 @@ export class GeoAgentCore {
     this.appendEntry('system', this.readyLogMessage());
   }
 
-  /** 解除地图绑定，但不触碰会话与监听器。 */
+  /** 取消旧运行并解除地图绑定；保留会话与订阅，允许重新 attach。 */
   detach(): void {
-    this.tools?.destroy();
-    this.tools = undefined;
-    this.mapInstance = undefined;
-    this.mapContainer = undefined;
-  }
-
-  /** 完整销毁：中止进行中的运行、解除地图绑定、清空全部监听器与定时器。 */
-  dispose(): void {
-    // 先取消进行中的模型请求与 agent 任务，再逐步释放其余资源。
+    const hadBinding = !!this.tools || !!this.activeAbortController;
     this.activeAbortController?.abort();
     this.agent?.cancel();
     this.activeAbortController = null;
     this.cancelRequested = false;
-    this.agent = null;
-    this.agentSignature = '';
+    this.finalizeToolRun('cancelled');
+    this.state.busy = false;
+    this.streamingEntryId = null;
+    this.streamingAssistantText = '';
+    this.toolRunEntryId = null;
+    this.toolRunCalls = [];
+    this.invalidateAgent();
+    this.tools?.destroy();
+    this.tools = undefined;
+    this.mapInstance = undefined;
+    this.mapContainer = undefined;
+    if (hadBinding) {
+      this.applyIdleStatus(true);
+      this.emit('statechange');
+    }
+  }
+
+  /** 完整销毁：中止进行中的运行、解除地图绑定、清空全部监听器与定时器。 */
+  dispose(): void {
+    this.eventHandlers.clear();
+    this.conversationHandlers.clear();
+    this.statusHandlers.clear();
+    this.noteHandlers.clear();
+    // detach 中止运行并销毁工具；先清监听器以免销毁时更新已卸载的 UI。
     this.detach();
     // 清掉两个可能仍在排队的定时器，避免销毁后回调触碰已清理的状态。
     if (this.noteTimer !== null) {
@@ -486,10 +506,6 @@ export class GeoAgentCore {
     this.promptHistory = [];
     this.promptHistoryIndex = -1;
     this.promptHistoryDraft = '';
-    this.eventHandlers.clear();
-    this.conversationHandlers.clear();
-    this.statusHandlers.clear();
-    this.noteHandlers.clear();
   }
 
   /** 返回当前绑定的地图实例；未 attach 时为 undefined。 */
@@ -559,14 +575,12 @@ export class GeoAgentCore {
     if (!handlers) {
       return;
     }
-    const eventData = { type: event, state: this.getState() };
-    handlers.forEach((handler) => handler(eventData));
+    handlers.forEach((handler) => handler({ type: event, state: this.getState() }));
   }
 
   /** 向会话订阅者广播增量变更；每次都附上全量条目快照便于整体重绘。 */
   private emitConversation(change: GeoAgentConversationChange): void {
-    const entries = this.getConversation();
-    this.conversationHandlers.forEach((handler) => handler(change, entries));
+    this.conversationHandlers.forEach((handler) => handler({ ...change }, this.getConversation()));
   }
 
   /** 向状态订阅者广播最新徽标内容。 */
@@ -583,11 +597,11 @@ export class GeoAgentCore {
 
   // ------------------------------------------------------------------- 状态
 
-  /** 返回状态快照（data 做浅拷贝），外部改动不会影响内部状态。 */
+  /** 独立复制 data 的普通对象/数组；SDK/DOM 实例等不透明句柄保留引用。 */
   getState(): GeoAgentState {
     return {
       ...this.state,
-      data: { ...this.state.data },
+      data: cloneSnapshot(this.state.data ?? {}),
     };
   }
 
@@ -597,6 +611,14 @@ export class GeoAgentCore {
    * DOM 副作用归 UI 层负责。
    */
   setState(newState: Partial<GeoAgentState>): void {
+    if (
+      newState.providerId !== undefined &&
+      !Object.prototype.hasOwnProperty.call(BASE_PROVIDER_CONFIGS, newState.providerId)
+    ) {
+      return;
+    }
+    const providerChanged =
+      newState.providerId !== undefined && newState.providerId !== this.state.providerId;
     // 先基于旧值记录两类变化：折叠翻转（要发事件）、agent 相关配置变化（要失效缓存）。
     const collapsedChanged =
       newState.collapsed !== undefined && newState.collapsed !== this.state.collapsed;
@@ -605,7 +627,16 @@ export class GeoAgentCore {
       (newState.modelId !== undefined && newState.modelId !== this.state.modelId) ||
       (newState.allowCodeExecution !== undefined &&
         newState.allowCodeExecution !== this.state.allowCodeExecution);
-    this.state = { ...this.state, ...newState };
+    if (providerChanged) {
+      this.state.providerId = newState.providerId!;
+      storageSet(`${this.options.storagePrefix}.provider`, this.state.providerId);
+      this.loadProviderSettings();
+      this.hideNote();
+    }
+    // 显式 model/baseUrl 覆盖新 provider 的默认值，凭据始终取新 provider。
+    this.state = { ...this.state, ...newState,
+      ...(newState.data !== undefined ? { data: cloneSnapshot(newState.data) } : {}),
+    };
     // 尺寸值先经 clamp，保证面板尺寸永远落在 min/max 区间内。
     if (newState.panelWidth !== undefined) {
       this.state.panelWidth = this.constrainPanelWidth(newState.panelWidth);
@@ -623,6 +654,7 @@ export class GeoAgentCore {
     if (agentInvalidating) {
       this.invalidateAgent();
     }
+    if (providerChanged) this.applyIdleStatus(true);
     this.emit('statechange');
   }
 
@@ -781,18 +813,7 @@ export class GeoAgentCore {
 
   /** 切换 provider：持久化选择并重新加载该 provider 的存储设置。 */
   switchProvider(providerId: GeoAgentProviderId): void {
-    // 未知 provider 直接忽略，防止把任意字符串写进状态与存储。
-    if (!(providerId in BASE_PROVIDER_CONFIGS)) {
-      return;
-    }
-    storageSet(`${this.options.storagePrefix}.provider`, providerId);
-    this.state.providerId = providerId;
-    // 加载新 provider 的模型/key/baseUrl，并使旧 agent 失效。
-    this.loadProviderSettings();
-    this.invalidateAgent();
-    this.hideNote();
-    this.applyIdleStatus(true);
-    this.emit('statechange');
+    this.setState({ providerId });
   }
 
   /** 设置模型 ID：写入/清除存储，失效 agent 并刷新空闲徽标。 */
@@ -1131,6 +1152,10 @@ export class GeoAgentCore {
     }
   }
 
+  getNote(): GeoAgentNoteState {
+    return { ...this.note };
+  }
+
   /** 隐藏配置提示（清空内容并取消定时器）。 */
   private hideNote(): void {
     if (this.noteTimer !== null) {
@@ -1143,7 +1168,7 @@ export class GeoAgentCore {
 
   // ------------------------------------------------------------ 会话
 
-  /** 返回会话条目的浅拷贝数组，外部改动不影响内部列表。 */
+  /** 返回独立数组，条目为只读冻结对象；未变更条目保持引用稳定以便 UI memo。 */
   getConversation(): GeoAgentConversationEntry[] {
     return [...this.entries];
   }
@@ -1158,6 +1183,7 @@ export class GeoAgentCore {
     const entry: GeoAgentConversationEntry = markdown
       ? { id: generateEntryId(), role, content, markdown: true }
       : { id: generateEntryId(), role, content };
+    Object.freeze(entry);
     this.entries.push(entry);
     this.emitConversation({ type: 'append', entry });
     return entry;
@@ -1165,11 +1191,11 @@ export class GeoAgentCore {
 
   /** 按 id 更新既有条目的内容并广播 update 变更；条目不存在时静默跳过。 */
   private updateEntry(id: string, content: string): void {
-    const entry = this.entries.find((candidate) => candidate.id === id);
-    if (!entry) {
-      return;
-    }
-    entry.content = content;
+    const index = this.entries.findIndex((candidate) => candidate.id === id);
+    if (index < 0) return;
+    // 更新生成新引用：一帧内多个条目变化时，React.memo 也能全部感知。
+    const entry = Object.freeze({ ...this.entries[index], content });
+    this.entries[index] = entry;
     this.emitConversation({ type: 'update', entry });
   }
 
@@ -1257,6 +1283,8 @@ export class GeoAgentCore {
     // 双通道取消：abort 掐断底层模型请求，cancel 终止 agent 的运行循环。
     this.activeAbortController?.abort();
     this.agent?.cancel();
+    this.tools?.cancelPendingCommands();
+    this.finalizeToolRun('cancelled');
     this.setTransientStatus(this.translate('statusCancelling'), 'connected');
     this.appendEntry('system', this.translate('logCancelRequested'));
     this.emit('statechange');
@@ -1305,7 +1333,7 @@ export class GeoAgentCore {
    * 取得可用的 Agent 实例：先校验配置完整性，再按配置签名复用或重建
    * （system prompt 也在此按引擎与权限开关组装）。
    */
-  private async getAgent(): Promise<Agent> {
+  private async getAgent(signal: AbortSignal): Promise<Agent> {
     // 工具未创建说明尚未 attach，无法提供地图上下文。
     if (!this.tools) {
       throw new Error('GeoAgent control is not mounted.');
@@ -1362,6 +1390,7 @@ export class GeoAgentCore {
     ].filter(Boolean);
     const systemPrompt = systemPromptParts.join('\n\n');
     const model = await this.createProviderModel(provider.id, modelId, apiKey, baseUrl);
+    signal.throwIfAborted();
     this.agent = new Agent({
       name: 'Web GeoAgent Browser',
       model,
@@ -1436,17 +1465,43 @@ export class GeoAgentCore {
           this.translate('logRunningToolsGroup', { tool: name, step: 1 }),
         );
         this.toolRunEntryId = entry.id;
-        this.toolRunNames = [name];
+        this.toolRunCalls = [];
       } else {
-        this.toolRunNames.push(name);
         this.updateEntry(
           this.toolRunEntryId,
           this.translate('logRunningToolsGroup', {
             tool: name,
-            step: this.toolRunNames.length,
+            step: this.toolRunCalls.length + 1,
           }),
         );
       }
+      this.toolRunCalls.push({ id: event.toolUse.toolUseId, name, startedAt: Date.now(), status: 'running' });
+      return undefined;
+    }
+
+    if (event.type === 'afterToolCallEvent') {
+      const call = [...this.toolRunCalls].reverse().find((item) =>
+        item.status === 'running' && (event.toolUse.toolUseId ? item.id === event.toolUse.toolUseId : item.name === event.toolUse.name),
+      );
+      if (!call) return undefined;
+      let structuredError: string | undefined;
+      for (const block of event.result?.content ?? []) {
+        let value: unknown = block.type === 'jsonBlock' ? block.json : undefined;
+        if (block.type === 'textBlock') {
+          try { value = JSON.parse(block.text); } catch { /* ordinary text result */ }
+        }
+        if (value && typeof value === 'object' && (value as { success?: boolean }).success === false) {
+          structuredError = String((value as { error?: unknown }).error ?? 'Tool reported success: false');
+        }
+      }
+      const failed = !!event.error || event.result?.status === 'error' || !!structuredError;
+      call.status = event.error?.name === 'AbortError' || this.cancelRequested ? 'cancelled' : failed ? 'failed' : event.result ? 'succeeded' : 'unknown';
+      call.elapsedMs = Math.max(0, Date.now() - call.startedAt);
+      if (failed) {
+        const text = event.result?.content?.filter((block) => block.type === 'textBlock').map((block) => block.text).join(' ');
+        call.error = (event.error?.message || event.result?.error?.message || structuredError || text || '').slice(0, 300);
+      }
+      this.renderToolRun();
       return undefined;
     }
 
@@ -1460,22 +1515,37 @@ export class GeoAgentCore {
   }
 
   /**
-   * 定稿当前工具合并组：把「正在执行工具（第 N 步）」的那一行更新为
-   * 「已完成 N 次工具调用」加逐条编号明细。没有进行中的组时不做任何事。
+   * 按实际结果渲染工具调用明细：状态、耗时和错误摘要。
+   * 缺少结果事件时保留“结果未知”，不能推断成功。
    */
-  private finalizeToolRun(): void {
-    if (!this.toolRunEntryId) {
-      return;
-    }
+  private renderToolRun(): void {
+    if (!this.toolRunEntryId) return;
+    const statusKeys = {
+      running: 'logToolRunning', succeeded: 'logToolSucceeded', failed: 'logToolFailed',
+      cancelled: 'logToolCancelled', unknown: 'logToolUnknown',
+    } as const;
     const lines = [
-      this.translate('logToolsCompleted', { count: this.toolRunNames.length }),
-      ...this.toolRunNames.map(
-        (name, index) => this.translate('logToolStep', { step: index + 1, tool: name }),
-      ),
+      this.translate('logToolsEnded', { count: this.toolRunCalls.length }),
+      ...this.toolRunCalls.map((call, index) => {
+        const detail = this.translate(statusKeys[call.status]);
+        const elapsed = call.elapsedMs === undefined ? '' : ` (${call.elapsedMs} ms)`;
+        return `${index + 1}. ${call.name} — ${detail}${elapsed}${call.error ? `: ${call.error}` : ''}`;
+      }),
     ];
     this.updateEntry(this.toolRunEntryId, lines.join('\n'));
+  }
+
+  private finalizeToolRun(pendingStatus: 'cancelled' | 'failed' | 'unknown' = 'unknown'): void {
+    if (!this.toolRunEntryId) return;
+    for (const call of this.toolRunCalls) {
+      if (call.status === 'running') {
+        call.status = pendingStatus;
+        call.elapsedMs = Math.max(0, Date.now() - call.startedAt);
+      }
+    }
+    this.renderToolRun();
     this.toolRunEntryId = null;
-    this.toolRunNames = [];
+    this.toolRunCalls = [];
   }
 
   /**
@@ -1493,7 +1563,7 @@ export class GeoAgentCore {
     this.streamingEntryId = null;
     this.streamingAssistantText = '';
     this.toolRunEntryId = null;
-    this.toolRunNames = [];
+    this.toolRunCalls = [];
     this.state.busy = true;
     this.cancelRequested = false;
     // 每次运行一个独立的 AbortController；挂在 core 上供 cancelActiveRun 使用。
@@ -1502,17 +1572,21 @@ export class GeoAgentCore {
     this.setTransientStatus(this.translate('statusRunning'), 'connected');
     this.emit('statechange');
     try {
-      const activeAgent = await this.getAgent();
+      const activeAgent = await this.getAgent(abortController.signal);
+      abortController.signal.throwIfAborted();
       let finalAnswer = '';
       // 消费 agent 的异步事件流；handleAgentStreamEvent 返回的最终答案
       // 持续覆盖 finalAnswer（结果事件通常只有一条）。
       for await (const event of activeAgent.stream(trimmed, {
         cancelSignal: abortController.signal,
       })) {
+        if (this.activeAbortController !== abortController) return;
+        abortController.signal.throwIfAborted();
         finalAnswer = this.handleAgentStreamEvent(event) ?? finalAnswer;
       }
       // 取消时展示统一文案；否则优先取结果事件答案，回退到流式累计文本，
       // 再回退到“已完成”占位（纯工具运行、无文本输出的情形）。
+      if (this.activeAbortController !== abortController) return;
       const answer = abortController.signal.aborted
         ? this.translate('answerCancelled')
         : finalAnswer || this.streamingAssistantText || this.translate('answerDone');
@@ -1527,6 +1601,7 @@ export class GeoAgentCore {
         this.applyIdleStatus(true);
       }
     } catch (error) {
+      if (this.activeAbortController !== abortController) return;
       const message = error instanceof Error ? error.message : String(error);
       if (abortController.signal.aborted) {
         // 取消导致的异常不算错误：与成功路径一致，在已有流式条目上落定
@@ -1540,21 +1615,21 @@ export class GeoAgentCore {
         this.setTransientStatus(this.translate('statusCancelled'), 'connected');
       } else {
         // 真实错误：会话追加 error 条目，徽标进入 error 状态。
+        this.finalizeToolRun('unknown');
         this.appendEntry('error', message);
         this.setTransientStatus(this.translate('statusError'), 'error');
       }
     } finally {
-      // 本轮结束时兜底定稿：取消、错误路径同样把合并行展开成详情。
-      this.finalizeToolRun();
-      this.state.busy = false;
-      // 只有当挂着的仍是本次运行的控制器时才清空，防止误清新一轮运行的控制器。
+      // 旧运行的 finally 不得清除重新绑定后新运行的状态。
       if (this.activeAbortController === abortController) {
+        this.finalizeToolRun();
+        this.state.busy = false;
         this.activeAbortController = null;
+        this.cancelRequested = false;
+        this.streamingEntryId = null;
+        this.streamingAssistantText = '';
+        this.emit('statechange');
       }
-      this.cancelRequested = false;
-      this.streamingEntryId = null;
-      this.streamingAssistantText = '';
-      this.emit('statechange');
     }
   }
 

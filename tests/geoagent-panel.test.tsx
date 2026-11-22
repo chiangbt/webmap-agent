@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GeoAgentCore } from '../src/lib/core/GeoAgentCore';
 import { GeoAgentPanel } from '../src/lib/panel/GeoAgentPanel';
@@ -295,4 +295,69 @@ describe('GeoAgentPanel conversation flow', () => {
     ).toBe('sk-later');
     core.dispose();
   });
+});
+
+
+describe('audit React frame batching', () => {
+  it('updates an existing tool entry when the same frame also appends an answer', () => {
+    const frames: FrameRequestCallback[] = [];
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { frames.push(callback); return frames.length; });
+    const core = new GeoAgentCore({ collapsed: false });
+    const handle = (core as unknown as { handleAgentStreamEvent: (event: unknown) => void }).handleAgentStreamEvent.bind(core);
+    const view = render(<GeoAgentPanel core={core} />);
+    const flush = () => act(() => { for (const callback of frames.splice(0)) callback(0); });
+    act(() => handle({ type: 'beforeToolCallEvent', toolUse: { name: 'add_marker' } }));
+    flush();
+    expect(screen.getByTestId('geoagent-entry').textContent).toContain('Running tool');
+    act(() => handle({ type: 'modelStreamUpdateEvent', event: {
+      type: 'modelContentBlockDeltaEvent', delta: { type: 'textDelta', text: 'Done' },
+    }}));
+    flush();
+    expect(screen.getAllByTestId('geoagent-entry')[0].textContent).toContain('Tool calls: 1');
+    view.unmount(); core.dispose(); raf.mockRestore();
+  });
+});
+
+
+it('refreshes the credential input after a programmatic provider switch', () => {
+  sessionStorage.clear();
+  const core = new GeoAgentCore({ collapsed: false, apiKeys: {
+    'openai-compatible': 'key-a', 'anthropic-compatible': 'key-b',
+  }});
+  core.loadProviderSettings();
+  const view = render(<GeoAgentPanel core={core} />);
+  expect((screen.getByTestId('geoagent-api-key') as HTMLInputElement).value).toBe('key-a');
+  act(() => core.setState({ providerId: 'anthropic-compatible' }));
+  expect((screen.getByTestId('geoagent-api-key') as HTMLInputElement).value).toBe('key-b');
+  fireEvent.blur(screen.getByTestId('geoagent-api-key'));
+  expect(core.getCommittedApiKey()).toBe('key-b');
+  view.unmount(); core.dispose();
+});
+
+it('replaces all visible snapshots when a controlled core changes without emitting events', async () => {
+  sessionStorage.clear();
+  const first = new GeoAgentCore({ collapsed: false });
+  const second = new GeoAgentCore({ collapsed: false, defaultProvider: 'anthropic-compatible' });
+  await first.sendPrompt('FIRST HISTORY');
+  await second.sendPrompt('SECOND HISTORY');
+  const view = render(<GeoAgentPanel core={first} />);
+  expect(view.container.textContent).toContain('FIRST HISTORY');
+  view.rerender(<GeoAgentPanel core={second} />);
+  expect(view.container.textContent).toContain('SECOND HISTORY');
+  expect(view.container.textContent).not.toContain('FIRST HISTORY');
+  expect(screen.getByTestId('geoagent-provider').textContent).toContain('Anthropic');
+  view.unmount(); first.dispose(); second.dispose();
+});
+
+it('ignores events from the previous core after replacement', async () => {
+  const first = new GeoAgentCore({ collapsed: false });
+  const second = new GeoAgentCore({ collapsed: false });
+  await second.sendPrompt('CURRENT');
+  const view = render(<GeoAgentPanel core={first} />);
+  act(() => first.clearConversation()); // schedules a frame on the old subscription
+  view.rerender(<GeoAgentPanel core={second} />);
+  await act(async () => { await first.sendPrompt('STALE'); });
+  expect(view.container.textContent).toContain('CURRENT');
+  expect(view.container.textContent).not.toContain('STALE');
+  view.unmount(); first.dispose(); second.dispose();
 });

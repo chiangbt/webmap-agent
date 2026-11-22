@@ -218,9 +218,8 @@ describe('GeoAgentCore conversation', () => {
       handle({ type: 'agentResultEvent', result: { toString: () => 'done' } });
       // 整轮结束后同一行展开为逐条详情。
       expect(toolEntries(core)).toHaveLength(1);
-      expect(toolEntries(core)[0].content).toBe(
-        'Completed 3 tool calls:\n1. move_map\n2. add_marker\n3. add_marker',
-      );
+      expect(toolEntries(core)[0].content).toContain('Tool calls: 3');
+      expect(toolEntries(core)[0].content).toContain('Outcome unknown');
       core.dispose();
       mapContext.cleanup();
     });
@@ -279,10 +278,8 @@ describe('GeoAgentCore conversation', () => {
       const entries = toolEntries(core);
       // 文本增量断开了合并组：前后各一行，分别展开各自步数的详情。
       expect(entries).toHaveLength(2);
-      expect(entries[0].content).toBe('Completed 1 tool calls:\n1. zoom_to');
-      expect(entries[1].content).toBe(
-        'Completed 2 tool calls:\n1. query_features\n2. query_features',
-      );
+      expect(entries[0].content).toContain('Tool calls: 1');
+      expect(entries[1].content).toContain('Tool calls: 2');
       core.dispose();
       mapContext.cleanup();
     });
@@ -473,4 +470,104 @@ describe('engine-aware system prompt parts', () => {
     expect(codeExecutionPrompt('mapbox')).not.toMatch(/maplibregl/);
     expect(codeExecutionPrompt('leaflet')).not.toMatch(/maplibregl/);
   });
+});
+
+
+describe('audit provider and lifecycle regressions', () => {
+  beforeEach(() => sessionStorage.clear());
+
+  it('switches credentials atomically through setState and preserves explicit overrides', () => {
+    const core = new GeoAgentCore({ apiKeys: {
+      'openai-compatible': 'key-a', 'anthropic-compatible': 'key-b',
+    }});
+    core.loadProviderSettings();
+    const observed: string[] = [];
+    core.on('statechange', () => observed.push(core.getCommittedApiKey()));
+    core.setState({ providerId: 'anthropic-compatible', modelId: 'custom', baseUrl: 'https://b.example' });
+    expect(core.getCommittedApiKey()).toBe('key-b');
+    expect(core.getState()).toMatchObject({ modelId: 'custom', baseUrl: 'https://b.example' });
+    expect(observed).toEqual(['key-b']);
+    expect(sessionStorage.getItem('web-geoagent.provider')).toBe('anthropic-compatible');
+    core.dispose();
+  });
+
+  it('does not change provider or credentials for an invalid provider', () => {
+    const core = new GeoAgentCore({ defaultApiKey: 'key-a' });
+    core.loadProviderSettings();
+    core.setState({ providerId: 'invalid' as never });
+    expect(core.getState().providerId).toBe('openai-compatible');
+    expect(core.getCommittedApiKey()).toBe('key-a');
+    core.dispose();
+  });
+
+  it('keeps previous conversation snapshots unchanged during streaming', () => {
+    const core = new GeoAgentCore();
+    const handle = (core as unknown as { handleAgentStreamEvent: (event: unknown) => void }).handleAgentStreamEvent.bind(core);
+    const delta = (text: string) => handle({ type: 'modelStreamUpdateEvent', event: {
+      type: 'modelContentBlockDeltaEvent', delta: { type: 'textDelta', text },
+    }});
+    delta('first');
+    const snapshot = core.getConversation();
+    delta(' second');
+    expect(snapshot[0].content).toBe('first');
+    expect(core.getConversation()[0].content).toBe('first second');
+    core.dispose();
+  });
+});
+
+describe('snapshot ownership and tool outcomes', () => {
+  it('protects conversation entries and nested state data from outside mutation', async () => {
+    const core = new GeoAgentCore();
+    await core.sendPrompt('original');
+    const entry = core.getConversation()[0];
+    try { Object.assign(entry, { content: 'changed' }); } catch { /* readonly snapshot */ }
+    expect(core.getConversation()[0].content).toBe('original');
+    core.setState({ data: { nested: { value: 1 } } });
+    (core.getState().data!.nested as { value: number }).value = 2;
+    expect(core.getState().data!.nested).toEqual({ value: 1 });
+    core.dispose();
+  });
+
+  it('records actual failed and successful results, and cancels unfinished calls', () => {
+    const core = new GeoAgentCore();
+    const handle = (core as unknown as { handleAgentStreamEvent: (event: unknown) => void }).handleAgentStreamEvent.bind(core);
+    handle({ type: 'beforeToolCallEvent', toolUse: { name: 'load', toolUseId: 'a' } });
+    handle({ type: 'afterToolCallEvent', toolUse: { name: 'load', toolUseId: 'a' }, result: { status: 'error', content: [] }, error: new Error('bad source') });
+    handle({ type: 'beforeToolCallEvent', toolUse: { name: 'load', toolUseId: 'b' } });
+    handle({ type: 'afterToolCallEvent', toolUse: { name: 'load', toolUseId: 'b' }, result: { status: 'success', content: [] } });
+    handle({ type: 'beforeToolCallEvent', toolUse: { name: 'load', toolUseId: 'c' } });
+    core.detach();
+    const log = core.getConversation().find((entry) => entry.role === 'tool')!;
+    expect(log.content).toContain('Failed');
+    expect(log.content).toContain('bad source');
+    expect(log.content).toContain('Succeeded');
+    expect(log.content).toContain('Cancelled');
+    core.dispose();
+  });
+});
+
+it('does not let a conversation subscriber corrupt later subscribers or stable entry references', async () => {
+  const core = new GeoAgentCore();
+  const contents: string[] = [];
+  core.onConversation((change, entries) => {
+    try { Object.assign(change.entry ?? {}, { content: 'corrupt' }); } catch { /* frozen */ }
+    entries.length = 0;
+  });
+  core.onConversation((_change, entries) => { contents.push(entries[0]?.content); });
+  await core.sendPrompt('original');
+  expect(contents.every((content) => content === 'original')).toBe(true);
+  expect(core.getConversation()[0]).toBe(core.getConversation()[0]);
+  core.dispose();
+});
+
+it('recognizes structured tool failures even when the SDK transport reports success', () => {
+  const core = new GeoAgentCore();
+  const handle = (core as unknown as { handleAgentStreamEvent: (event: unknown) => void }).handleAgentStreamEvent.bind(core);
+  handle({ type: 'beforeToolCallEvent', toolUse: { name: 'stats', toolUseId: 'a' } });
+  handle({ type: 'afterToolCallEvent', toolUse: { name: 'stats', toolUseId: 'a' }, result: {
+    status: 'success', content: [{ type: 'jsonBlock', json: { success: false, error: 'pixel limit' } }],
+  }});
+  expect(core.conversationMarkdown()).toContain('Failed');
+  expect(core.conversationMarkdown()).toContain('pixel limit');
+  core.dispose();
 });

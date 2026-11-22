@@ -856,6 +856,9 @@ export class GeoAgentControl implements IControl {
     const provider = this.core.providerConfig(state.providerId);
     const toggleButton = this.container.querySelector<HTMLButtonElement>('.geoagent-control-toggle');
     toggleButton?.setAttribute('aria-expanded', String(!state.collapsed));
+    if (this.ui.providerSelect.value !== state.providerId) {
+      this.ui.apiKeyInput.value = this.core.getCommittedApiKey();
+    }
     this.ui.providerSelect.value = state.providerId;
     this.ui.modelIdInput.value = state.modelId;
     this.ui.modelIdInput.placeholder =

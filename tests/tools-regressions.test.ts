@@ -403,3 +403,181 @@ describe('list_layers reflects marker visibility', () => {
     expect(built[0].element.style.display).toBe('none');
   });
 });
+
+
+describe('audit command permissions and lifecycle', () => {
+  it.each(['remove_layer', 'clear_layers'])('enforces permissions for direct %s calls', async (command) => {
+    const map = new MockMap();
+    const { namespace, built } = markerNamespace();
+    const agent = new MapLibreAgentTools(map as never, {
+      allowCodeExecution: () => false, allowDestructiveTools: () => false,
+      mapEngine: { kind: 'maplibre', namespace } as GeoAgentMapEngine,
+    });
+    await agent.runCommand('add_marker', { name: 'pin', lat: 0, lon: 0 });
+    await expect(agent.runCommand(command, { name: 'pin' })).rejects.toThrow(/disabled/);
+    expect(built[0].removed).not.toBe(true);
+    agent.destroy();
+    expect(built[0].removed).toBe(true);
+  });
+
+  it('rejects queued commands and late fetch results after destroy', async () => {
+    let resolveFetch!: (response: Response) => void;
+    const fetchMock = vi.fn((_url: RequestInfo | URL, _init?: RequestInit) => new Promise<Response>((resolve) => { resolveFetch = resolve; }));
+    vi.stubGlobal('fetch', fetchMock);
+    const map = new MockMap();
+    const { namespace, built } = markerNamespace();
+    const agent = tools(map, namespace);
+    const first = agent.runCommand('add_vector_data', { name: 'late', url: 'https://example.com/data' });
+    const firstCheck = expect(first).rejects.toThrow(/cancel|destroy|abort/i);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const queued = agent.runCommand('add_marker', { name: 'late-marker', lat: 0, lon: 0 });
+    const queuedCheck = expect(queued).rejects.toThrow(/cancel|destroy|abort/i);
+    agent.destroy();
+    resolveFetch(new Response(JSON.stringify({ type: 'FeatureCollection', features: [] })));
+    await Promise.all([firstCheck, queuedCheck]);
+    expect(map.layers).toHaveLength(0);
+    expect(Object.keys(map.sources)).toHaveLength(0);
+    expect(built).toHaveLength(0);
+    expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+  });
+});
+
+
+describe('cancellation and permission boundaries', () => {
+  it('blocks replacement of an existing marker when removal is disabled', async () => {
+    const map = new MockMap();
+    const { namespace, built } = markerNamespace();
+    const agent = new MapLibreAgentTools(map as never, {
+      allowCodeExecution: () => false, allowDestructiveTools: () => false,
+      mapEngine: { kind: 'maplibre', namespace } as GeoAgentMapEngine,
+    });
+    await agent.runCommand('add_marker', { name: 'pin', lat: 0, lon: 0 });
+    await expect(agent.runCommand('add_marker', { name: 'pin', lat: 1, lon: 1 })).rejects.toThrow(/disabled/);
+    expect(built).toHaveLength(1);
+    expect(built[0].removed).not.toBe(true);
+    agent.destroy();
+  });
+
+  it('cancels a hung fetch and queued commands but accepts new commands', async () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => {}));
+    vi.stubGlobal('fetch', fetchMock);
+    const map = new MockMap();
+    const { namespace, built } = markerNamespace();
+    const agent = tools(map, namespace);
+    const first = agent.runCommand('add_vector_data', { name: 'old', url: 'https://example.com/data' });
+    const firstCheck = expect(first).rejects.toThrow(/abort/i);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const queued = agent.runCommand('add_marker', { name: 'old', lon: 0, lat: 0 });
+    const queuedCheck = expect(queued).rejects.toThrow(/abort/i);
+    agent.cancelPendingCommands();
+    await agent.runCommand('add_marker', { name: 'new', lon: 1, lat: 1 });
+    await Promise.all([firstCheck, queuedCheck]);
+    expect(built).toHaveLength(1);
+    expect(built[0].lngLat).toEqual([1, 1]);
+    agent.destroy();
+  });
+
+  it.each(['idle', 'render'])('cleans the %s listener when cancelled', async (eventName) => {
+    const map = new MockMap();
+    map.loaded.mockReturnValue(eventName !== 'idle');
+    map.once.mockImplementation(() => {});
+    const off = vi.fn();
+    Object.assign(map, { off });
+    const { namespace } = markerNamespace();
+    const agent = tools(map, namespace);
+    const run = agent.runCommand(eventName === 'idle' ? 'add_marker' : 'screenshot_map', { lon: 0, lat: 0 });
+    const check = expect(run).rejects.toThrow(/abort/i);
+    await vi.waitFor(() => expect(map.once).toHaveBeenCalledWith(eventName, expect.any(Function)));
+    agent.cancelPendingCommands();
+    await check;
+    expect(off).toHaveBeenCalledWith(eventName, expect.any(Function));
+    agent.destroy();
+  });
+});
+
+describe('transactional GeoJSON replacement', () => {
+  it('preserves the original layer and removes partial resources when a later layer fails', async () => {
+    const map = new MockMap();
+    const { namespace } = markerNamespace();
+    const agent = tools(map, namespace);
+    await agent.runCommand('add_geojson_data', { name: 'data', data: {
+      type: 'Feature', geometry: { type: 'Point', coordinates: [1, 2] }, properties: {},
+    }});
+    const oldLayers = [...map.layers];
+    const oldSources = { ...map.sources };
+    const addLayer = map.addLayer.bind(map);
+    let calls = 0;
+    vi.spyOn(map, 'addLayer').mockImplementation((layer) => {
+      if (++calls === 2) throw new Error('invalid paint');
+      addLayer(layer);
+    });
+    await expect(agent.runCommand('add_geojson_data', { name: 'data', data: {
+      type: 'GeometryCollection', geometries: [
+        { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] },
+        { type: 'Point', coordinates: [2, 3] },
+      ],
+    }})).rejects.toThrow('invalid paint');
+    expect(map.layers).toEqual(oldLayers);
+    expect(map.sources).toEqual(oldSources);
+    await agent.runCommand('remove_layer', { name: 'data' });
+    expect(map.layers).toHaveLength(0);
+    expect(Object.keys(map.sources)).toHaveLength(0);
+    agent.destroy();
+  });
+});
+
+it('commits a replacement and cleans the old resources only after success', async () => {
+  const map = new MockMap();
+  const { namespace } = markerNamespace();
+  const agent = tools(map, namespace);
+  await agent.runCommand('add_geojson_data', { name: 'data', data: { type: 'Point', coordinates: [0, 0] } });
+  const oldSource = Object.keys(map.sources)[0];
+  await agent.runCommand('add_geojson_data', { name: 'data', data: { type: 'Point', coordinates: [1, 1] } });
+  expect(map.getSource(oldSource)).toBeUndefined();
+  expect(Object.keys(map.sources)).toHaveLength(1);
+  expect(map.layers).toHaveLength(1);
+  expect(Object.values(map.sources)[0].data).toEqual({ type: 'Point', coordinates: [1, 1] });
+  agent.destroy();
+  expect(Object.keys(map.sources)).toHaveLength(0);
+});
+
+it('preserves old data after invalid remote JSON and resumes the command queue', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('{bad JSON')));
+  const map = new MockMap();
+  const { namespace } = markerNamespace();
+  const agent = tools(map, namespace);
+  await agent.runCommand('add_geojson_data', { name: 'data', data: { type: 'Point', coordinates: [0, 0] } });
+  const before = [...map.layers];
+  await expect(agent.runCommand('add_vector_data', { name: 'data', url: 'https://example.com' })).rejects.toThrow(/not valid JSON/);
+  expect(map.layers).toEqual(before);
+  await expect(agent.runCommand('remove_layer', { name: 'data' })).resolves.toContain('Removed');
+  agent.destroy();
+});
+
+it('applies configurable GeoJSON limits before creating map resources', async () => {
+  const map = new MockMap();
+  const { namespace } = markerNamespace();
+  const agent = new MapLibreAgentTools(map as never, {
+    allowCodeExecution: () => false, allowDestructiveTools: () => true,
+    mapEngine: { kind: 'maplibre', namespace } as GeoAgentMapEngine,
+    geoJsonLimits: { maxCoordinates: 1 },
+  });
+  await expect(agent.runCommand('add_geojson_data', { name: 'large', data: {
+    type: 'MultiPoint', coordinates: [[0, 0], [1, 1]],
+  }})).rejects.toThrow(/coordinate limit/);
+  expect(Object.keys(map.sources)).toHaveLength(0);
+  agent.destroy();
+});
+
+it('rolls back when the engine rejects a layer without throwing', async () => {
+  const map = new MockMap();
+  const { namespace } = markerNamespace();
+  const agent = tools(map, namespace);
+  await agent.runCommand('add_geojson_data', { name: 'data', data: { type: 'Point', coordinates: [0, 0] } });
+  const before = [...map.layers];
+  vi.spyOn(map, 'addLayer').mockImplementation(() => {});
+  await expect(agent.runCommand('add_geojson_data', { name: 'data', data: { type: 'Point', coordinates: [1, 1] } })).rejects.toThrow(/create layer/);
+  expect(map.layers).toEqual(before);
+  expect(Object.keys(map.sources)).toHaveLength(1);
+  agent.destroy();
+});

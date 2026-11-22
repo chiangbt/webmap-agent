@@ -1,3 +1,4 @@
+import { fetchBoundedText } from '../../utils/request';
 /**
  * Google Earth Engine（GEE）浏览器端集成服务。
  *
@@ -1253,7 +1254,8 @@ export class EarthEngineService {
    * @param includeCommunity - 是否包含社区目录，默认取 options 配置（再默认 true）
    * @returns dataset 列表；完全失败且无 stale 缓存时抛出原始错误
    */
-  async catalog(includeCommunity = this.options.includeCommunityCatalog ?? true): Promise<GeeDataset[]> {
+  async catalog(includeCommunity = this.options.includeCommunityCatalog ?? true, signal?: AbortSignal): Promise<GeeDataset[]> {
+    signal?.throwIfAborted();
     // 两个 key 分开缓存：all（官方+社区）与 official（仅官方）。
     const key = includeCommunity ? "all" : "official";
     const ttl = this.options.catalogCacheTtlMs ?? DEFAULT_CATALOG_CACHE_TTL_MS;
@@ -1270,6 +1272,7 @@ export class EarthEngineService {
         (text) => parseOfficialGeeCatalog(text, "json"),
         OFFICIAL_CATALOG_TSV_URL,
         (text) => parseOfficialGeeCatalog(text, "tsv"),
+        signal,
       );
       // 社区目录：仅在允许时拉取，JSON 优先，失败退 CSV。
       const community = includeCommunity
@@ -1278,6 +1281,7 @@ export class EarthEngineService {
             (text) => parseCommunityGeeCatalog(text, "json"),
             COMMUNITY_CATALOG_CSV_URL,
             (text) => parseCommunityGeeCatalog(text, "csv"),
+            signal,
           )
         : [];
       const datasets = [...official, ...community];
@@ -1289,6 +1293,7 @@ export class EarthEngineService {
       });
       return datasets;
     } catch (error) {
+      signal?.throwIfAborted();
       // 刷新失败：若有上一轮数据则降级返回 stale，保证功能可用。
       const stale = cached?.datasets ?? cached?.staleDatasets;
       if (stale) {
@@ -1312,8 +1317,8 @@ export class EarthEngineService {
     source?: string;
     max_results?: number;
     include_community?: boolean;
-  }): Promise<{ count: number; shown: number; datasets: GeeDataset[] }> {
-    const datasets = await this.catalog(input.include_community ?? true);
+  }, signal?: AbortSignal): Promise<{ count: number; shown: number; datasets: GeeDataset[] }> {
+    const datasets = await this.catalog(input.include_community ?? true, signal);
     const query = (input.query ?? "").trim().toLowerCase();
     // max_results 至少为 1，未提供默认 20。
     const maxResults = Math.max(1, Number(input.max_results ?? 20));
@@ -1371,8 +1376,9 @@ export class EarthEngineService {
   async getDatasetInfo(
     assetId: string,
     includeCommunity = true,
+    signal?: AbortSignal,
   ): Promise<GeeDataset & { found: boolean; asset_id?: string }> {
-    const datasets = await this.catalog(includeCommunity);
+    const datasets = await this.catalog(includeCommunity, signal);
     const found = datasets.find((dataset) => dataset.id === assetId);
     if (!found) {
       // 目录中未收录：仍返回可用的最小形状，found 标记为 false。
@@ -1386,8 +1392,9 @@ export class EarthEngineService {
    */
   async summarizeCatalog(
     includeCommunity = true,
+    signal?: AbortSignal,
   ): Promise<{ total_count: number; categories: Array<{ category: string; count: number }> }> {
-    const datasets = await this.catalog(includeCommunity);
+    const datasets = await this.catalog(includeCommunity, signal);
     const counts = new Map<string, number>();
     // 逐条累计分类计数；缺失分类的归入 "Other"。
     for (const dataset of datasets) {
@@ -2068,23 +2075,21 @@ async function fetchCatalogWithFallback<T>(
   primaryParser: (text: string) => T,
   fallbackUrl: string,
   fallbackParser: (text: string) => T,
+  signal?: AbortSignal,
 ): Promise<T> {
   try {
     // 主源：拉取并解析；任何一步失败都进入兜底分支。
-    return primaryParser(await fetchText(primaryUrl));
+    return primaryParser(await fetchText(primaryUrl, signal));
   } catch {
+    signal?.throwIfAborted();
     // 兜底源：JSON 源不可用时换 TSV/CSV 源。
-    return fallbackParser(await fetchText(fallbackUrl));
+    return fallbackParser(await fetchText(fallbackUrl, signal));
   }
 }
 
 /** 拉取远端文本；HTTP 状态非 2xx 时抛错并带上状态码与 URL。 */
-async function fetchText(url: string): Promise<string> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Could not fetch Earth Engine catalog (${response.status}) from ${url}`);
-  }
-  return response.text();
+async function fetchText(url: string, signal?: AbortSignal): Promise<string> {
+  return fetchBoundedText(url, { signal, maxBytes: 20 * 1024 * 1024, label: "Earth Engine catalog" });
 }
 
 /**
