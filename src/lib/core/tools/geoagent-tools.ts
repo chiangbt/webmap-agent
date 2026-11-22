@@ -671,6 +671,8 @@ export abstract class GeoAgentTools {
   private readonly onStateDataChange?: (data: Record<string, unknown>) => void;
   /** agent 管理的 overlay 注册表：名称 → 记账记录（图层/来源/marker 等）。 */
   protected readonly overlays = new globalThis.Map<string, Overlay>();
+  // 命令串行队列：runCommand 链式追加，保证并行工具调用逐条执行。
+  private commandChain: Promise<void> = Promise.resolve();
   /** Google Earth Engine 服务封装；未配置时为 undefined。 */
   private readonly earthEngine?: EarthEngineService;
   /** 经子类 resolveEngine 校验后的引擎声明。 */
@@ -783,11 +785,37 @@ export abstract class GeoAgentTools {
   /**
    * 构建暴露给模型的全部 Strands 工具：通用地图工具、引擎专属工具
    * （engineTools()）、以及按宿主开关与配置追加的 JS 代码执行 / Earth Engine
-   * 工具组。
+   * 工具组。各组定义拆分到对应 builder 方法（mapToolDefinitions /
+   * geeToolDefinitions / geeSnippetTool / scriptTool），本方法只做条件组装。
    *
    * @returns 工具实例数组
    */
   createTools(): Tool[] {
+    const tools: Tool[] = [...this.mapToolDefinitions()];
+
+    // JS 代码执行类工具：统一受宿主 allowCodeExecution 开关控制。
+    if (this.allowCodeExecution()) {
+      // 配置了 Earth Engine 时额外提供 GEE 脚本工具。
+      if (this.earthEngine) {
+        tools.push(this.geeSnippetTool());
+      }
+      // run_maplibre_script：任意引擎脚本逃生舱（文案按当前引擎生成）。
+      tools.push(this.scriptTool());
+    }
+
+    // Earth Engine 工具组：仅在构造时配置了 earthEngine 时注册。
+    if (this.earthEngine) {
+      tools.push(...this.geeToolDefinitions());
+    }
+
+    return tools;
+  }
+
+  /**
+   * 通用地图工具定义：图层查询、导航、底图、overlay、source/layer/style 等
+   * 命令的 schema 与描述。本组共享的 zod schema 片段也定义在这里。
+   */
+  private mapToolDefinitions(): Tool[] {
     // 通用 schema 片段：多个工具复用同一段 zod 定义，保证文案一致。
     // 可选的 MapLibre 兼容样式参数（键名自由）。
     const optionalStyleSchema = z
@@ -816,34 +844,7 @@ export abstract class GeoAgentTools {
       .describe(
         "Four image/video corner coordinates: top-left, top-right, bottom-right, bottom-left.",
       );
-    // GEE 数据加载类工具共享的参数集（asset、时间窗、bbox、云量、reducer、可视化等）。
-    const geeCommonLoadSchema = {
-      asset_id: z.string().describe("Google Earth Engine asset id."),
-      layer_name: z.string().optional(),
-      asset_type: z
-        .enum(["Image", "ImageCollection", "FeatureCollection"])
-        .optional(),
-      start_date: z.string().optional().describe("YYYY-MM-DD start date."),
-      end_date: z.string().optional().describe("YYYY-MM-DD end date."),
-      bbox: z.string().optional().describe("west,south,east,north in WGS84."),
-      bounds_collection_asset_id: z.string().optional(),
-      bounds_filter_property: z.string().optional(),
-      bounds_filter_value: z.string().optional(),
-      cloud_cover: z.number().optional(),
-      cloud_property: z.string().optional(),
-      reducer: z
-        .enum(["mosaic", "median", "mean", "min", "max", "first", "mode"])
-        .optional(),
-      min_value: z.number().optional(),
-      max_value: z.number().optional(),
-      palette: z.string().optional(),
-      clip_collection_asset_id: z.string().optional(),
-      clip_filter_property: z.string().optional(),
-      clip_filter_value: z.string().optional(),
-      oauth_client_id: z.string().optional(),
-      project_id: z.string().optional(),
-    };
-    const tools: Tool[] = [
+    return [
       /**
        * list_layers — 列出浏览器地图当前的全部图层（style layer + agent 管理的
        * marker），并标注每个图层是否由 agent 添加（user_added）与可见性。
@@ -1342,45 +1343,73 @@ export abstract class GeoAgentTools {
       // 2D shim 引擎上为空。
       ...this.engineTools(),
     ];
+  }
 
-    // JS 代码执行类工具：统一受宿主 allowCodeExecution 开关控制。
-    if (this.allowCodeExecution()) {
-      // 配置了 Earth Engine 时额外提供 GEE 脚本工具。
-      if (this.earthEngine) {
-        tools.push(
-          /**
-           * run_gee_javascript_snippet — 执行一段 Earth Engine JavaScript 片段
-           * （经 new Function 执行、非沙箱），片段可通过 Map.addLayer(...)/
-           * addLayer(...) 等辅助函数把 GEE 对象渲染为 raster 瓦片图层。
-           * 代理需要自由组合 ee API（filterDate/normalizedDifference 等专用
-           * 工具覆盖不了的场景）时调用；code 为脚本内容、description 可选。
-           */
-          tool({
-            name: "run_gee_javascript_snippet",
-            description:
-              "Run an Earth Engine JavaScript snippet (executed with new Function, not sandboxed) that adds one or more MapLibre raster tile layers.",
-            inputSchema: z.object({
-              code: z
-                .string()
-                .describe(
-                  "JavaScript using ee plus Map.addLayer(...), addLayer(...), getEeLayer(name), and listEeLayers().",
-                ),
-              description: z.string().optional(),
-            }),
-            callback: (input) =>
-              this.runCommand("run_gee_javascript_snippet", input),
-          }),
-        );
-      }
-      // run_maplibre_script：任意引擎脚本逃生舱（文案按当前引擎生成）。
-      tools.push(this.scriptTool());
-    }
+  /**
+   * GEE 脚本工具（run_gee_javascript_snippet）：在脱敏 ee 门面上执行模型
+   * 生成的 Earth Engine JavaScript 片段。仅在配置了 earthEngine 且宿主
+   * 开启代码执行时由 createTools 注册。
+   */
+  private geeSnippetTool(): Tool {
+    return tool({
+      /**
+       * run_gee_javascript_snippet — 执行一段 Earth Engine JavaScript 片段
+       * （经 new Function 执行、非沙箱），片段可通过 Map.addLayer(...)/
+       * addLayer(...) 等辅助函数把 GEE 对象渲染为 raster 瓦片图层。
+       * 代理需要自由组合 ee API（filterDate/normalizedDifference 等专用
+       * 工具覆盖不了的场景）时调用；code 为脚本内容、description 可选。
+       */
+      name: "run_gee_javascript_snippet",
+      description:
+        "Run an Earth Engine JavaScript snippet (executed with new Function, not sandboxed) that adds one or more MapLibre raster tile layers.",
+      inputSchema: z.object({
+        code: z
+          .string()
+          .describe(
+            "JavaScript using ee plus Map.addLayer(...), addLayer(...), getEeLayer(name), and listEeLayers().",
+          ),
+        description: z.string().optional(),
+      }),
+      callback: (input) => this.runCommand("run_gee_javascript_snippet", input),
+    });
+  }
 
-    // Earth Engine 工具组：仅在构造时配置了 earthEngine 时注册。
-    if (this.earthEngine) {
-      tools.push(
-        /**
-         * search_gee_datasets — 在 GEE 官方与社区数据目录中检索数据集。
+  /**
+   * Earth Engine 工具组定义：目录检索、数据集信息、目录摘要、初始化、
+   * 数据集加载、归一化指数计算、已加载图层列表与可视化调整、区域统计。
+   * 仅在构造时配置了 earthEngine 时由 createTools 注册。
+   */
+  private geeToolDefinitions(): Tool[] {
+    // GEE 数据加载类工具共享的参数集（asset、时间窗、bbox、云量、reducer、可视化等）。
+    const geeCommonLoadSchema = {
+      asset_id: z.string().describe("Google Earth Engine asset id."),
+      layer_name: z.string().optional(),
+      asset_type: z
+        .enum(["Image", "ImageCollection", "FeatureCollection"])
+        .optional(),
+      start_date: z.string().optional().describe("YYYY-MM-DD start date."),
+      end_date: z.string().optional().describe("YYYY-MM-DD end date."),
+      bbox: z.string().optional().describe("west,south,east,north in WGS84."),
+      bounds_collection_asset_id: z.string().optional(),
+      bounds_filter_property: z.string().optional(),
+      bounds_filter_value: z.string().optional(),
+      cloud_cover: z.number().optional(),
+      cloud_property: z.string().optional(),
+      reducer: z
+        .enum(["mosaic", "median", "mean", "min", "max", "first", "mode"])
+        .optional(),
+      min_value: z.number().optional(),
+      max_value: z.number().optional(),
+      palette: z.string().optional(),
+      clip_collection_asset_id: z.string().optional(),
+      clip_filter_property: z.string().optional(),
+      clip_filter_value: z.string().optional(),
+      oauth_client_id: z.string().optional(),
+      project_id: z.string().optional(),
+    };
+    return [
+      /**
+       * search_gee_datasets — 在 GEE 官方与社区数据目录中检索数据集。
          * 代理要为任务寻找合适的影像/矢量资产时调用。query/category/data_type/
          * source/max_results/include_community 均可选。
          */
@@ -1535,10 +1564,7 @@ export abstract class GeoAgentTools {
           callback: (input) =>
             this.runCommand("calculate_gee_layer_statistics", input),
         }),
-      );
-    }
-
-    return tools;
+    ];
   }
 
   /**
@@ -1571,14 +1597,25 @@ export abstract class GeoAgentTools {
    */
   async runCommand(command: string, args: unknown = {}): Promise<JSONValue> {
     // args 可能是 null/undefined（无参工具调用），统一兜底为空对象。
-    return toJsonValue(
-      await this.executeCommand(command, (args ?? {}) as JsonObject),
+    // 命令串行执行：agent 并行工具调用时，change_basemap 的 overlay 快照/
+    // 重放与 add_marker 等写操作交错会互相覆盖注册表，链式队列保证一次
+    // 只跑一条命令。异常不中断队列（后续命令照常执行），只对本次调用抛出。
+    const run = this.commandChain.then(async () =>
+      toJsonValue(await this.executeCommand(command, (args ?? {}) as JsonObject)),
     );
+    this.commandChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
+  /** 命令处理器表缓存：首次分发时合并六个语义域的处理器。 */
+  private commandTable: Record<string, (args: JsonObject) => Promise<unknown>> | null = null;
+
   /**
-   * 命令分发主流程：先确保引擎 namespace 就绪、等地图空闲，再按命令名逐个
-   * 分发；未匹配的命令交给 executeEngineCommand 处理引擎专属逻辑。
+   * 命令分发主流程：先确保引擎 namespace 就绪、等地图空闲，再查命令表分发；
+   * 未匹配的命令交给 executeEngineCommand 处理引擎专属逻辑。
    */
   private async executeCommand(
     command: string,
@@ -1588,7 +1625,29 @@ export abstract class GeoAgentTools {
     await this.ensureEngineNamespace();
     await this.waitForMapIdle();
 
-    if (command === "list_layers") {
+    // 命令表惰性构建：六个语义域的处理器合并成一张表，按命令名分发。
+    this.commandTable ??= {
+      ...this.mapStateCommands(),
+      ...this.navigationCommands(),
+      ...this.basemapOverlayCommands(),
+      ...this.sourceLayerStyleCommands(),
+      ...this.geeCommands(),
+      ...this.scriptCommands(),
+    };
+    const handler = this.commandTable[command];
+    if (handler) {
+      return handler(args);
+    }
+
+    // 其余命令全部是引擎专属的：MapLibre/Mapbox 上执行 WebGL 专属命令，
+    // 2D 引擎上抛出明确的能力错误。
+    return this.executeEngineCommand(command, args);
+  }
+
+  /** 地图状态与查询命令：图层清单、全图状态、来源/渲染要素查询。 */
+  private mapStateCommands(): Record<string, (args: JsonObject) => Promise<unknown>> {
+    return {
+      list_layers: async () => {
       // style 中的图层逐个摘要：id/类型/source/可见性/是否 agent 添加。
       const styleLayers = (this.map.getStyle().layers ?? []).map((layer) => ({
         id: layer.id,
@@ -1609,9 +1668,9 @@ export abstract class GeoAgentTools {
           user_added: true,
         }));
       return [...styleLayers, ...markerLayers];
-    }
-
-    if (command === "get_map_state") {
+    
+      },
+      get_map_state: async () => {
       const center = this.map.getCenter();
       const bounds = this.map.getBounds();
       // 两种拼写都要读：MapLibre 返回 `{ type }`，mapbox-gl 返回 `{ name }`。
@@ -1632,9 +1691,75 @@ export abstract class GeoAgentTools {
         },
         user_layers: Array.from(this.overlays.keys()),
       };
-    }
+    
+      },
+      query_source_features: async (args) => {
+      const sourceId = stringArg(args, "source_id");
+      if (!sourceId) {
+        throw new Error("query_source_features requires source_id.");
+      }
+      const options: { sourceLayer?: string; filter?: FilterSpecification } =
+        {};
+      const sourceLayer = stringArg(args, "source_layer");
+      // vector source 的要素按 source-layer 组织，指定后才能查到。
+      if (sourceLayer) {
+        options.sourceLayer = sourceLayer;
+      }
+      if (Array.isArray(args.filter)) {
+        options.filter = args.filter as FilterSpecification;
+      }
+      // 归一化为标准 FeatureCollection 返回。
+      return {
+        type: "FeatureCollection",
+        features: this.map
+          .querySourceFeatures(sourceId, options)
+          .map((feature) => ({
+            type: "Feature",
+            geometry: feature.geometry ?? null,
+            properties: feature.properties ?? {},
+            id: feature.id,
+          })),
+      };
+    
+      },
+      query_rendered_features: async (args) => {
+      const canvas = this.map.getCanvas();
+      // 未给 x/y 时退化为画布中心点。
+      const point: [number, number] =
+        args.x == null || args.y == null
+          ? [canvas.clientWidth / 2, canvas.clientHeight / 2]
+          : [Number(args.x), Number(args.y)];
+      const layers: string[] = [];
+      if (Array.isArray(args.layers)) {
+        for (const requested of args.layers) {
+          const layerName = String(requested);
+          const overlay = this.overlays.get(layerName);
+          if (overlay) {
+            // overlay 名展开为其名下的全部 layer id。
+            layers.push(...overlay.layerIds);
+          } else if (this.map.getLayer(layerName)) {
+            layers.push(layerName);
+          } else {
+            // 未知图层名不能退化成全图扫描 —— 模型明确指定了图层，
+            // 否则会拿到不相关结果且没有任何报错。
+            throw new Error(`Layer not found: ${layerName}`);
+          }
+        }
+      }
+      // 结果裁剪到 50 条并摘要化，避免超大响应撑爆上下文。
+      return this.map
+        .queryRenderedFeatures(point, layers.length ? { layers } : {})
+        .slice(0, 50)
+        .map(this.serializableFeature);
+    
+      },
+    };
+  }
 
-    if (command === "set_center") {
+  /** 视角导航命令：中心点、飞行、缩放、范围缩放。 */
+  private navigationCommands(): Record<string, (args: JsonObject) => Promise<unknown>> {
+    return {
+      set_center: async (args) => {
       // zoom 与 lat/lon 一样走有限数值校验，坏值会干净地报错，
       // 而不是把 NaN 交给相机。
       const zoom = args.zoom == null ? this.map.getZoom() : numberArg(args, "zoom");
@@ -1643,9 +1768,9 @@ export abstract class GeoAgentTools {
         zoom,
       });
       return "Centered map.";
-    }
-
-    if (command === "fly_to") {
+    
+      },
+      fly_to: async (args) => {
       // zoom 缺省保持当前级别；numberArg 校验传入了的 zoom。
       const zoom = args.zoom == null ? this.map.getZoom() : numberArg(args, "zoom");
       this.map.flyTo({
@@ -1653,14 +1778,14 @@ export abstract class GeoAgentTools {
         zoom,
       });
       return "Moved map.";
-    }
-
-    if (command === "set_zoom") {
+    
+      },
+      set_zoom: async (args) => {
       this.map.setZoom(numberArg(args, "zoom"));
       return "Zoom updated.";
-    }
-
-    if (command === "zoom_to_bounds") {
+    
+      },
+      zoom_to_bounds: async (args) => {
       // fitBounds 带 48px 内边距与 maxZoom 16，避免小范围时过度放大。
       this.map.fitBounds(
         [
@@ -1670,9 +1795,15 @@ export abstract class GeoAgentTools {
         { padding: 48, maxZoom: 16 },
       );
       return "Zoomed to bounds.";
-    }
+    
+      },
+    };
+  }
 
-    if (command === "add_basemap") {
+  /** 底图与 overlay 命令：底图添加/切换、marker、GeoJSON/矢量/瓦片/影像/聚合/分级渲染图层、移除与清空。 */
+  private basemapOverlayCommands(): Record<string, (args: JsonObject) => Promise<unknown>> {
+    return {
+      add_basemap: async (args) => {
       // provider 键统一小写后查内置表；也允许直接给自定义 XYZ url。
       const providerKey = stringArg(args, "provider")
         .trim()
@@ -1690,7 +1821,9 @@ export abstract class GeoAgentTools {
         provider?.name ||
         providerKey ||
         "Raster Basemap";
-      await this.addBasemapOverlay({
+      await this.addTileOverlay({
+        kind: "basemap",
+        beneathUserLayers: true,
         name,
         url,
         attribution: stringArg(args, "attribution") || provider?.attribution,
@@ -1701,9 +1834,9 @@ export abstract class GeoAgentTools {
             : Math.max(0, Math.min(1, Number(args.opacity))),
       });
       return `Added basemap ${name}.`;
-    }
-
-    if (command === "change_basemap") {
+    
+      },
+      change_basemap: async (args) => {
       // 先按小写 key 查内置底图清单，查不到则把整个字符串当 style URL 用。
       const rawStyle = stringArg(args, "style", "liberty").trim();
       let style = this.basemaps[rawStyle.toLowerCase()] ?? rawStyle;
@@ -1722,14 +1855,14 @@ export abstract class GeoAgentTools {
       // setStyle 会清空旧 style 的全部图层，需要按记账重放用户 overlay。
       await this.restoreOverlaysAfterStyleChange();
       return `Basemap changed to ${rawStyle}.`;
-    }
-
-    if (command === "add_marker") {
+    
+      },
+      add_marker: async (args) => {
       const name = this.addMarkerOverlay(args);
       return `Added marker ${name}.`;
-    }
-
-    if (command === "add_geojson_data") {
+    
+      },
+      add_geojson_data: async (args) => {
       await this.addGeoJsonOverlay({
         name: stringArg(args, "name", "geojson"),
         data: args.data as GeoJSON.GeoJSON,
@@ -1737,9 +1870,9 @@ export abstract class GeoAgentTools {
         zoomTo: true,
       });
       return `Added GeoJSON layer ${stringArg(args, "name", "geojson")}.`;
-    }
-
-    if (command === "add_vector_data") {
+    
+      },
+      add_vector_data: async (args) => {
       await this.addGeoJsonOverlay({
         name: stringArg(args, "name", "vector-data"),
         url: stringArg(args, "url"),
@@ -1747,18 +1880,79 @@ export abstract class GeoAgentTools {
         zoomTo: true,
       });
       return `Added GeoJSON URL layer ${stringArg(args, "name", "vector-data")}.`;
-    }
-
-    if (command === "add_xyz_tile_layer") {
-      await this.addRasterOverlay({
+    
+      },
+      add_xyz_tile_layer: async (args) => {
+      await this.addTileOverlay({
+        kind: "raster",
         name: stringArg(args, "name", "xyz-tiles"),
         url: stringArg(args, "url"),
         attribution: stringArg(args, "attribution"),
       });
       return `Added XYZ tile layer ${stringArg(args, "name", "xyz-tiles")}.`;
-    }
+    
+      },
+      add_image_layer: async (args) => {
+      const id = slug(stringArg(args, "id", "image-overlay"));
+      const url = stringArg(args, "url");
+      // 四角坐标逐个校验合法性（数量、格式、有限性）。
+      const coordinates = this.cornerCoordinates(args.coordinates);
+      const opacity = Math.max(0, Math.min(1, Number(args.opacity ?? 1)));
+      const sourceId = `${id}-source`;
+      await this.addNativeOverlay({
+        name: id,
+        sourceSpecs: {
+          [sourceId]: {
+            type: "image",
+            url,
+            coordinates,
+          } as SourceSpecification,
+        },
+        layerSpecs: [
+          {
+            layer: {
+              id,
+              type: "raster",
+              source: sourceId,
+              paint: { "raster-opacity": opacity },
+            } as LayerSpecification,
+          },
+        ],
+      });
+      return `Added image layer ${id}.`;
+    
+      },
+      add_cluster_layer: async (args) => {
+      await this.addClusterLayer(args);
+      return `Added cluster layer ${stringArg(args, "name")}.`;
+    
+      },
+      add_choropleth_layer: async (args) => {
+      await this.addChoroplethLayer(args);
+      return `Added choropleth layer ${stringArg(args, "name")}.`;
+    
+      },
+      remove_layer: async (args) => {
+      const name = stringArg(args, "name");
+      // removeOverlay 按 slug 比对查找；找不到说明不是用户添加的图层。
+      if (!this.removeOverlay(name)) {
+        throw new Error(`User-added layer not found: ${name}`);
+      }
+      return `Removed layer ${name}.`;
+    
+      },
+      clear_layers: async () => {
+      this.clearOverlays();
+      return "Cleared user-added layers.";
+    
+      },
+    };
+  }
 
-    if (command === "add_map_source") {
+  /** source/layer/style 操作命令：来源与图层增删、排序、paint/layout/filter、可见性与透明度。 */
+  private sourceLayerStyleCommands(): Record<string, (args: JsonObject) => Promise<unknown>> {
+    return {
+      add_map_source: async (args) => {
       const sourceId = stringArg(args, "source_id");
       if (!sourceId) {
         throw new Error("add_map_source requires source_id.");
@@ -1771,9 +1965,9 @@ export abstract class GeoAgentTools {
         },
       });
       return `Added MapLibre source ${sourceId}.`;
-    }
-
-    if (command === "remove_map_source") {
+    
+      },
+      remove_map_source: async (args) => {
       // 破坏性操作：先校验宿主是否放行。
       this.requireDestructiveApproval("Source removal");
       const sourceId = stringArg(args, "source_id");
@@ -1803,9 +1997,9 @@ export abstract class GeoAgentTools {
         this.pruneOverlaySource(sourceId);
       }
       return `Removed MapLibre source ${sourceId}.`;
-    }
-
-    if (command === "add_map_layer") {
+    
+      },
+      add_map_layer: async (args) => {
       const layer = objectArg(args, "layer") as LayerSpecification;
       if (!layer.id) {
         throw new Error("add_map_layer requires layer.id.");
@@ -1823,9 +2017,9 @@ export abstract class GeoAgentTools {
         layerSpecs: [{ layer, beforeId }],
       });
       return `Added MapLibre layer ${layer.id}.`;
-    }
-
-    if (command === "remove_map_layer") {
+    
+      },
+      remove_map_layer: async (args) => {
       this.requireDestructiveApproval("Layer removal");
       const layerId = stringArg(args, "layer_id");
       if (!layerId) {
@@ -1838,9 +2032,9 @@ export abstract class GeoAgentTools {
       // 从 overlay 记账中剪除该图层的引用；全部引用耗尽的 native overlay 一并注销。
       this.pruneOverlayLayer(layerId);
       return `Removed MapLibre layer ${layerId}.`;
-    }
-
-    if (command === "move_layer") {
+    
+      },
+      move_layer: async (args) => {
       const layerId = stringArg(args, "layer_id");
       const beforeId = stringArg(args, "before_id") || undefined;
       // 目标图层与参照图层都必须存在。
@@ -1852,9 +2046,9 @@ export abstract class GeoAgentTools {
       // 同步记录新的插入位置，保证样式切换重放后次序一致。
       this.updateOverlayLayerBeforeId(layerId, beforeId);
       return `Moved layer ${layerId}.`;
-    }
-
-    if (command === "set_paint_property") {
+    
+      },
+      set_paint_property: async (args) => {
       const layerId = stringArg(args, "layer_id");
       const property = stringArg(args, "property");
       this.requireLayer(layerId);
@@ -1870,9 +2064,9 @@ export abstract class GeoAgentTools {
         } as LayerSpecification["paint"];
       });
       return `Updated paint property ${property} on ${layerId}.`;
-    }
-
-    if (command === "set_layout_property") {
+    
+      },
+      set_layout_property: async (args) => {
       const layerId = stringArg(args, "layer_id");
       const property = stringArg(args, "property");
       this.requireLayer(layerId);
@@ -1887,9 +2081,9 @@ export abstract class GeoAgentTools {
         } as LayerSpecification["layout"];
       });
       return `Updated layout property ${property} on ${layerId}.`;
-    }
-
-    if (command === "set_layer_filter") {
+    
+      },
+      set_layer_filter: async (args) => {
       const layerId = stringArg(args, "layer_id");
       this.requireLayer(layerId);
       // 必须显式带 filter 键（null 表示清除），避免漏传被误当成"无操作"。
@@ -1912,9 +2106,9 @@ export abstract class GeoAgentTools {
         }
       });
       return `Updated filter on ${layerId}.`;
-    }
-
-    if (command === "update_geojson_source") {
+    
+      },
+      update_geojson_source: async (args) => {
       const requestedSourceId = stringArg(args, "source_id");
       // 允许传图层名：自动解析为其约定的 `{name}-source`。
       const sourceId = this.resolveGeoJsonSourceId(requestedSourceId);
@@ -1939,78 +2133,9 @@ export abstract class GeoAgentTools {
         overlay.data = args.data as GeoJSON.GeoJSON;
       }
       return `Updated GeoJSON source ${sourceId}.`;
-    }
-
-    if (command === "query_source_features") {
-      const sourceId = stringArg(args, "source_id");
-      if (!sourceId) {
-        throw new Error("query_source_features requires source_id.");
-      }
-      const options: { sourceLayer?: string; filter?: FilterSpecification } =
-        {};
-      const sourceLayer = stringArg(args, "source_layer");
-      // vector source 的要素按 source-layer 组织，指定后才能查到。
-      if (sourceLayer) {
-        options.sourceLayer = sourceLayer;
-      }
-      if (Array.isArray(args.filter)) {
-        options.filter = args.filter as FilterSpecification;
-      }
-      // 归一化为标准 FeatureCollection 返回。
-      return {
-        type: "FeatureCollection",
-        features: this.map
-          .querySourceFeatures(sourceId, options)
-          .map((feature) => ({
-            type: "Feature",
-            geometry: feature.geometry ?? null,
-            properties: feature.properties ?? {},
-            id: feature.id,
-          })),
-      };
-    }
-
-    if (command === "add_image_layer") {
-      const id = slug(stringArg(args, "id", "image-overlay"));
-      const url = stringArg(args, "url");
-      // 四角坐标逐个校验合法性（数量、格式、有限性）。
-      const coordinates = this.cornerCoordinates(args.coordinates);
-      const opacity = Math.max(0, Math.min(1, Number(args.opacity ?? 1)));
-      const sourceId = `${id}-source`;
-      await this.addNativeOverlay({
-        name: id,
-        sourceSpecs: {
-          [sourceId]: {
-            type: "image",
-            url,
-            coordinates,
-          } as SourceSpecification,
-        },
-        layerSpecs: [
-          {
-            layer: {
-              id,
-              type: "raster",
-              source: sourceId,
-              paint: { "raster-opacity": opacity },
-            } as LayerSpecification,
-          },
-        ],
-      });
-      return `Added image layer ${id}.`;
-    }
-
-    if (command === "add_cluster_layer") {
-      await this.addClusterLayer(args);
-      return `Added cluster layer ${stringArg(args, "name")}.`;
-    }
-
-    if (command === "add_choropleth_layer") {
-      await this.addChoroplethLayer(args);
-      return `Added choropleth layer ${stringArg(args, "name")}.`;
-    }
-
-    if (command === "set_layer_visibility") {
+    
+      },
+      set_layer_visibility: async (args) => {
       const name = stringArg(args, "name");
       const overlay = this.overlays.get(name);
       const visibility = args.visible ? "visible" : "none";
@@ -2035,9 +2160,9 @@ export abstract class GeoAgentTools {
         return `Layer ${name} visibility updated.`;
       }
       throw new Error(`Layer not found: ${name}`);
-    }
-
-    if (command === "set_layer_opacity") {
+    
+      },
+      set_layer_opacity: async (args) => {
       const name = stringArg(args, "name");
       const opacity = Math.max(0, Math.min(1, numberArg(args, "opacity")));
       const overlay = this.overlays.get(name);
@@ -2070,54 +2195,15 @@ export abstract class GeoAgentTools {
         throw new Error(`Layer not found or opacity unsupported: ${name}`);
       }
       return `Layer ${name} opacity updated.`;
-    }
+    
+      },
+    };
+  }
 
-    if (command === "query_rendered_features") {
-      const canvas = this.map.getCanvas();
-      // 未给 x/y 时退化为画布中心点。
-      const point: [number, number] =
-        args.x == null || args.y == null
-          ? [canvas.clientWidth / 2, canvas.clientHeight / 2]
-          : [Number(args.x), Number(args.y)];
-      const layers: string[] = [];
-      if (Array.isArray(args.layers)) {
-        for (const requested of args.layers) {
-          const layerName = String(requested);
-          const overlay = this.overlays.get(layerName);
-          if (overlay) {
-            // overlay 名展开为其名下的全部 layer id。
-            layers.push(...overlay.layerIds);
-          } else if (this.map.getLayer(layerName)) {
-            layers.push(layerName);
-          } else {
-            // 未知图层名不能退化成全图扫描 —— 模型明确指定了图层，
-            // 否则会拿到不相关结果且没有任何报错。
-            throw new Error(`Layer not found: ${layerName}`);
-          }
-        }
-      }
-      // 结果裁剪到 50 条并摘要化，避免超大响应撑爆上下文。
-      return this.map
-        .queryRenderedFeatures(point, layers.length ? { layers } : {})
-        .slice(0, 50)
-        .map(this.serializableFeature);
-    }
-
-    if (command === "remove_layer") {
-      const name = stringArg(args, "name");
-      // removeOverlay 按 slug 比对查找；找不到说明不是用户添加的图层。
-      if (!this.removeOverlay(name)) {
-        throw new Error(`User-added layer not found: ${name}`);
-      }
-      return `Removed layer ${name}.`;
-    }
-
-    if (command === "clear_layers") {
-      this.clearOverlays();
-      return "Cleared user-added layers.";
-    }
-
-    if (command === "search_gee_datasets") {
+  /** Google Earth Engine 命令：目录检索、初始化、数据集加载、指数计算、图层管理、统计与脚本执行。 */
+  private geeCommands(): Record<string, (args: JsonObject) => Promise<unknown>> {
+    return {
+      search_gee_datasets: async (args) => {
       // 未提供的可选参数传 undefined，交给服务层使用默认值。
       return this.requireEarthEngine().searchDatasets({
         query: stringArg(args, "query"),
@@ -2128,9 +2214,9 @@ export abstract class GeoAgentTools {
         include_community:
           args.include_community == null ? undefined : Boolean(args.include_community),
       });
-    }
-
-    if (command === "get_gee_dataset_info") {
+    
+      },
+      get_gee_dataset_info: async (args) => {
       const assetId = stringArg(args, "asset_id");
       if (!assetId) {
         throw new Error("get_gee_dataset_info requires asset_id.");
@@ -2140,15 +2226,15 @@ export abstract class GeoAgentTools {
         assetId,
         args.include_community == null ? true : Boolean(args.include_community),
       );
-    }
-
-    if (command === "summarize_gee_catalog") {
+    
+      },
+      summarize_gee_catalog: async (args) => {
       return this.requireEarthEngine().summarizeCatalog(
         args.include_community == null ? true : Boolean(args.include_community),
       );
-    }
-
-    if (command === "initialize_earth_engine") {
+    
+      },
+      initialize_earth_engine: async (args) => {
       const result = await this.requireEarthEngine().initialize({
         oauthClientId: stringArg(args, "oauth_client_id") || undefined,
         projectId: stringArg(args, "project_id") || undefined,
@@ -2157,43 +2243,20 @@ export abstract class GeoAgentTools {
       // 初始化结果（已初始化标志、图层计数）同步到宿主面板状态。
       this.publishEarthEngineState();
       return result;
-    }
-
-    if (command === "load_gee_dataset") {
-      // 三步走：服务层构建 ee 对象 → 换取瓦片 URL → 注册为地图 overlay。
+    
+      },
+      load_gee_dataset: async (args) => {
+      // 三步走：服务层构建 ee 对象 → 渲染登记（换瓦片 URL → overlay →
+      // GEE 服务侧记账 → 缩放）→ 组装结果。
       const layer = await this.requireEarthEngine().buildDatasetLayer(args);
-      const tileUrl = await this.requireEarthEngine().getTileUrl(
-        layer.eeObject as never,
-        layer.vis_params,
-      );
-      await this.addGeeRasterOverlay({
-        name: layer.layer_name,
-        url: tileUrl,
-      });
-      // 注册到 GEE 服务侧记账，供后续可视化调整 / 统计 / 列表使用。
-      this.requireEarthEngine().registerLayer({
-        name: layer.layer_name,
-        asset_id: layer.asset_id,
-        asset_type: layer.asset_type,
-        object_type: String(layer.asset_type),
-        vis_params: layer.vis_params,
-        tile_url: tileUrl,
-        source: "earth_engine",
-        metadata: {
-          composite_method: layer.composite_method,
-          requested_reducer: layer.requested_reducer,
-          rendered_band: layer.rendered_band,
-          bbox: layer.bbox,
-          bounds: layer.bounds,
-          clip: layer.clip,
-        },
-        eeObject: layer.eeObject,
-      });
-      if (layer.bbox) {
-        // 数据带 bbox 时自动缩放到数据范围。
-        this.zoomToGeoJsonBounds(layer.bbox as BBox);
-      }
-      this.publishEarthEngineState();
+      const tileUrl = await this.renderAndRegisterGeeLayer(layer, {
+        composite_method: layer.composite_method,
+        requested_reducer: layer.requested_reducer,
+        rendered_band: layer.rendered_band,
+        bbox: layer.bbox,
+        bounds: layer.bounds,
+        clip: layer.clip,
+      }, String(layer.asset_type));
       return {
         success: true,
         asset_id: layer.asset_id,
@@ -2211,45 +2274,23 @@ export abstract class GeoAgentTools {
         tile_url: tileUrl,
         clip: layer.clip,
       };
-    }
-
-    if (command === "calculate_gee_normalized_difference") {
+    
+      },
+      calculate_gee_normalized_difference: async (args) => {
       // 服务层负责组合 normalizedDifference 表达式；工具层负责渲染与登记。
       const layer = await this.requireEarthEngine().buildNormalizedDifferenceLayer(
         args,
       );
-      const tileUrl = await this.requireEarthEngine().getTileUrl(
-        layer.eeObject as never,
-        layer.vis_params,
-      );
-      await this.addGeeRasterOverlay({
-        name: layer.layer_name,
-        url: tileUrl,
-      });
-      this.requireEarthEngine().registerLayer({
-        name: layer.layer_name,
-        asset_id: layer.asset_id,
-        asset_type: layer.asset_type,
-        object_type: "Image",
-        vis_params: layer.vis_params,
-        tile_url: tileUrl,
-        source: "earth_engine",
-        metadata: {
-          index_name: layer.index_name,
-          formula: layer.formula,
-          bands: layer.bands,
-          composite_method: layer.composite_method,
-          requested_reducer: layer.requested_reducer,
-          bbox: layer.bbox,
-          bounds: layer.bounds,
-          clip: layer.clip,
-        },
-        eeObject: layer.eeObject,
-      });
-      if (layer.bbox) {
-        this.zoomToGeoJsonBounds(layer.bbox as BBox);
-      }
-      this.publishEarthEngineState();
+      const tileUrl = await this.renderAndRegisterGeeLayer(layer, {
+        index_name: layer.index_name,
+        formula: layer.formula,
+        bands: layer.bands,
+        composite_method: layer.composite_method,
+        requested_reducer: layer.requested_reducer,
+        bbox: layer.bbox,
+        bounds: layer.bounds,
+        clip: layer.clip,
+      }, "Image");
       return {
         success: true,
         asset_id: layer.asset_id,
@@ -2267,17 +2308,18 @@ export abstract class GeoAgentTools {
         earth_engine_javascript_snippet: this.buildNormalizedDifferenceSnippet(args),
         clip: layer.clip,
       };
-    }
-
-    if (command === "list_loaded_gee_layers") {
+    
+      },
+      list_loaded_gee_layers: async () => {
       const layers = this.requireEarthEngine().listLoadedLayers();
       return { count: layers.length, layers };
-    }
-
-    if (command === "set_gee_layer_visualization") {
+    
+      },
+      set_gee_layer_visualization: async (args) => {
       const result = await this.requireEarthEngine().setLayerVisualization(args);
       // 按新可视化参数重新生成瓦片并叠加（overlay 名相同则覆盖旧层）。
-      await this.addGeeRasterOverlay({
+      await this.addTileOverlay({
+        kind: "gee",
         name: result.layer_name,
         url: result.tile_url,
       });
@@ -2301,9 +2343,9 @@ export abstract class GeoAgentTools {
         vis_params: result.vis_params,
         tile_url: result.tile_url,
       };
-    }
-
-    if (command === "calculate_gee_layer_statistics") {
+    
+      },
+      calculate_gee_layer_statistics: async (args) => {
       // 统计可能因区域过大 / 像素超限失败：捕获后返回带 hint 的结构化错误，
       // 让模型能自行降参重试，而不是直接中断对话。
       try {
@@ -2324,9 +2366,9 @@ export abstract class GeoAgentTools {
             "For large regions, retry with a coarser scale such as 2000 or 5000 meters, or provide a smaller region.",
         };
       }
-    }
-
-    if (command === "run_gee_javascript_snippet") {
+    
+      },
+      run_gee_javascript_snippet: async (args) => {
       if (!this.allowCodeExecution()) {
         throw new Error("Earth Engine JavaScript execution is disabled.");
       }
@@ -2340,7 +2382,7 @@ export abstract class GeoAgentTools {
             eeObject as never,
             visParams,
           );
-          await this.addGeeRasterOverlay({ name, url: tileUrl });
+          await this.addTileOverlay({ name, url: tileUrl, kind: "gee" });
           this.requireEarthEngine().registerLayer({
             name,
             object_type:
@@ -2355,9 +2397,15 @@ export abstract class GeoAgentTools {
       );
       this.publishEarthEngineState();
       return { ...result, description: stringArg(args, "description") };
-    }
+    
+      },
+    };
+  }
 
-    if (command === "run_maplibre_script") {
+  /** 脚本执行命令：任意 MapLibre JavaScript 片段（受权限开关门控）。 */
+  private scriptCommands(): Record<string, (args: JsonObject) => Promise<unknown>> {
+    return {
+      run_maplibre_script: async (args) => {
       if (!this.allowCodeExecution()) {
         throw new Error(
           `${this.engineDisplayName()} JavaScript execution is disabled.`,
@@ -2365,13 +2413,10 @@ export abstract class GeoAgentTools {
       }
       // 分发到共享脚本执行器；引擎绑定由子类提供。
       return this.runEngineScript(args);
-    }
-
-    // 其余命令全部是引擎专属的：MapLibre/Mapbox 上执行 WebGL 专属命令，
-    // 2D 引擎上抛出明确的能力错误。
-    return this.executeEngineCommand(command, args);
+    
+      },
+    };
   }
-
   /**
    * 等待地图触发一次指定事件（如 style.load、idle、render）。
    *
@@ -2510,10 +2555,17 @@ export abstract class GeoAgentTools {
    * @returns 是否成功移除
    */
   protected removeOverlay(name: string): boolean {
-    // 先精确匹配、再按 slug 匹配，容忍用户传参的大小写与空格差异。
-    const key = Array.from(this.overlays.keys()).find(
-      (item) => item === name || slug(item) === slug(name),
-    );
+    // 先精确匹配；slug 归一仅在没有精确命中且候选唯一时兜底——
+    // 多个显示名归一后同 slug（如 "Layer - 1" 与 "layer_1"）时按其中
+    // 一个名字删除会命中错误对象，此时宁可不删也不误删。
+    const keys = Array.from(this.overlays.keys());
+    const key =
+      keys.find((item) => item === name) ??
+      (() => {
+        const target = slug(name);
+        const candidates = keys.filter((item) => slug(item) === target);
+        return candidates.length === 1 ? candidates[0] : undefined;
+      })();
     if (!key) {
       return false;
     }
@@ -2754,7 +2806,6 @@ export abstract class GeoAgentTools {
     zoomTo?: boolean;
   }): Promise<void> {
     await this.waitForMapIdle();
-    this.removeOverlay(overlay.name);
     const sourceId = this.uniqueSourceId(`${slug(overlay.name)}-source`);
     const style = overlay.style ?? {};
     const paint = geojsonLayerPaint(style);
@@ -2762,8 +2813,11 @@ export abstract class GeoAgentTools {
     if (!sourceData && overlay.url) {
       // 失败要暴露而不是吞掉：这里取不到数据，意味着 MapLibre 自己去取同一个
       // URL 也会失败，图层将渲染为空而工具结果却声称成功。
+      // 先 fetch 再删旧 overlay：网络失败时用户原有的同名数据不丢。
       sourceData = await this.fetchGeoJson(overlay.url);
     }
+    // 同名旧 overlay 先移除（幂等重建）；数据已就绪，删除不会造成回退。
+    this.removeOverlay(overlay.name);
     // 先按原名探测一次图层组合，只为取得 suffix 集合做整体改名检查；
     // 若整组 id 冲突则统一加 `-N` 后缀重建，保证 fill/line/point 三件套命名一致。
     const initialLayerDefs = geojsonLayerDefs(
@@ -2809,109 +2863,118 @@ export abstract class GeoAgentTools {
     }
   }
 
-  /** 添加 XYZ raster 瓦片 overlay（source + 单个 raster 图层），登记后无需缩放。 */
-  private async addRasterOverlay(overlay: {
-    name: string;
-    url: string;
-    attribution?: string;
-  }): Promise<void> {
-    await this.waitForMapIdle();
-    this.removeOverlay(overlay.name);
-    const sourceId = this.uniqueSourceId(`${slug(overlay.name)}-source`);
-    const layerId = this.uniqueLayerBaseId(slug(overlay.name), [""]);
-    this.map.addSource(sourceId, {
-      type: "raster",
-      tiles: [overlay.url],
-      tileSize: 256,
-      attribution: overlay.attribution ?? "",
-    });
-    this.map.addLayer({
-      id: layerId,
-      type: "raster",
-      source: sourceId,
-    });
-    this.overlays.set(overlay.name, {
-      kind: "raster",
-      name: overlay.name,
-      url: overlay.url,
-      attribution: overlay.attribution,
-      sourceIds: [sourceId],
-      layerIds: [layerId],
-    });
-  }
-
   /**
-   * 添加 raster 底图 overlay：与 addRasterOverlay 类似，但图层插入在第一个
-   * 用户图层之前（垫底），并记录 opacity 以便样式切换后重放。
+   * 添加 raster 瓦片 overlay（source + 单个 raster 图层）并登记。
+   * XYZ raster / raster 底图 / GEE 瓦片三个调用方共享同一条管线，
+   * 仅 attribution、透明度、插入锚点与记账 kind 有差异。
    */
-  private async addBasemapOverlay(overlay: {
+  private async addTileOverlay(spec: {
     name: string;
     url: string;
+    /** 记账类别：gee 类另存 geeLayerName，basemap 类另存透明度。 */
+    kind: "raster" | "basemap" | "gee";
+    /** attribution；gee 类缺省为 "Google Earth Engine"，其余缺省空串。 */
     attribution?: string;
+    /** raster-opacity（默认 1）；basemap 类存进 style 记账供样式切换重放。 */
     opacity?: number;
+    /** 底图垫底：图层插入在第一个用户图层之前，保证用户内容在其上。 */
+    beneathUserLayers?: boolean;
   }): Promise<void> {
     await this.waitForMapIdle();
-    this.removeOverlay(overlay.name);
-    const sourceId = this.uniqueSourceId(`${slug(overlay.name)}-source`);
-    const layerId = this.uniqueLayerBaseId(slug(overlay.name), [""]);
+    this.removeOverlay(spec.name);
+    const sourceId = this.uniqueSourceId(`${slug(spec.name)}-source`);
+    const layerId = this.uniqueLayerBaseId(slug(spec.name), [""]);
+    const attribution =
+      spec.attribution ??
+      (spec.kind === "gee" ? "Google Earth Engine" : "");
     this.map.addSource(sourceId, {
       type: "raster",
-      tiles: [overlay.url],
+      tiles: [spec.url],
       tileSize: 256,
-      attribution: overlay.attribution ?? "",
+      attribution,
     });
     this.map.addLayer(
       {
         id: layerId,
         type: "raster",
         source: sourceId,
-        paint: { "raster-opacity": overlay.opacity ?? 1 },
+        paint: { "raster-opacity": spec.opacity ?? 1 },
       },
-      // 插到第一个用户图层之前，保证底图永远垫在用户内容之下。
-      this.firstUserOverlayLayerId(overlay.name),
+      spec.beneathUserLayers
+        ? // 插到第一个用户图层之前，保证底图永远垫在用户内容之下。
+          this.firstUserOverlayLayerId(spec.name)
+        : undefined,
     );
-    this.overlays.set(overlay.name, {
-      kind: "basemap",
-      name: overlay.name,
-      url: overlay.url,
-      attribution: overlay.attribution,
-      // opacity 存进 style 记录：change_basemap 重放时按它恢复透明度。
-      style: { opacity: overlay.opacity ?? 1 },
+    const base = {
+      name: spec.name,
+      url: spec.url,
+      attribution: spec.attribution,
       sourceIds: [sourceId],
       layerIds: [layerId],
-    });
+    };
+    this.overlays.set(
+      spec.name,
+      spec.kind === "basemap"
+        ? {
+            ...base,
+            kind: "basemap",
+            // opacity 存进 style 记录：change_basemap 重放时按它恢复透明度。
+            style: { opacity: spec.opacity ?? 1 },
+          }
+        : spec.kind === "gee"
+          ? { ...base, kind: "gee", geeLayerName: spec.name }
+          : { ...base, kind: "raster" },
+    );
   }
 
-  /** 添加 GEE raster 瓦片 overlay（attribution 固定为 Google Earth Engine），并登记 geeLayerName。 */
-  private async addGeeRasterOverlay(overlay: {
-    name: string;
-    url: string;
-  }): Promise<void> {
-    await this.waitForMapIdle();
-    this.removeOverlay(overlay.name);
-    const sourceId = this.uniqueSourceId(`${slug(overlay.name)}-source`);
-    const layerId = this.uniqueLayerBaseId(slug(overlay.name), [""]);
-    this.map.addSource(sourceId, {
-      type: "raster",
-      tiles: [overlay.url],
-      tileSize: 256,
-      attribution: "Google Earth Engine",
-    });
-    this.map.addLayer({
-      id: layerId,
-      type: "raster",
-      source: sourceId,
-      paint: { "raster-opacity": 1 },
-    });
-    this.overlays.set(overlay.name, {
+  /**
+   * 渲染并登记一个 GEE 图层：换取瓦片 URL → 添加地图 overlay → GEE 服务侧
+   * 记账 → 数据带 bbox 时缩放到数据范围 → 广播 Earth Engine 状态。
+   * load_gee_dataset 与 calculate_gee_normalized_difference 共享这条管线；
+   * object_type 与 metadata 由调用方按命令语义给定。
+   *
+   * @returns 换取到的瓦片 URL（调用方组装结果时回显）
+   */
+  private async renderAndRegisterGeeLayer(
+    layer: {
+      layer_name: string;
+      asset_id?: string;
+      asset_type?: string;
+      vis_params: Record<string, unknown>;
+      eeObject: unknown;
+      bbox?: unknown;
+    },
+    metadata: Record<string, unknown>,
+    objectType: string,
+  ): Promise<string> {
+    const ee = this.requireEarthEngine();
+    const tileUrl = await ee.getTileUrl(
+      layer.eeObject as never,
+      layer.vis_params,
+    );
+    await this.addTileOverlay({
       kind: "gee",
-      name: overlay.name,
-      url: overlay.url,
-      attribution: "Google Earth Engine",
-      sourceIds: [sourceId],
-      layerIds: [layerId],
-      geeLayerName: overlay.name,
+      name: layer.layer_name,
+      url: tileUrl,
     });
+    // 注册到 GEE 服务侧记账，供后续可视化调整 / 统计 / 列表使用。
+    ee.registerLayer({
+      name: layer.layer_name,
+      asset_id: layer.asset_id,
+      asset_type: layer.asset_type,
+      object_type: objectType,
+      vis_params: layer.vis_params,
+      tile_url: tileUrl,
+      source: "earth_engine",
+      metadata,
+      eeObject: layer.eeObject,
+    });
+    if (layer.bbox) {
+      // 数据带 bbox 时自动缩放到数据范围。
+      this.zoomToGeoJsonBounds(layer.bbox as BBox);
+    }
+    this.publishEarthEngineState();
+    return tileUrl;
   }
 
   /** 深拷贝一个规格对象（JSON 往返），避免入参对象被记账持有后遭外部改写。 */
@@ -3349,7 +3412,7 @@ export abstract class GeoAgentTools {
         name: string;
         url: string;
         attribution?: string;
-      }) => this.addRasterOverlay(overlay),
+      }) => this.addTileOverlay({ ...overlay, kind: "raster" }),
       addMarkerOverlay: (input: JsonObject) => this.addMarkerOverlay(input),
       serializeScriptResult: toJsonValue,
     });
@@ -3476,13 +3539,16 @@ export abstract class GeoAgentTools {
             style: overlay.style,
           });
         } else if (overlay.kind === "raster" && overlay.url) {
-          await this.addRasterOverlay({
+          await this.addTileOverlay({
+            kind: "raster",
             name: overlay.name,
             url: overlay.url,
             attribution: overlay.attribution,
           });
         } else if (overlay.kind === "basemap" && overlay.url) {
-          await this.addBasemapOverlay({
+          await this.addTileOverlay({
+            kind: "basemap",
+            beneathUserLayers: true,
             name: overlay.name,
             url: overlay.url,
             attribution: overlay.attribution,
@@ -3490,7 +3556,8 @@ export abstract class GeoAgentTools {
             opacity: Number(overlay.style?.opacity ?? 1),
           });
         } else if (overlay.kind === "gee" && overlay.url) {
-          await this.addGeeRasterOverlay({
+          await this.addTileOverlay({
+            kind: "gee",
             name: overlay.name,
             url: overlay.url,
           });

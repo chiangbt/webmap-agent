@@ -30,6 +30,7 @@
 import type { Map as MapLibreMap } from "maplibre-gl";
 import type { GeoAgentControl } from "../control/GeoAgentControl";
 import type { ExpressionContext, PixelProjector } from "./leaflet-engine";
+import { normalizeCorner, sanitizeCssColor } from "./shared";
 import {
   colorValueFrom,
   computeClusteredFeatures,
@@ -417,19 +418,6 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
-/**
- * 清洗外部传入的 CSS 颜色字符串：仅接受 hex / 关键字 / rgb() 三种合法形态，
- * 非法值回退为 "#3388ff" —— 该值会被嵌入内联 SVG，必须防注入。
- */
-function sanitizeCssColor(value: string): string {
-  // 只允许出现 CSS 颜色 token 中合法的字符；该值会被嵌入内联 SVG 字符串。
-  return /^#[0-9a-fA-F]{3,8}$|^[a-zA-Z]+$|^rgba?\([\d.,\s%]+\)$/.test(
-    value.trim(),
-  )
-    ? value.trim()
-    : "#3388ff";
-}
-
 /** 解析后的 RGBA 颜色：r/g/b 为 0–255，a 为 0–1。 */
 interface Rgba {
   r: number;
@@ -620,7 +608,12 @@ class ArcGisShimSource {
         // URL 形态：异步拉取，失败仅告警，不阻塞 source 的创建。
         void shim
           .fetchGeoJson(data)
-          .then((loaded) => this.setData(loaded))
+          .then((loaded) => {
+            this.setData(loaded);
+            // 数据异步到达：重建依赖本 source 的已物化 FeatureLayer，
+            // 否则图层会一直空白。
+            this.shim.refreshLayersForSource(id);
+          })
           .catch((error: unknown) => {
             console.warn(
               `ArcGIS engine: could not load GeoJSON source "${id}":`,
@@ -746,6 +739,12 @@ export class ArcGISMapShim {
   private readonly watchHandles: ArcGISWatchHandle[] = [];
   // 地图 click 监听句柄：点击视图即收起 marker popup。
   private clickHandle: ArcGISWatchHandle | null = null;
+  // on() 登记的外部事件订阅：off 时移除对应项，destroy 时统一注销。
+  private readonly externalHandles: Array<{
+    type: string;
+    listener: (event?: unknown) => void;
+    handle: ArcGISWatchHandle;
+  }> = [];
 
   constructor(map: ArcGISViewLike, namespace: Record<string, unknown>) {
     this.view = map;
@@ -1113,8 +1112,10 @@ export class ArcGISMapShim {
     if (options.zoom !== undefined && options.zoom !== null) {
       target.zoom = Number(options.zoom);
     }
-    void Promise.resolve(this.view.goTo(target)).catch(() => {
-      // 视图中途销毁会让 goTo reject；此时无能为力，忽略即可。
+    void Promise.resolve(this.view.goTo(target)).catch((error: unknown) => {
+      // 视图中途销毁会让 goTo reject，属预期；其余失败至少告警，
+      // 不向调用方静默掩盖动画未发生的事实。
+      console.warn("ArcGIS engine: view.goTo failed:", error);
     });
   }
 
@@ -1190,16 +1191,26 @@ export class ArcGISMapShim {
 
   /** 透传 esri 视图的事件订阅，供上层工具挂接所需事件。 */
   on(type: string, listener: (event?: unknown) => void): this {
-    this.view.on(type, listener);
+    // 保存句柄：off 时移除对应订阅，destroy 时统一注销外部监听者。
+    const handle = this.view.on(type, listener);
+    this.externalHandles.push({ type, listener, handle });
     return this;
   }
 
-  /** 注销事件：esri 句柄均由 shim 显式管理，这里对外部监听者是空操作。 */
+  /** 注销事件：移除 on() 登记的外部订阅（未登记的监听者忽略）。 */
   off(type: string, listener?: (event?: unknown) => void): this {
-    // esri 的 watch/on 句柄都是显式移除的；shim 只注册自己的监听器，
-    // 因此 off() 对外部监听者不做任何事。
-    void type;
-    void listener;
+    for (let i = this.externalHandles.length - 1; i >= 0; i -= 1) {
+      const item = this.externalHandles[i];
+      if (item.type !== type) {
+        continue;
+      }
+      // 未指定 listener 时移除该类型的全部外部订阅；指定时精确匹配。
+      if (listener && item.listener !== listener) {
+        continue;
+      }
+      item.handle.remove();
+      this.externalHandles.splice(i, 1);
+    }
     return this;
   }
 
@@ -1645,6 +1656,18 @@ export class ArcGISMapShim {
    * 无需重建；geojson 图层先移除旧实例、重新物化并挂回集合，最后用
    * syncLayerOrder 恢复注册顺序。
    */
+  /**
+   * source 数据变化后重建依赖它的已物化图层（URL GeoJSON 异步到达时调用）。
+   * 仅矢量图层依赖 source 数据；raster 图层无需重建。
+   */
+  refreshLayersForSource(sourceId: string): void {
+    for (const entry of this.layers.values()) {
+      if (entry.source === sourceId) {
+        this.refreshLayer(entry);
+      }
+    }
+  }
+
   private refreshLayer(entry: ArcGisShimLayer): void {
     if (entry.type === "raster") {
       // raster 图层的 paint 只有 opacity（已直接映射），无需重建。
@@ -2250,6 +2273,11 @@ export class ArcGISMapShim {
       this.clickHandle.remove();
       this.clickHandle = null;
     }
+    // 注销 on() 登记的全部外部订阅，避免监听者随 shim 泄漏。
+    for (const item of this.externalHandles) {
+      item.handle.remove();
+    }
+    this.externalHandles.length = 0;
     for (const wrapper of Array.from(this.markers)) {
       // 经 createMarker 回填的 remove() 摘除 DOM 元素并从注册表注销。
       wrapper.remove?.();
@@ -2381,26 +2409,7 @@ export interface ArcGISControlAttachment {
 }
 
 /** 控件可挂载的四角位置。 */
-type CornerPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
-/**
- * 把宽松的位置字符串（大小写、空格、连字符/下划线不限）归一化为四角取值；
- * 无法识别时回退 "top-right"。
- */
-function normalizeCorner(position: string): CornerPosition {
-  // 去掉分隔符后按紧凑形式匹配，如 "Top_Left" → "topleft"。
-  const compact = position.trim().toLowerCase().replace(/[\s_-]/g, "");
-  switch (compact) {
-    case "topleft":
-      return "top-left";
-    case "bottomleft":
-      return "bottom-left";
-    case "bottomright":
-      return "bottom-right";
-    default:
-      return "top-right";
-  }
-}
 
 /**
  * 把 GeoAgentControl 挂到 ArcGIS MapView（或已就绪的 `<arcgis-map>` 元素）上。

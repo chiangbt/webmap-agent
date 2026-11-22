@@ -153,8 +153,18 @@ interface EeModule {
       success?: (asset: Record<string, unknown>) => void,
       failure?: (error: unknown) => void,
     ) => void;
-    /** 读取当前已缓存的 auth token（未登录返回 null）。 */
-    getAuthToken?: () => string | null | undefined;
+    /**
+     * 读取当前已缓存的 auth token（未登录返回 null）。
+     * 真实 SDK 可能返回字符串或 {token, expiry} 对象（expiry 为秒级
+     * 时间戳），声明为联合形态以支持过期校验。
+     */
+    getAuthToken?:
+      | (() =>
+          | string
+          | { token?: string; expiry?: number | null }
+          | null
+          | undefined)
+      | undefined;
     /** 读取当前 token 对应的 OAuth Client ID。 */
     getAuthClientId?: () => string | null | undefined;
     /** 清除已缓存的 auth token。 */
@@ -850,6 +860,39 @@ function normalizeTokenExpiresIn(value: unknown): number {
 }
 
 /**
+ * 从 getAuthToken 的返回中取 token 字符串：兼容 string 与
+ * {token, expiry} 两种返回形态（真实 SDK 两者都可能出现）。
+ */
+function extractAuthTokenValue(
+  raw: string | { token?: string; expiry?: number | null } | null | undefined,
+): string | null {
+  if (!raw) {
+    return null;
+  }
+  if (typeof raw === "string") {
+    return raw;
+  }
+  return typeof raw.token === "string" && raw.token ? raw.token : null;
+}
+
+/**
+ * 判断 getAuthToken 返回的 token 是否已过期：expiry 为秒级时间戳，
+ * 早于当前时间即过期；无 expiry 信息（字符串形态）时视为未过期——
+ * 此时无法判断，保持既有复用行为。
+ */
+function isAuthTokenExpired(
+  raw: string | { token?: string; expiry?: number | null } | null | undefined,
+): boolean {
+  if (raw && typeof raw === "object") {
+    const expiry = raw.expiry;
+    if (typeof expiry === "number" && expiry > 0) {
+      return expiry * 1000 <= Date.now();
+    }
+  }
+  return false;
+}
+
+/**
  * Earth Engine 服务核心类：管理 ee 模块加载、鉴权、初始化、目录检索、
  * 图层构建与瓦片 URL 获取。所有 promise 型内部状态（eePromise/authPromise/
  * initializePromise）都做单例化，避免并发重复加载或重复弹窗。
@@ -865,6 +908,8 @@ export class EarthEngineService {
     project_id?: string;
     authenticated: boolean;
   }> | null = null;
+  /** initialize 代际号：每次发起新初始化递增，过期代际不写回状态。 */
+  private initGeneration = 0;
   /** ee.initialize 是否已成功完成。 */
   private initialized = false;
   /** 已初始化绑定的 project ID，用于判断配置变更后是否需要重新初始化。 */
@@ -956,7 +1001,10 @@ export class EarthEngineService {
           .join(", ")}`,
       );
     }
-    return matches[0];
+    // 返回浅拷贝：外部修改返回值（如遍历时改字段）不应污染内部
+    // 图层注册表，与 listLoadedLayers 的防御拷贝风格一致。eeObject
+    // 等嵌套引用保持共享（图层语义上就是同一个对象）。
+    return { ...matches[0] };
   }
 
   /** 注销图层：支持精确名或不区分大小写的匹配；找不到时静默忽略。 */
@@ -1029,7 +1077,15 @@ export class EarthEngineService {
     if (this.initializePromise && !input.force) {
       return this.initializePromise;
     }
-    const promise = this.initializeInternal({ oauthClientId, projectId });
+    // 代际号：每次发起新初始化都递增。旧的进行中 promise 完成时发现
+    // 代数已过期，就不再写回 initialized/initializedProjectId 状态，
+    // 防止 force/换 project 场景下旧结果覆盖新配置。
+    const generation = ++this.initGeneration;
+    const promise = this.initializeInternal({
+      oauthClientId,
+      projectId,
+      isCurrent: () => this.initGeneration === generation,
+    });
     this.initializePromise = promise;
     try {
       return await promise;
@@ -1044,6 +1100,8 @@ export class EarthEngineService {
   private async initializeInternal(input: {
     oauthClientId?: string;
     projectId?: string;
+    /** 本次初始化是否仍是最新请求；过期时跳过状态写回。 */
+    isCurrent: () => boolean;
   }): Promise<{ success: boolean; project_id?: string; authenticated: boolean }> {
     const ee = await this.loadEe();
     // 先保证拿到有效凭据（token 注入或 OAuth 交互），再初始化 API。
@@ -1070,10 +1128,13 @@ export class EarthEngineService {
         reject(new Error(formatEeInitializeError(error)));
       }
     });
-    // 初始化成功：记录状态与 project，并清空旧凭据下的 tile URL 缓存。
-    this.initialized = true;
-    this.initializedProjectId = input.projectId;
-    this.tileUrlCache.clear();
+    // 初始化成功：仅当本次仍是最新请求时写回状态并清空旧凭据下的
+    // tile URL 缓存；过期代际的结果直接丢弃（返回值仍如实上报）。
+    if (input.isCurrent()) {
+      this.initialized = true;
+      this.initializedProjectId = input.projectId;
+      this.tileUrlCache.clear();
+    }
     return { success: true, project_id: input.projectId, authenticated: true };
   }
 
@@ -1095,15 +1156,21 @@ export class EarthEngineService {
       return;
     }
 
-    // 分支 2：模块里已有 token——client 一致或未要求 client 时直接复用。
-    const token = ee.data?.getAuthToken?.();
-    const currentAuthClientId = normalizeOptionalString(ee.data?.getAuthClientId?.());
+    // 分支 2：模块里已有 token——client 一致或未要求 client 时直接复用；
+    // 带 expiry 的 token 先校验过期，过期即清除重走 OAuth，避免复用失效
+    // 凭据让 initialize 误报成功、后续请求才 401。
+    const rawToken = ee.data?.getAuthToken?.();
+    const token = extractAuthTokenValue(rawToken);
     if (token) {
-      if (!oauthClientId || !currentAuthClientId || currentAuthClientId === oauthClientId) {
+      const currentAuthClientId = normalizeOptionalString(ee.data?.getAuthClientId?.());
+      if (isAuthTokenExpired(rawToken)) {
+        ee.data?.clearAuthToken?.();
+      } else if (!oauthClientId || !currentAuthClientId || currentAuthClientId === oauthClientId) {
         return;
+      } else {
+        // token 是别的 client 签发的：清掉后重新走 OAuth。
+        ee.data?.clearAuthToken?.();
       }
-      // token 是别的 client 签发的：清掉后重新走 OAuth。
-      ee.data?.clearAuthToken?.();
     }
     // 分支 3：并发调用时共享同一个鉴权 promise，避免重复弹窗。
     if (this.authPromise) {
@@ -1433,17 +1500,14 @@ export class EarthEngineService {
     let method: string | undefined;
     let renderedBand: string | undefined;
     if (assetType === "ImageCollection") {
-      let collection = new ee.ImageCollection(assetId);
-      // 按时间范围过滤（任一端提供即生效）。
-      if (input.start_date || input.end_date) {
-        collection = callEeMethod(collection, "filterDate", input.start_date, input.end_date);
-      }
-      // 空间过滤：优先用指定的过滤集合，否则退化为 bbox 矩形。
-      if (boundsCollection) {
-        collection = callEeMethod(collection, "filterBounds", boundsCollection);
-      } else if (bbox) {
-        collection = callEeMethod(collection, "filterBounds", ee.Geometry.Rectangle(bbox));
-      }
+      // 公共过滤链：日期 -> 空间 -> 云量（与 ND 指数构建共享）。
+      const collection = applyCollectionFilters(
+        ee,
+        new ee.ImageCollection(assetId),
+        input,
+        boundsCollection,
+        bbox,
+      );
       if (isOperaDswx(assetId)) {
         // OPERA DSWX 特例：合成方法只允许 max/mode，波段走别名映射，
         // 渲染逻辑（掩膜、remap、调色板）由 renderOperaDswx 专责处理。
@@ -1460,17 +1524,6 @@ export class EarthEngineService {
         eeObject = rendered.eeObject;
         visParams = rendered.visParams;
       } else {
-        // 通用影像集合：按云量属性过滤（默认 CLOUDY_PIXEL_PERCENTAGE）。
-        if (input.cloud_cover != null) {
-          collection = callEeMethod(
-            collection,
-            "filter",
-            ee.Filter.lt(
-              String(input.cloud_property ?? "CLOUDY_PIXEL_PERCENTAGE"),
-              Number(input.cloud_cover),
-            ),
-          );
-        }
         // 合成为单幅影像，再套可视化参数。
         method = normalizeCompositeMethod(input.reducer, "mosaic", true);
         eeObject = compositeImageCollection(ee, collection, method);
@@ -1593,26 +1646,14 @@ export class EarthEngineService {
     let method: string | undefined;
     let assetType = detectedType;
     if (detectedType === "ImageCollection") {
-      let collection = new ee.ImageCollection(assetId);
-      // 与 buildDatasetLayer 相同的过滤链：日期 -> 空间 -> 云量。
-      if (input.start_date || input.end_date) {
-        collection = callEeMethod(collection, "filterDate", input.start_date, input.end_date);
-      }
-      if (boundsCollection) {
-        collection = callEeMethod(collection, "filterBounds", boundsCollection);
-      } else if (bbox) {
-        collection = callEeMethod(collection, "filterBounds", ee.Geometry.Rectangle(bbox));
-      }
-      if (input.cloud_cover != null) {
-        collection = callEeMethod(
-          collection,
-          "filter",
-          ee.Filter.lt(
-            String(input.cloud_property ?? "CLOUDY_PIXEL_PERCENTAGE"),
-            Number(input.cloud_cover),
-          ),
-        );
-      }
+      // 与 buildDatasetLayer 相同的公共过滤链：日期 -> 空间 -> 云量。
+      const collection = applyCollectionFilters(
+        ee,
+        new ee.ImageCollection(assetId),
+        input,
+        boundsCollection,
+        bbox,
+      );
       // 指数计算需要单幅影像：默认 median 合成（比 mosaic 更抗云噪声）。
       method = normalizeCompositeMethod(input.reducer, "median");
       sourceImage = compositeImageCollection(ee, collection, method);
@@ -1693,7 +1734,8 @@ export class EarthEngineService {
     if (cached) {
       return cached;
     }
-    const tileUrl = await new Promise<string>((resolve, reject) => {
+    const tileUrl = await withEeTimeout(
+      new Promise<string>((resolve, reject) => {
       // getMap 可能回调两次或回调+返回值都存在，用 settled 保证只结算一次。
       let settled = false;
       const finish = (mapInfo: Record<string, unknown> | undefined, error?: unknown) => {
@@ -1728,7 +1770,11 @@ export class EarthEngineService {
       } catch (error) {
         reject(error);
       }
-    });
+      }),
+      // GEE 回调不触发时 promise 会永久挂起：与统计求值同样加超时保护。
+      60,
+      "Earth Engine getMapId timed out after 60s",
+    );
     // 拿到 URL 后写缓存；序列化失败的对象不缓存（cacheKey 为 null）。
     if (cacheKey) {
       this.tileUrlCache.set(cacheKey, tileUrl);
@@ -2086,6 +2132,44 @@ function callEeMethod(object: EeObject, method: string, ...args: unknown[]): EeO
     throw new Error(`Earth Engine object does not support ${method}.`);
   }
   return (fn as (...methodArgs: unknown[]) => EeObject).apply(object, args);
+}
+
+/**
+ * 对 ee.ImageCollection 应用公共过滤链：日期 -> 空间（bounds 过滤集合优先，
+ * 缺省退化 bbox 矩形）-> 云量（cloud_cover 提供时按 cloud_property 过滤，
+ * 默认 CLOUDY_PIXEL_PERCENTAGE）。buildDatasetLayer 与
+ * buildNormalizedDifferenceLayer 共享这条管线，避免复制后各自漂移。
+ */
+function applyCollectionFilters(
+  ee: EeModule,
+  collection: EeObject,
+  input: Record<string, unknown>,
+  boundsCollection: EeObject | null,
+  bbox: number[] | undefined,
+): EeObject {
+  let filtered = collection;
+  // 按时间范围过滤（任一端提供即生效）。
+  if (input.start_date || input.end_date) {
+    filtered = callEeMethod(filtered, "filterDate", input.start_date, input.end_date);
+  }
+  // 空间过滤：优先用指定的过滤集合，否则退化为 bbox 矩形。
+  if (boundsCollection) {
+    filtered = callEeMethod(filtered, "filterBounds", boundsCollection);
+  } else if (bbox) {
+    filtered = callEeMethod(filtered, "filterBounds", ee.Geometry.Rectangle(bbox));
+  }
+  // 按云量属性过滤（默认 CLOUDY_PIXEL_PERCENTAGE）。
+  if (input.cloud_cover != null) {
+    filtered = callEeMethod(
+      filtered,
+      "filter",
+      ee.Filter.lt(
+        String(input.cloud_property ?? "CLOUDY_PIXEL_PERCENTAGE"),
+        Number(input.cloud_cover),
+      ),
+    );
+  }
+  return filtered;
 }
 
 /**

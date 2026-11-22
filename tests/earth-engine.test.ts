@@ -386,6 +386,28 @@ describe("Earth Engine catalog helpers", () => {
     expect(mockEe.initialize).toHaveBeenCalledTimes(1);
   });
 
+  it("clears an expired cached token and re-authenticates instead of reusing it", async () => {
+    // {token, expiry} 形态（真实 SDK 可能返回）：expiry 为秒级时间戳，
+    // 已过期的缓存 token 必须清除重走 OAuth，否则 initialize 误报成功、
+    // 后续请求才 401。
+    mockEe.data.getAuthToken.mockReturnValue({
+      token: "stale-token",
+      expiry: Math.floor(Date.now() / 1000) - 60,
+    } as never);
+    mockEe.data.getAuthClientId.mockReturnValue("client");
+    const service = new EarthEngineService({
+      oauthClientId: "client",
+      projectId: "project",
+    });
+
+    const result = await service.initialize();
+
+    expect(result).toMatchObject({ success: true });
+    expect(mockEe.data.clearAuthToken).toHaveBeenCalled();
+    // 过期 token 被清除后应重新走 OAuth 静默鉴权。
+    expect(mockEe.data.authenticateViaOauth).toHaveBeenCalled();
+  });
+
   it("does not reuse an Earth Engine auth token from a different OAuth client", async () => {
     mockEe.data.getAuthToken.mockReturnValue("Bearer existing-token");
     mockEe.data.getAuthClientId.mockReturnValue("home-assistant-client");

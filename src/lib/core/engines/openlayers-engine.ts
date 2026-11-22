@@ -25,6 +25,7 @@
 import type { Map as MapLibreMap } from "maplibre-gl";
 import type { GeoAgentControl } from "../control/GeoAgentControl";
 import type { ExpressionContext, PixelProjector } from "./leaflet-engine";
+import { normalizeCorner, sanitizeCssColor } from "./shared";
 import {
   colorValueFrom,
   computeClusteredFeatures,
@@ -269,17 +270,6 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
-/**
- * 校验颜色字符串是否是安全的 CSS 颜色字面量形态，非法值回退为默认蓝 "#3388ff"。
- */
-function sanitizeCssColor(value: string): string {
-  // 只放行 CSS 颜色字面量中合法的字符形态；该值会被嵌入内联 SVG 字符串。
-  return /^#[0-9a-fA-F]{3,8}$|^[a-zA-Z]+$|^rgba?\([\d.,\s%]+\)$/.test(
-    value.trim(),
-  )
-    ? value.trim()
-    : "#3388ff";
-}
 
 /* -------------------------------------------------------------------------- */
 /* 颜色工具（为 Fill/Stroke 颜色混合不透明度）                                */
@@ -439,7 +429,12 @@ class OlShimSource {
       if (typeof data === "string") {
         void shim
           .fetchGeoJson(data)
-          .then((loaded) => this.setData(loaded))
+          .then((loaded) => {
+            // shim 已销毁时跳过：操作已脱离注册表的对象没有意义。
+            if (!shim.isDisposed()) {
+              this.setData(loaded);
+            }
+          })
           .catch((error: unknown) => {
             console.warn(
               `OpenLayers engine: could not load GeoJSON source "${id}":`,
@@ -576,6 +571,8 @@ export class OpenLayersMapShim {
   private baseLayer: OpenLayersLayerLike | null = null;
   /** moveend 时重算聚类的监听；以字段保存以便 destroy() 精确解绑。 */
   private readonly clusterHandler: (event?: unknown) => void;
+  /** shim 是否已销毁：销毁后 URL GeoJSON 的异步回调不再写回数据。 */
+  private disposed = false;
 
   constructor(map: OpenLayersMapLike, namespace: Record<string, unknown>) {
     this.raw = map;
@@ -1409,6 +1406,7 @@ export class OpenLayersMapShim {
     type: "Feature";
     geometry: GeoJSON.Geometry | null;
     properties: Record<string, unknown>;
+    id: string | number | undefined;
     layer: { id: string; type: string; source: string };
   }> {
     const [x, y] = point;
@@ -1425,6 +1423,7 @@ export class OpenLayersMapShim {
       type: "Feature";
       geometry: GeoJSON.Geometry | null;
       properties: Record<string, unknown>;
+      id: string | number | undefined;
       layer: { id: string; type: string; source: string };
     }> = [];
     for (const id of this.layerOrder) {
@@ -1450,6 +1449,10 @@ export class OpenLayersMapShim {
       if (!source) {
         continue;
       }
+      // 限制返回数量，防止大数据集拖垮交互（与 Leaflet shim 一致）。
+      if (results.length >= 50) {
+        break;
+      }
       for (const feature of source.resolvedFeatures()) {
         const context = featureContextFor(feature, zoom);
         // 先按图层 filter 过滤，再做像素命中。
@@ -1469,8 +1472,13 @@ export class OpenLayersMapShim {
           properties: (isRecord(feature.properties)
             ? feature.properties
             : {}) as Record<string, unknown>,
+          // 与 Leaflet shim 的返回形状对齐：带上要素 id（可能为 undefined）。
+          id: feature.id,
           layer: { id: entry.id, type: entry.type, source: entry.source },
         });
+        if (results.length >= 50) {
+          break;
+        }
       }
     }
     return results;
@@ -1642,7 +1650,13 @@ export class OpenLayersMapShim {
    * 且残留 handler 会在每次平移时反复同步已脱离的 source。
    */
   destroy(): void {
+    this.disposed = true;
     this.raw.un("moveend", this.clusterHandler);
+  }
+
+  /** shim 是否已销毁；异步回调（URL GeoJSON）据此跳过写回。 */
+  isDisposed(): boolean {
+    return this.disposed;
   }
 }
 
@@ -1689,26 +1703,7 @@ export interface OpenLayersControlAttachment {
 }
 
 /** 归一化后的控件角落位置（与 MapLibre 的 position 取值一致）。 */
-type CornerPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
-/**
- * 把任意写法的方位名（大小写、空格、下划线、连字符）归一化为
- * 四个标准角落之一；无法识别时默认 top-right。
- */
-function normalizeCorner(position: string): CornerPosition {
-  // 去掉空白/下划线/连字符并转小写后匹配。
-  const compact = position.trim().toLowerCase().replace(/[\s_-]/g, "");
-  switch (compact) {
-    case "topleft":
-      return "top-left";
-    case "bottomleft":
-      return "bottom-left";
-    case "bottomright":
-      return "bottom-right";
-    default:
-      return "top-right";
-  }
-}
 
 /**
  * 把 GeoAgentControl 挂载到 OpenLayers 地图上。

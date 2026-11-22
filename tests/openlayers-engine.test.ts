@@ -507,9 +507,10 @@ describe('openlayers engine defect regressions', () => {
     expect(shim.queryRenderedFeatures([size[0] / 2, size[1] / 2])).toHaveLength(0);
     shim.removeLayer('gated');
     shim.addLayer({ id: 'open', type: 'circle', source: 'src' });
-    expect(
-      shim.queryRenderedFeatures([size[0] / 2, size[1] / 2]).length,
-    ).toBeGreaterThan(0);
+    const hits = shim.queryRenderedFeatures([size[0] / 2, size[1] / 2]);
+    expect(hits.length).toBeGreaterThan(0);
+    // 与 Leaflet shim 的返回形状对齐：结果带要素 id 字段（要素无 id 时为 undefined）。
+    expect('id' in hits[0]).toBe(true);
   });
 
   it('unbinds its moveend listener on destroy', () => {

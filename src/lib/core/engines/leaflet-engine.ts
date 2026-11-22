@@ -21,6 +21,7 @@
 
 import type { Map as MapLibreMap } from "maplibre-gl";
 import type { GeoAgentControl } from "../control/GeoAgentControl";
+import { normalizeCorner, sanitizeCssColor } from "./shared";
 
 /* -------------------------------------------------------------------------- */
 /* 结构化的 Leaflet 类型（shim 从不直接 import leaflet 本体）                 */
@@ -75,6 +76,7 @@ export interface LeafletMapLike {
   hasLayer(layer: unknown): boolean;
   eachLayer(method: (layer: unknown) => void): unknown;
   createPane(name: string, container?: HTMLElement): HTMLElement;
+  removePane?(name: string): void;
   getPane(name: string): HTMLElement | undefined;
   whenReady(callback: () => void): unknown;
   on(type: string, fn: (event?: unknown) => void, context?: unknown): unknown;
@@ -220,18 +222,6 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/**
- * 校验颜色字符串是否是安全的 CSS 颜色字面量（hex / 关键字 / rgb(a) / hsl(a)），
- * 非法值回退为 Leaflet 默认蓝 "#3388ff"，避免被注入进内联 SVG/DOM。
- */
-function sanitizeCssColor(value: string): string {
-  // 只放行匹配 CSS 颜色字面量模式的值；其余一律回退到 "#3388ff"。
-  return /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+|rgba?\([\d.,\s%]+\)|hsla?\([\d.,\s%deg]+\))$/.test(
-    value.trim(),
-  )
-    ? value.trim()
-    : "#3388ff";
-}
 
 /**
  * 构造一个空的 GeoJSON FeatureCollection，作为数据源的初始值/兜底返回。
@@ -1143,6 +1133,10 @@ export class LeafletMapShim {
   private paneSeq = 0;
   /** 地图是否已就绪（whenReady 回调或 _loaded 标记）。 */
   private ready = false;
+  /** shim 是否已销毁：销毁后不再触发 style.load 模拟事件。 */
+  private disposed = false;
+  /** setStyle 挂起的 style.load 模拟定时器 id；destroy 时取消。 */
+  private styleLoadTimer: number | null = null;
   /** 以字段保存构造时绑定的 zoomend 监听，destroy() 才能精确解绑。 */
   private readonly zoomHandler = (): void => {
     this.handleZoomChange();
@@ -1183,7 +1177,13 @@ export class LeafletMapShim {
    * 不解绑的话，对同一张地图重复挂载会每次泄漏一个 handler。
    */
   destroy(): void {
+    this.disposed = true;
     this.raw.off("zoomend", this.zoomHandler);
+    // 取消未触发的 style.load 模拟定时器，避免销毁后仍向地图 fire 事件。
+    if (this.styleLoadTimer !== null) {
+      window.clearTimeout(this.styleLoadTimer);
+      this.styleLoadTimer = null;
+    }
   }
 
   /** 返回该 shim 背后的真实 Leaflet 地图实例。 */
@@ -1408,7 +1408,17 @@ export class LeafletMapShim {
     this.baseTileLayer = tileLayer;
     // maplibre 在新样式可用后会异步触发 style.load；
     // 这里保持同样的契约，让 waitForMapEvent("style.load") 能正常返回。
-    window.setTimeout(() => this.raw.fire("style.load", {}), 0);
+    // 定时器以字段保存：重复 setStyle 先取消旧定时器，destroy 时一并取消，
+    // 回调内检查 disposed 避免销毁后仍向地图 fire 事件。
+    if (this.styleLoadTimer !== null) {
+      window.clearTimeout(this.styleLoadTimer);
+    }
+    this.styleLoadTimer = window.setTimeout(() => {
+      this.styleLoadTimer = null;
+      if (!this.disposed) {
+        this.raw.fire("style.load", {});
+      }
+    }, 0);
   }
 
   /**
@@ -1530,7 +1540,14 @@ export class LeafletMapShim {
       leaflet: null,
       paneName,
     };
-    this.materializeLayer(entry);
+    try {
+      this.materializeLayer(entry);
+    } catch (error) {
+      // 物化失败（如不支持的图层类型）时回收已创建的 pane，
+      // 避免失败路径在 DOM 上留下孤儿容器。
+      this.raw.removePane?.(paneName);
+      throw error;
+    }
     // 无 beforeId 时追加到末尾（最上层）。
     const insertIndex = beforeId
       ? this.layerOrder.indexOf(beforeId)
@@ -1587,7 +1604,10 @@ export class LeafletMapShim {
    */
   setPaintProperty(id: string, property: string, value: unknown): void {
     const entry = this.requireEntry(id);
-    const paint = isRecord(entry.spec.paint) ? entry.spec.paint : {};
+    // 防御拷贝：外部后续修改传入对象不应影响渲染状态（与 OL shim 一致）。
+    const paint = isRecord(entry.spec.paint)
+      ? { ...entry.spec.paint }
+      : {};
     paint[property] = value;
     entry.spec.paint = paint;
     // 瓦片层透明度可原地生效，无需整层重建。
@@ -1609,7 +1629,10 @@ export class LeafletMapShim {
    */
   setLayoutProperty(id: string, property: string, value: unknown): void {
     const entry = this.requireEntry(id);
-    const layout = isRecord(entry.spec.layout) ? entry.spec.layout : {};
+    // 防御拷贝：与 setPaintProperty 同理，外部对象不应影响渲染状态。
+    const layout = isRecord(entry.spec.layout)
+      ? { ...entry.spec.layout }
+      : {};
     layout[property] = value;
     entry.spec.layout = layout;
     // 可见性切换走挂载/移除路径，成本低。
@@ -1627,7 +1650,9 @@ export class LeafletMapShim {
     if (filter == null) {
       delete entry.spec.filter;
     } else {
-      entry.spec.filter = filter;
+      // 防御拷贝：保存外部对象引用会让后续原地修改直接影响渲染状态
+      // （与 OL shim 的 cloneJson(filter) 一致）。
+      entry.spec.filter = cloneJson(filter);
     }
     this.refreshLayer(entry);
   }
@@ -2621,26 +2646,7 @@ export interface LeafletControlAttachment {
 }
 
 /** 归一化后的控件角落位置（与 MapLibre 的 position 取值一致）。 */
-type CornerPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
-/**
- * 把任意写法的方位名（大小写、空格、下划线、连字符）归一化为
- * 四个标准角落之一；无法识别时默认 top-right。
- */
-function normalizeCorner(position: string): CornerPosition {
-  // 去掉空白/下划线/连字符并转小写后匹配。
-  const compact = position.trim().toLowerCase().replace(/[\s_-]/g, "");
-  switch (compact) {
-    case "topleft":
-      return "top-left";
-    case "bottomleft":
-      return "bottom-left";
-    case "bottomright":
-      return "bottom-right";
-    default:
-      return "top-right";
-  }
-}
 
 /**
  * 把 GeoAgentControl 挂载到 Leaflet 地图上。
