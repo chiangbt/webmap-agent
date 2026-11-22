@@ -1,18 +1,14 @@
 /**
- * MapLibreAgentTools — the GeoAgentTools subclass for the WebGL Style-Spec
- * engines (maplibre-gl and, with a host-provided namespace, mapbox-gl).
+ * MapLibreAgentTools — WebGL Style-Spec 引擎（maplibre-gl，以及宿主注入
+ * namespace 的 mapbox-gl）对应的 GeoAgentTools 子类。
  *
- * This is the only subclass that drives a real MapLibre API surface natively:
- * the command surface IS the map. It owns the WebGL-only tool batch (globe
- * projection, 3D terrain, sky, fill-extrusion buildings, canvas screenshots)
- * and the lazy import of this package's own maplibre-gl dependency — the one
- * and only place maplibre-gl is loaded at runtime, so Leaflet/OpenLayers
- * hosts never pay for it.
+ * 这是唯一原生驱动真实 MapLibre API 表面的子类：命令 surface 就是地图本身。
+ * 它拥有 WebGL 专属工具批次（globe 投影、3D terrain、sky、fill-extrusion
+ * 建筑、canvas 截图），以及本包自带 maplibre-gl 依赖的惰性导入 —— 运行时
+ * 加载 maplibre-gl 的唯一地点，因此 Leaflet/OpenLayers 宿主永远不必为此买单。
  *
- * The shared tool surface, overlay bookkeeping and command dispatch live in
- * the base class (see geoagent-tools.ts). Everything the base exports is
- * re-exported here so the historical `core/maplibre-tools` import path keeps
- * working.
+ * 共享工具面、overlay 记账与命令分发都在基类（见 geoagent-tools.ts）。基类
+ * 导出的一切都在此 re-export，让历史的 `core/maplibre-tools` 导入路径继续可用。
  */
 import { tool, type Tool } from "@strands-agents/sdk";
 import type {
@@ -31,15 +27,22 @@ import {
   type GeoAgentStyleSpecNamespace,
 } from "./geoagent-tools";
 
+/** 截图等待 render 帧的超时上限（毫秒）。 */
 const MAP_EVENT_TIMEOUT_MS = 8000;
 import type { JsonObject } from "./geoagent-tools";
 
+// 原样转发基类导出，维持历史导入路径的兼容性。
 export * from "./geoagent-tools";
 
-/** The default engine: this package's own `maplibre-gl`, imported lazily. */
+/** 默认引擎声明：本包自带的 `maplibre-gl`，经惰性导入加载。 */
 const MAPLIBRE_ENGINE: GeoAgentMapEngine = { kind: "maplibre" };
 
+/**
+ * MapLibre/Mapbox 引擎的 agent 工具实现类：命令 surface 即原生地图，
+ * 额外暴露 globe/terrain/sky/3D 建筑/截图等 WebGL 专属工具。
+ */
 export class MapLibreAgentTools extends GeoAgentTools {
+  /** 校验引擎声明：缺省为 maplibre；2D 引擎声明直接拒绝并指路正确子类。 */
   protected resolveEngine(
     provided: GeoAgentMapEngine | undefined,
   ): GeoAgentMapEngine {
@@ -57,13 +60,18 @@ export class MapLibreAgentTools extends GeoAgentTools {
   }
 
   protected createSurface(map: unknown): MapLibreMap {
-    // Style-Spec engines are used as-is: the map itself is the surface.
+    // Style-Spec 引擎原样使用：地图本身就是命令 surface。
     return map as MapLibreMap;
   }
 
+  /**
+   * 解析引擎 namespace：宿主注入（mapbox 必须注入）优先；maplibre 缺省时
+   * 动态 `import("maplibre-gl")`。
+   */
   protected async loadNamespace(): Promise<GeoAgentStyleSpecNamespace> {
     const provided = (this.engine as GeoAgentStyleSpecEngine).namespace;
     if (provided) {
+      // namespace 必须是库的真实对象：至少要有 Marker 构造器。
       if (typeof provided.Marker !== "function") {
         throw new Error(
           `The ${this.engine.kind} engine namespace has no Marker constructor; pass the library's real namespace object.`,
@@ -72,26 +80,29 @@ export class MapLibreAgentTools extends GeoAgentTools {
       return provided;
     }
     if (this.engine.kind === "mapbox") {
+      // 本包从不导入 mapbox-gl：Mapbox 宿主必须自己传 namespace。
       throw new Error(
         'The mapbox engine requires its namespace: pass mapEngine { kind: "mapbox", namespace: mapboxgl }. This package never imports mapbox-gl itself.',
       );
     }
-    // The ONE runtime load of maplibre-gl in this package. A namespace
-    // import, not a default one: MapLibre v6 is ESM-only and dropped its
-    // default export, and run_maplibre_script hands the whole namespace
-    // object to user-authored scripts.
+    // 本包运行时唯一的 maplibre-gl 加载点。用 namespace 导入而非默认导入：
+    // MapLibre v6 是纯 ESM、去掉了默认导出，且 run_maplibre_script 要把整个
+    // namespace 对象交给用户脚本。
     const module = await import("maplibre-gl");
     return module as unknown as GeoAgentStyleSpecNamespace;
   }
 
+  /** schema 与结果消息中显示的引擎名。 */
   protected engineDisplayName(): string {
     return this.engine.kind === "mapbox" ? "Mapbox GL JS" : "MapLibre";
   }
 
+  /** 用户脚本可见的 namespace 绑定名。 */
   protected scriptNamespaceName(): string {
     return this.engine.kind === "mapbox" ? "mapboxgl" : "maplibregl";
   }
 
+  /** run_maplibre_script 的 description 文案，按引擎区分措辞。 */
   protected scriptToolDescription(): string {
     if (this.engine.kind === "mapbox") {
       return "Run a short JavaScript snippet against the live browser Mapbox GL JS map when no dedicated tool fits. The snippet runs in the page with these names in scope: map, mapboxgl, and helpers.";
@@ -100,12 +111,17 @@ export class MapLibreAgentTools extends GeoAgentTools {
   }
 
   /**
-   * The WebGL-only tool batch. Only this subclass exposes these to the
-   * model; the 2D engines' `engineTools()` is empty, so a Leaflet or
-   * OpenLayers agent never even sees a 3D capability it cannot have.
+   * WebGL 专属工具批次。仅本子类向模型暴露这些工具；2D 引擎的
+   * `engineTools()` 为空，因此 Leaflet/OpenLayers 的 agent 根本看不到
+   * 它们不具备的 3D 能力。
    */
   protected engineTools(): Tool[] {
     return [
+      /**
+       * set_projection — 在 globe 与 mercator 投影之间切换（仅 MapLibre/
+       * Mapbox 支持）。代理需要 3D 地球视角或平面地图时调用；projection
+       * 二选一。
+       */
       tool({
         name: "set_projection",
         description:
@@ -119,6 +135,11 @@ export class MapLibreAgentTools extends GeoAgentTools {
         }),
         callback: (input) => this.runCommand("set_projection", input),
       }),
+      /**
+       * add_terrain — 添加 raster-dem source 并启用 3D 地形渲染。
+       * url 为 DEM 瓦片模板；encoding 指定高程编码（terrarium/mapbox）；
+       * exaggeration 控制夸张系数；source_id 可自定义 source 名。
+       */
       tool({
         name: "add_terrain",
         description: "Add a raster-dem source and enable MapLibre terrain.",
@@ -130,6 +151,10 @@ export class MapLibreAgentTools extends GeoAgentTools {
         }),
         callback: (input) => this.runCommand("add_terrain", input),
       }),
+      /**
+       * clear_terrain — 关闭地形渲染并移除 agent 登记的 terrain source 元数据；
+       * 无参数。展示完地形效果后收尾时调用。
+       */
       tool({
         name: "clear_terrain",
         description:
@@ -137,6 +162,10 @@ export class MapLibreAgentTools extends GeoAgentTools {
         inputSchema: z.object({}),
         callback: () => this.runCommand("clear_terrain"),
       }),
+      /**
+       * set_sky — 设置 MapLibre sky 规格（需当前版本支持 setSky）。
+       * sky 为完整 sky specification 对象。营造大气/天空背景效果时调用。
+       */
       tool({
         name: "set_sky",
         description:
@@ -148,6 +177,9 @@ export class MapLibreAgentTools extends GeoAgentTools {
         }),
         callback: (input) => this.runCommand("set_sky", input),
       }),
+      /**
+       * remove_sky — 移除 sky 规格（需当前版本支持）；无参数。
+       */
       tool({
         name: "remove_sky",
         description:
@@ -155,6 +187,11 @@ export class MapLibreAgentTools extends GeoAgentTools {
         inputSchema: z.object({}),
         callback: () => this.runCommand("remove_sky"),
       }),
+      /**
+       * add_3d_buildings — 添加 fill-extrusion 3D 建筑图层：复用既有 vector
+       * source 或回退到 OpenFreeMap。layer_id/source/source_layer/min_zoom/
+       * 颜色/透明度/高度与基底属性名均可定制。展示城市三维形态时调用。
+       */
       tool({
         name: "add_3d_buildings",
         description:
@@ -171,6 +208,11 @@ export class MapLibreAgentTools extends GeoAgentTools {
         }),
         callback: (input) => this.runCommand("add_3d_buildings", input),
       }),
+      /**
+       * screenshot_map — 把地图画布截图为 PNG data URL。图片经面板状态发布给
+       * 宿主 UI 展示，不进入模型上下文；结果只返回尺寸信息。用户要求
+       * "看看当前地图/导出图片"时调用。
+       */
       tool({
         name: "screenshot_map",
         description: "Capture the browser map canvas as a PNG data URL.",
@@ -180,6 +222,10 @@ export class MapLibreAgentTools extends GeoAgentTools {
     ];
   }
 
+  /**
+   * 引擎专属命令分发：globe 投影、terrain、sky、3D 建筑、截图等 WebGL 能力。
+   * 未识别的命令抛错兜底。
+   */
   protected async executeEngineCommand(
     command: string,
     args: JsonObject,
@@ -188,13 +234,14 @@ export class MapLibreAgentTools extends GeoAgentTools {
       const projection = stringArg(args, "projection", "mercator")
         .trim()
         .toLowerCase();
+      // 只接受 globe / mercator 两个值，其余明确拒绝。
       if (projection !== "globe" && projection !== "mercator") {
         throw new Error(
           `Unsupported projection: ${projection}. Use globe or mercator.`,
         );
       }
-      // MapLibre takes `{ type }`; mapbox-gl takes a name string (or
-      // `{ name }`) and throws on the MapLibre shape.
+      // MapLibre 接受 `{ type }`；mapbox-gl 接受名称字符串（或 `{ name }`），
+      // 传 MapLibre 形状会抛错。
       this.map.setProjection(
         this.engine.kind === "mapbox"
           ? (projection as unknown as ProjectionSpecification)
@@ -206,6 +253,8 @@ export class MapLibreAgentTools extends GeoAgentTools {
     if (command === "add_terrain") {
       const sourceId = stringArg(args, "source_id", "terrain-dem");
       const exaggeration = Number(args.exaggeration ?? 1);
+      // terrain 以 native overlay 登记为 "__terrain"：clear_terrain 与
+      // clear_layers 都能经同一套记账清理。
       await this.addNativeOverlay({
         name: "__terrain",
         sourceSpecs: {
@@ -233,6 +282,7 @@ export class MapLibreAgentTools extends GeoAgentTools {
     if (command === "set_sky") {
       const sky = objectArg(args, "sky");
       this.setSky(sky);
+      // sky 以空图层组的 native overlay 登记，便于 remove_sky / clear_layers 统一清理。
       this.overlays.set("__sky", {
         kind: "native",
         name: "__sky",
@@ -260,7 +310,7 @@ export class MapLibreAgentTools extends GeoAgentTools {
         width: number;
         height: number;
       };
-      // The base64 image goes to the host UI, never into the model context.
+      // base64 图片只发给宿主 UI，绝不进入模型上下文。
       this.publishStateData({ screenshot });
       return `Screenshot captured: ${screenshot.width}x${screenshot.height} png. The image was published to the panel state (screenshot.data_url) for the host UI to display; it is intentionally not included in this conversation.`;
     }
@@ -269,14 +319,13 @@ export class MapLibreAgentTools extends GeoAgentTools {
   }
 
   /**
-   * Capture the map canvas inside a render frame. WebGL clears the drawing
-   * buffer after compositing unless the map was created with
-   * `preserveDrawingBuffer: true`, so reading the canvas outside a render
-   * callback returns a blank image on default maps; `triggerRepaint` +
-   * `once("render")` reads it while the buffer is still intact.
+   * 在渲染帧内截取地图画布。除非地图以 `preserveDrawingBuffer: true` 创建，
+   * WebGL 会在合成后清空 drawing buffer —— 在渲染回调之外读取画布得到的是
+   * 空白图；`triggerRepaint` + `once("render")` 保证在 buffer 仍然完整时读取。
    */
   private captureScreenshot(): Promise<unknown> {
     return new Promise((resolve, reject) => {
+      // settled 保证超时与 render 两条路径只有先到者生效。
       let settled = false;
       const finish = (action: () => void): void => {
         if (settled) {
@@ -295,6 +344,7 @@ export class MapLibreAgentTools extends GeoAgentTools {
           ),
         );
       }, MAP_EVENT_TIMEOUT_MS);
+      // 渲染回调内读取画布：此时 drawing buffer 尚未被清空。
       this.map.once("render", () => {
         finish(() => {
           const canvas = this.map.getCanvas();
@@ -305,19 +355,28 @@ export class MapLibreAgentTools extends GeoAgentTools {
           });
         });
       });
+      // 主动触发一次重绘，确保即使地图静止也能等到 render 帧。
       this.map.triggerRepaint?.();
     });
   }
 
+  /**
+   * 构建 3D 建筑图层：优先复用既有 vector source（openmaptiles/maptiler/
+   * carto/composite 等常见 id），否则回退创建 OpenFreeMap buildings source。
+   *
+   * @returns 创建的图层 id
+   */
   private async add3dBuildings(args: JsonObject): Promise<string> {
     const layerId = stringArg(args, "layer_id", "3d-buildings");
     const requestedSource = stringArg(args, "source");
     const style = this.map.getStyle();
+    // 显式指定的 source 存在则直接采用。
     let sourceId =
       requestedSource && this.map.getSource(requestedSource)
         ? requestedSource
         : "";
     if (!sourceId) {
+      // 在 style 里找常见建筑 vector source（openmaptiles/maptiler/carto/composite）。
       for (const [id, source] of Object.entries(style.sources ?? {})) {
         if (
           (source as { type?: string }).type === "vector" &&
@@ -333,12 +392,14 @@ export class MapLibreAgentTools extends GeoAgentTools {
     }
     const sourceSpecs: Record<string, SourceSpecification> = {};
     if (!sourceId) {
+      // 找不到任何可用 vector source：回退到 OpenFreeMap planet 瓦片。
       sourceId = "buildings-source";
       sourceSpecs[sourceId] = {
         type: "vector",
         url: "https://tiles.openfreemap.org/planet",
       } as SourceSpecification;
     }
+    // 高度/基底属性名按数据集不同可定制（OpenFreeMap 与 OMT schema 略有差异）。
     const heightProperty = stringArg(args, "height_property", "render_height");
     const baseProperty = stringArg(args, "base_property", "render_min_height");
     await this.addNativeOverlay({
@@ -358,13 +419,16 @@ export class MapLibreAgentTools extends GeoAgentTools {
                 "fill_extrusion_color",
                 "#aaaaaa",
               ),
+              // 高度取值链：指定属性 → 通用 height 属性 → 默认 10 米兜底。
               "fill-extrusion-height": [
                 "coalesce",
                 ["get", heightProperty],
                 ["get", "height"],
                 10,
               ],
+              // 基底高度：指定属性缺失时落到 0（贴地）。
               "fill-extrusion-base": ["coalesce", ["get", baseProperty], 0],
+              // 透明度夹取到 [0,1]，默认 0.6。
               "fill-extrusion-opacity": Math.max(
                 0,
                 Math.min(1, Number(args.fill_extrusion_opacity ?? 0.6)),

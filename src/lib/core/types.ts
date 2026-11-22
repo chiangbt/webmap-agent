@@ -1,12 +1,18 @@
+/**
+ * 核心共享类型：控件选项、状态快照、会话条目、provider 配置与事件签名。
+ * 命令式控件、React 面板与无头引擎共同依赖这份定义。
+ */
 import type { Map, StyleSpecification } from 'maplibre-gl';
 import type { GeoAgentLocale } from '../i18n';
 import type { GeoAgentMapEngine } from './tools/geoagent-tools';
 import type { EarthEngineOptions } from './earth-engine/earth-engine';
 
+/** 支持的 provider 标识：OpenAI 兼容端点与 Anthropic 兼容端点。 */
 export type GeoAgentProviderId =
   | 'openai-compatible'
   | 'anthropic-compatible';
 
+/** 单个 provider 的展示与存储配置（面板据此渲染设置表单与 sessionStorage 键）。 */
 export interface GeoAgentProviderConfig {
   id: GeoAgentProviderId;
   label: string;
@@ -16,248 +22,242 @@ export interface GeoAgentProviderConfig {
   defaultModel: string;
   defaultRegion?: string;
   /**
-   * Whether the provider needs a user-supplied API base URL (OpenAI-compatible
-   * / custom endpoints such as a local LLM server or a private deployment).
+   * 该 provider 是否需要用户填写 API base URL
+   * （OpenAI-compatible / 自定义端点，如本地 LLM 服务或私有化部署）。
    */
   requiresBaseUrl?: boolean;
-  /** Placeholder shown in the API base URL field. */
+  /** API base URL 输入框显示的 placeholder。 */
   baseUrlPlaceholder?: string;
 }
 
+/** GeoAgent 控件的全部可配置项（缺失项由 GeoAgentCore 构造时填默认值）。 */
 export interface GeoAgentControlOptions {
   /**
-   * Whether the panel should start collapsed.
+   * 面板是否以折叠状态启动。
    * @default true
    */
   collapsed?: boolean;
 
   /**
-   * Position of the control button on the map.
+   * 控件按钮在地图上的位置。
    * @default 'top-right'
    */
   position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
   /**
-   * Title displayed in the control header.
+   * 控件头部显示的标题。
    * @default 'GeoAgent'
    */
   title?: string;
 
   /**
-   * Width of the floating panel in pixels.
+   * 浮动面板宽度（像素）。
    * @default 390
    */
   panelWidth?: number;
 
   /**
-   * Minimum resizable panel width in pixels.
+   * 可调整面板的最小宽度（像素）。
    * @default 320
    */
   panelMinWidth?: number;
 
   /**
-   * Maximum resizable panel width in pixels.
+   * 可调整面板的最大宽度（像素）。
    * @default 720
    */
   panelMaxWidth?: number;
 
   /**
-   * Height of the floating panel in pixels. When omitted the panel sizes to its
-   * content (capped by `panelMaxHeight`) until the user resizes it.
+   * 浮动面板高度（像素）。省略时面板按内容自适应高度
+   * （上限为 `panelMaxHeight`），直到用户手动调整。
    */
   panelHeight?: number;
 
   /**
-   * Minimum resizable panel height in pixels.
+   * 可调整面板的最小高度（像素）。
    * @default 320
    */
   panelMinHeight?: number;
 
   /**
-   * Maximum resizable panel height in pixels. The map container height is also
-   * enforced as a ceiling, so the panel can be dragged to nearly fill the map.
+   * 可调整面板的最大高度（像素）。地图容器高度也会作为上限生效，
+   * 因此面板可被拖拽到几乎填满地图。
    * @default 2000
    */
   panelMaxHeight?: number;
 
   /**
-   * Custom CSS class name for the control button container.
+   * 控件按钮容器的自定义 CSS class。
    */
   className?: string;
 
   /**
-   * Locale used for all panel UI strings (labels, buttons, status badges,
-   * log messages). Brand names and technical terms are kept identical across
-   * locales.
+   * 面板所有 UI 文案（标签、按钮、状态徽标、日志消息）使用的 locale。
+   * 品牌名与技术名词在各语言下保持一致。
    * @default 'en'
    */
   locale?: GeoAgentLocale;
 
   /**
-   * Initial provider when there is no stored provider preference.
+   * 无已存储 provider 偏好时的初始 provider。
    * @default 'openai-compatible'
    */
   defaultProvider?: GeoAgentProviderId;
 
   /**
-   * Override the default model for all providers or selected providers.
+   * 覆盖所有 provider 或指定 provider 的默认模型。
    */
   defaultModel?: string | Partial<Record<GeoAgentProviderId, string>>;
 
   /**
-   * Prefix for sessionStorage keys.
+   * sessionStorage 键的前缀。
    * @default 'web-geoagent'
    */
   storagePrefix?: string;
 
   /**
-   * Initial API keys supplied by the host application. Saved sessionStorage
-   * values take precedence, and these values are not written to storage unless
-   * the user edits the API key field.
+   * 宿主应用传入的初始 API key。已保存的 sessionStorage 值优先；
+   * 除非用户编辑 API key 输入框，这些值不会写入 storage。
    */
   apiKeys?: Partial<Record<GeoAgentProviderId, string>>;
 
   /**
-   * Fallback API key for every provider, used when there is no stored key and
-   * no provider-specific `apiKeys` entry (e.g. a deployment-wide credential
-   * injected from environment variables). Shown in the panel like a committed
-   * key and overridden by both of the sources above.
+   * 所有 provider 共用的兜底 API key：在没有存储 key 且没有 provider 专属
+   * `apiKeys` 条目时使用（例如从环境变量注入的全局部署凭据）。面板中像
+   * 已提交的 key 一样展示，且被上述两个来源覆盖。
    */
   defaultApiKey?: string;
 
   /**
-   * Fallback API base URL for the compatible providers, used when nothing is
-   * stored for the current provider (e.g. a deployment endpoint injected from
-   * environment variables). Shown in the panel and overridden by storage.
+   * 兼容型 provider 的兜底 API base URL：当前 provider 在 storage 中没有任何
+   * 值时使用（例如从环境变量注入的部署端点）。在面板中展示，存储值优先。
    */
   defaultBaseUrl?: string;
 
   /**
-   * Whether the optional MapLibre JavaScript execution tool starts enabled.
+   * 可选的 MapLibre JavaScript 执行工具（run_maplibre_script）是否默认启用。
    * @default true
    */
   allowCodeExecutionDefault?: boolean;
 
   /**
-   * Whether destructive layer removal tools start enabled.
+   * 破坏性的图层删除类工具是否默认启用。
    * @default true
    */
   allowDestructiveToolsDefault?: boolean;
 
   /**
-   * Whether to show the permission toggles in the panel.
+   * 是否在面板中显示权限开关。
    * @default false
    */
   showPermissionToggles?: boolean;
 
   /**
-   * Known basemap style IDs available to the agent.
+   * 代理可用的已知底图 style ID 表。
    */
   basemaps?: Record<string, string | StyleSpecification>;
 
   /**
-   * Optional Google Earth Engine tool configuration. Browser OAuth is used by
-   * default; host applications may also provide a short-lived access token.
-   * Do not provide service account private keys to this browser package.
+   * 可选的 Google Earth Engine 工具配置。默认走浏览器 OAuth；宿主应用也可以
+   * 提供短期 access token。不要向这个浏览器端包提供 service account 私钥。
    */
   earthEngine?: EarthEngineOptions;
 
   /**
-   * Additional domain-specific Strands tools to expose to the agent.
+   * 额外暴露给代理的领域专属 Strands tools（数组或返回数组的工厂函数）。
    */
   customTools?: unknown[] | (() => unknown[]);
 
   /**
-   * Additional system instructions appended after the built-in MapLibre
-   * instructions. Use this to teach the agent when and how to call custom
-   * tools.
+   * 附加的 system 指令，追加在内置 MapLibre 指令之后。
+   * 用它教会代理何时以及如何调用自定义工具。
    */
   customSystemPrompt?: string;
 
   /**
-   * The map library the map handed to `onAdd` came from.
+   * 传给 `onAdd` 的地图来自哪个地图库。
    *
-   * Almost every tool stays on the Style Spec surface `maplibre-gl` and
-   * `mapbox-gl` share; four cannot, and this is what keeps them honest. See
-   * {@link GeoAgentMapEngine}. Defaults to `maplibre-gl`, so existing hosts
-   * need not set it; a host rendering with Mapbox GL JS passes
-   * `{ kind: "mapbox", namespace: mapboxgl }`.
+   * 绝大多数工具停留在 `maplibre-gl` 与 `mapbox-gl` 共享的 Style Spec 层面；
+   * 有四个工具做不到，本字段就是用来如实声明引擎差异的。参见
+   * {@link GeoAgentMapEngine}。默认 `maplibre-gl`，已有宿主无需设置；
+   * 用 Mapbox GL JS 渲染的宿主传 `{ kind: "mapbox", namespace: mapboxgl }`。
    *
-   * A Leaflet host passes `{ kind: "leaflet", namespace: L }`; the tools then
-   * run through a compatibility shim (see `leaflet-engine.ts`) and the control
-   * is mounted with `addGeoAgentToLeafletMap(control, map)` because Leaflet
-   * has no `map.addControl` slot for foreign controls.
+   * Leaflet 宿主传 `{ kind: "leaflet", namespace: L }`；工具随后经兼容 shim
+   * 运行（见 `leaflet-engine.ts`），且需用 `addGeoAgentToLeafletMap(control,
+   * map)` 挂载控件——Leaflet 没有为外来控件提供 `map.addControl` 槽位。
    *
-   * An OpenLayers host passes `{ kind: "openlayers", namespace }` where
-   * `namespace` bundles the ol classes/helpers listed in
-   * `OpenLayersNamespace`; the tools run through a compatibility shim (see
-   * `openlayers-engine.ts`) and the control is mounted with
-   * `addGeoAgentToOpenLayersMap(control, map)`.
+   * OpenLayers 宿主传 `{ kind: "openlayers", namespace }`，其中 `namespace`
+   * 打包了 `OpenLayersNamespace` 列出的 ol 类与辅助函数；工具经兼容 shim
+   * 运行（见 `openlayers-engine.ts`），控件用
+   * `addGeoAgentToOpenLayersMap(control, map)` 挂载。
    *
-   * An ArcGIS host (ArcGIS Maps SDK for JavaScript, including the
-   * `@arcgis/map-components` web components) passes
-   * `{ kind: "arcgis", namespace }` where `namespace` bundles the esri
-   * classes listed in `ArcGISNamespace`; the tools run through a
-   * compatibility shim (see `arcgis-engine.ts`) and the control is mounted
-   * with `addGeoAgentToArcGISMap(control, view)`.
+   * ArcGIS 宿主（ArcGIS Maps SDK for JavaScript，含 `@arcgis/map-components`
+   * web components）传 `{ kind: "arcgis", namespace }`，其中 `namespace`
+   * 打包了 `ArcGISNamespace` 列出的 esri 类；工具经兼容 shim 运行（见
+   * `arcgis-engine.ts`），控件用 `addGeoAgentToArcGISMap(control, view)` 挂载。
    */
   mapEngine?: GeoAgentMapEngine;
 }
 
+/** 控件的完整运行时状态快照（面板尺寸、provider、模型、权限开关等）。 */
 export interface GeoAgentState {
   collapsed: boolean;
   panelWidth: number;
-  /** User-set panel height in pixels, or undefined when sized to content. */
+  /** 用户设置的面板高度（像素）；按内容自适应时为 undefined。 */
   panelHeight?: number;
   busy: boolean;
   providerId: GeoAgentProviderId;
   modelId: string;
-  /** API base URL for the OpenAI-compatible / Anthropic-compatible providers. */
+  /** OpenAI-compatible / Anthropic-compatible provider 的 API base URL。 */
   baseUrl: string;
   allowCodeExecution: boolean;
   allowDestructiveTools: boolean;
   data?: Record<string, unknown>;
 }
 
-/** One rendered row of the agent conversation. The core owns this list; both
- * the vanilla DOM panel and the React panel mirror it from events. */
+/** 代理会话中的一行渲染条目。列表由 core 持有；vanilla DOM 面板与 React
+ * 面板都通过事件镜像这份列表。 */
 export interface GeoAgentConversationEntry {
   id: string;
   role: 'system' | 'user' | 'assistant' | 'tool' | 'error';
   content: string;
-  /** Assistant entries carry markdown and render through the sanitized
-   * markdown pipeline; plain entries render as text. */
+  /** assistant 条目带 markdown，走净化后的 markdown 渲染管线；其余条目按纯文本渲染。 */
   markdown?: boolean;
 }
 
-/** Incremental change applied to the conversation list. */
+/** 应用于会话列表的增量变更（追加、更新或整体重置）。 */
 export interface GeoAgentConversationChange {
   type: 'append' | 'update' | 'reset';
   entry?: GeoAgentConversationEntry;
 }
 
-/** Current text/kind shown in the panel status badge. */
+/** 面板状态徽标当前展示的文本与类别。 */
 export interface GeoAgentStatusState {
   text: string;
-  /** 'connected' | 'setup' for idle badges; 'error' etc. for transient ones. */
+  /** 空闲徽标为 'connected' | 'setup'；瞬态徽标为 'error' 等。 */
   kind: string;
-  /** True while a transient status (Running, Copied, …) is displayed. */
+  /** 正在展示瞬态状态（Running、Copied 等）时为 true。 */
   transient: boolean;
 }
 
-/** Transient configuration note shown inside the settings section. */
+/** 设置区内展示的瞬态配置提示。 */
 export interface GeoAgentNoteState {
   text: string;
   kind: 'success' | 'error' | 'info' | null;
 }
 
+/** React 包装控件的 props：在 {@link GeoAgentControlOptions} 之上额外要求
+ * 地图实例，并可选监听状态变化。 */
 export interface GeoAgentControlReactProps extends GeoAgentControlOptions {
   map: Map;
   onStateChange?: (state: GeoAgentState) => void;
 }
 
+/** 控件对外派发的事件名：折叠、展开与状态变更。 */
 export type GeoAgentControlEvent = 'collapse' | 'expand' | 'statechange';
 
+/** 控件事件回调签名：携带事件类型与最新状态快照。 */
 export type GeoAgentControlEventHandler = (event: {
   type: GeoAgentControlEvent;
   state: GeoAgentState;

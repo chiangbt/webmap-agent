@@ -1,6 +1,12 @@
 import type { GeoAgentLocale } from '@/lib/i18n';
 
-/** Localized strings for the demo site (homepage + shared example chrome). */
+/**
+ * 演示站的多语言文案表（首页 + 示例页公共框架共用）。
+ *
+ * 按库支持的 GeoAgentLocale 分 en / zh-CN / zh-TW 三份，键集完全一致：
+ * title/subtitle 为首页标题与副标题，各 *Title/*Desc 为示例卡片文案，
+ * home/github/npm/language 为页头页脚与语言切换标签。
+ */
 export const HOMEPAGE_I18N: Record<
   GeoAgentLocale,
   {
@@ -26,6 +32,7 @@ export const HOMEPAGE_I18N: Record<
     language: string;
   }
 > = {
+  // 英文文案（作为类型推断与其他语言的基准键集）
   en: {
     title: 'web-geoagent Examples',
     subtitle:
@@ -52,6 +59,7 @@ export const HOMEPAGE_I18N: Record<
     npm: 'npm',
     language: 'Language',
   },
+  // 简体中文文案
   'zh-CN': {
     title: 'web-geoagent 示例',
     subtitle:
@@ -75,6 +83,7 @@ export const HOMEPAGE_I18N: Record<
     npm: 'npm',
     language: '语言',
   },
+  // 繁体中文文案
   'zh-TW': {
     title: 'web-geoagent 範例',
     subtitle:

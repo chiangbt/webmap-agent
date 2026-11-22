@@ -1,12 +1,17 @@
 import type { GeoAgentMessageKey } from './en';
 
 /**
- * Simplified Chinese UI strings for the GeoAgent control. Brand names and
- * technical terms (MapLibre JS, Earth Engine, placeholder key formats) are
- * intentionally identical to English. The `Record<GeoAgentMessageKey, string>`
- * annotation keeps the key set in lockstep with `en.ts` at compile time.
+ * GeoAgent 控件的简体中文（zh-CN）UI 文案包。品牌名与技术名词
+ * （MapLibre JS、Earth Engine、占位 key 格式等）刻意与英文保持一致。
+ * `Record<GeoAgentMessageKey, string>` 类型标注使 key 集合在编译期与
+ * `en.ts` 严格对齐。
  */
 
+/**
+ * 简体中文语言包：覆盖 GeoAgent 面板的全部 UI 文案，key 集合与英文包
+ * （`en.ts`，key 的事实来源）完全一致。字符串中的 `{name}` 为占位符，
+ * 运行时由 `t()` 用参数插值替换。
+ */
 export const zhCN: Record<GeoAgentMessageKey, string> = {
   closeButtonLabel: '关闭',
   resizeHandleLabel: '调整 GeoAgent 面板大小',

@@ -1,16 +1,15 @@
 /**
- * OpenLayersAgentTools — the GeoAgentTools subclass for OpenLayers hosts.
+ * OpenLayersAgentTools — OpenLayers 宿主对应的 GeoAgentTools 子类。
  *
- * The command surface is the OpenLayersMapShim (see openlayers-engine.ts),
- * which materializes Style-Spec sources/layers as real ol layers. OpenLayers
- * is 2D in this integration, so this subclass exposes NO WebGL-only tools
- * (`engineTools()` is empty) and answers the WebGL-only commands with the
- * same explicit capability errors the shim throws — the model never sees a
- * 3D capability OpenLayers cannot have, and hosts calling `runCommand`
- * directly still get an actionable message.
+ * 命令 surface 是 OpenLayersMapShim（见 openlayers-engine.ts），它把
+ * Style-Spec sources/layers 物化为真实 ol 图层。在本集成中 OpenLayers 只有
+ * 2D 能力，因此本子类不暴露任何 WebGL 专属工具（`engineTools()` 为空），
+ * 并以与 shim 相同的明确能力错误回答 WebGL 命令 —— 模型永远看不到
+ * OpenLayers 不具备的 3D 能力，直接调用 `runCommand` 的宿主也能拿到
+ * 可操作的错误信息。
  *
- * Nothing here imports "ol"; the host passes its own namespace bundle via
- * `mapEngine: { kind: "openlayers", namespace }`.
+ * 本文件从不导入 "ol"；宿主经 `mapEngine: { kind: "openlayers", namespace }`
+ * 传入自己的 namespace 集合。
  */
 import type { Map as MapLibreMap } from "maplibre-gl";
 import type { Tool } from "@strands-agents/sdk";
@@ -31,7 +30,12 @@ import {
   type OpenLayersMapShim,
 } from "../engines/openlayers-engine";
 
+/**
+ * OpenLayers 引擎的 agent 工具实现类：命令 surface 为 OpenLayersMapShim，
+ * 无 WebGL 专属工具，能力错误与 shim 保持一致。
+ */
 export class OpenLayersAgentTools extends GeoAgentTools {
+  /** 校验引擎声明：必须是 openlayers 且由宿主注入 namespace。 */
   protected resolveEngine(
     provided: GeoAgentMapEngine | undefined,
   ): GeoAgentMapEngine {
@@ -43,6 +47,7 @@ export class OpenLayersAgentTools extends GeoAgentTools {
     return provided;
   }
 
+  /** 把真实 ol Map 包装成 OpenLayersMapShim 作为命令 surface。 */
   protected createSurface(map: unknown): MapLibreMap {
     return createOpenLayersMapShim(
       map as OpenLayersMapLike,
@@ -51,32 +56,34 @@ export class OpenLayersAgentTools extends GeoAgentTools {
   }
 
   protected loadNamespace(): GeoAgentStyleSpecNamespace {
-    // The host injected the real ol namespace; nothing is ever imported.
+    // 宿主已注入真实 ol namespace；本包从不导入 ol。
     return (this.engine as GeoAgentOpenLayersEngine)
       .namespace as unknown as GeoAgentStyleSpecNamespace;
   }
 
+  /** schema 与结果消息中显示的引擎名。 */
   protected engineDisplayName(): string {
     return "OpenLayers";
   }
 
+  /** 用户脚本可见的 namespace 绑定名：`ol`。 */
   protected scriptNamespaceName(): string {
     return "ol";
   }
 
+  /** run_maplibre_script 的 description：明确要求写 OpenLayers API 代码。 */
   protected scriptToolDescription(): string {
     return "Run a short JavaScript snippet against the live browser OpenLayers map when no dedicated tool fits. The snippet runs in the page with these names in scope: map (the real ol/Map), ol (the OpenLayers namespace object), and helpers. Write OpenLayers API code: this map is not MapLibre, and MapLibre calls will fail.";
   }
 
-  /** OpenLayers is 2D here: no WebGL-only tools are exposed to the model. */
+  /** 本集成中 OpenLayers 仅 2D：不向模型暴露任何 WebGL 专属工具。 */
   protected engineTools(): Tool[] {
     return [];
   }
 
   /**
-   * Explicit capability errors, mirroring the shim messages (the shims stay
-   * the last line of defense for user scripts). `set_projection: "mercator"`
-   * remains a no-op success, matching the shim's contract.
+   * 明确的能力错误，与 shim 的消息一致（对用户脚本而言 shim 仍是最后一道
+   * 防线）。`set_projection: "mercator"` 保留为无操作成功，与 shim 契约一致。
    */
   protected async executeEngineCommand(
     command: string,
@@ -87,6 +94,7 @@ export class OpenLayersAgentTools extends GeoAgentTools {
         const projection = stringArg(args, "projection", "mercator")
           .trim()
           .toLowerCase();
+        // OpenLayers 只有 mercator：请求 mercator 视为成功空操作，其余拒绝。
         if (projection === "mercator") {
           return "Projection changed to mercator.";
         }
@@ -115,7 +123,7 @@ export class OpenLayersAgentTools extends GeoAgentTools {
     }
   }
 
-  /** The shim, typed — the surface this subclass built in createSurface. */
+  /** 取本子类在 createSurface 中构建的 shim（类型化访问）。 */
   private shim(): OpenLayersMapShim {
     if (!isOpenLayersMapShim(this.map)) {
       throw new Error(
@@ -125,7 +133,7 @@ export class OpenLayersAgentTools extends GeoAgentTools {
     return this.map;
   }
 
-  /** Clear overlays and unbind the shim's map listeners. */
+  /** 清空 overlay 并解绑 shim 的地图监听器。 */
   destroy(): void {
     if (isOpenLayersMapShim(this.map)) {
       this.map.destroy();
@@ -133,15 +141,17 @@ export class OpenLayersAgentTools extends GeoAgentTools {
     super.destroy();
   }
 
+  /** add_marker 用 shim 的 marker 适配器构造 OpenLayers marker。 */
   protected createEngineMarker(color: string): GeoAgentMarker {
     return this.shim().createMarker(color) as unknown as GeoAgentMarker;
   }
 
+  /** add_marker 用 shim 的 popup 适配器构造 OpenLayers popup。 */
   protected createEnginePopup(): GeoAgentPopup {
     return this.shim().createPopup() as unknown as GeoAgentPopup;
   }
 
-  /** User scripts get the real ol/Map, not the shim (they are the escape hatch). */
+  /** 用户脚本拿到真实 ol/Map 而非 shim（它们本身就是逃生舱）。 */
   protected scriptMap(): MapLibreMap {
     return this.shim().getRawMap() as unknown as MapLibreMap;
   }

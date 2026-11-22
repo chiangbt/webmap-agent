@@ -1,8 +1,19 @@
+/**
+ * ArcGIS MapView 2D 示例：演示通过 @arcgis/map-components 的
+ * <arcgis-map> web component + arcgis-engine 兼容 shim 接入 GeoAgentPanel。
+ *
+ * 与其它示例的差异：
+ * - 库本身从不 import @arcgis/*，由宿主应用导入 esri 类并一次性组装成
+ *   namespace 传入 GeoAgentCore（mapEngine: { kind: "arcgis", viewKind: "map" }）；
+ * - viewKind 为 "map"，驱动平面 2D 的 MapView；arcgis-scene 示例则用
+ *   viewKind: "scene" 驱动 3D 的 SceneView 相机模型；
+ * - 额外演示用 core.getTools().runCommand 经 agent 自身的工具机制
+ *   预置一组示例数据（add_geojson_data），面板首轮对话即有图层可操作。
+ */
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-// The @arcgis/map-components web components + the esri classes the GeoAgent
-// shim constructs. The library itself never imports @arcgis/* — the host
-// assembles the namespace once.
+// @arcgis/map-components 的 web components + GeoAgent shim 需要构造的 esri 类。
+// 库本身从不 import @arcgis/*——由宿主一次性组装好 namespace。
 import { defineCustomElements } from '@arcgis/map-components/dist/loader';
 import WebTileLayer from '@arcgis/core/layers/WebTileLayer.js';
 import FeatureLayer from '@arcgis/core/layers/FeatureLayer.js';
@@ -22,12 +33,12 @@ import { readLlmEnvConfig } from '@/demo/env';
 import '@/demo/demo.css';
 import '@arcgis/map-components/dist/arcgis-map-components/arcgis-map-components.css';
 
-// Register <arcgis-map> / <arcgis-scene> and friends.
+// 注册 <arcgis-map> / <arcgis-scene> 等 web component。
 void defineCustomElements();
 
-// Follow the language chosen on the examples homepage (localStorage).
+// 跟随示例首页选择的语言（存储在 localStorage）。
 const locale = resolveExamplesLocale();
-// Deployment defaults from .env (LLM_API_URL / LLM_API_KEY / LLM_API_MODEL).
+// 从 .env 读取的部署默认值（LLM_API_URL / LLM_API_KEY / LLM_API_MODEL）。
 const llm = readLlmEnvConfig();
 applyExamplePageLocale(locale, {
   en: 'web-geoagent - ArcGIS Map Example',
@@ -36,9 +47,9 @@ applyExamplePageLocale(locale, {
 });
 
 /**
- * A small hand-made dataset seeded through the agent's own tool machinery
- * (runCommand), so the panel's first prompt already has agent-managed layers
- * to query and restyle: two district polygons, a bus line, and café points.
+ * 手工构造的小型示例数据集，通过 agent 自己的工具机制（runCommand）注入，
+ * 使面板首轮对话时就已经有 agent 托管的图层可供查询与改样式：
+ * 两个行政区面、一条公交线路（Bus 38）和四个咖啡馆点，均位于旧金山。
  */
 const DEMO_GEOJSON = {
   type: 'FeatureCollection',
@@ -111,8 +122,15 @@ const DEMO_GEOJSON = {
   ],
 } as const;
 
+/**
+ * 页面主组件：渲染 <arcgis-map> web component，并通过 GeoAgentCore +
+ * GeoAgentPanel 接入 agent；视图就绪后经 runCommand 预置示例数据。
+ * @returns 左侧 GeoAgent 面板 + 右侧地图容器的页面布局。
+ */
 function ArcGISMapExample() {
   const mapElement = useRef<HTMLElement>(null);
+  // 惰性初始化 GeoAgentCore：仅在首次渲染时创建一次，
+  // 并在此挂接 ArcGIS 兼容引擎与 esri 命名空间。
   const [core] = useState(
     () =>
       new GeoAgentCore({
@@ -121,11 +139,12 @@ function ArcGISMapExample() {
         defaultBaseUrl: llm.baseUrl,
         defaultApiKey: llm.apiKey,
         defaultModel: llm.model,
-        // The ArcGIS compatibility engine: MapView (flat 2D) + the esri
-        // classes the shim constructs.
+        // ArcGIS 兼容引擎：MapView（平面 2D）+ shim 需要构造的 esri 类。
         mapEngine: {
           kind: 'arcgis',
           viewKind: 'map',
+          // shim 用这些类把 GeoJSON 转成 FeatureLayer / Graphic，
+          // 并构造面、线、点、文字、图片等各类 Symbol。
           namespace: {
             WebTileLayer,
             FeatureLayer,
@@ -141,17 +160,20 @@ function ArcGISMapExample() {
   );
   const [mapEl, setMapEl] = useState<HTMLElement | null>(null);
 
+  // 等待 <arcgis-map> 完成 web component 升级（其内部 MapView 就绪）。
   useEffect(() => {
     const el = mapElement.current;
     if (!el) return;
+    // 卸载标记：防止组件卸载后仍执行 setState。
     let disposed = false;
-    // The component's MapView only exists after the component loads. Note:
-    // these web components have no when() method — the element inherits the
-    // native EventTarget.prototype.when(type), which needs an event name.
+    // 组件的 MapView 要等 web component 加载完成后才存在。注意：这些
+    // web component 没有 when() 方法——元素上继承的是原生
+    // EventTarget.prototype.when(type)，需要传事件名。
     void waitForArcGISComponent(el).then(() => {
       if (disposed) {
         return;
       }
+      // 视图就绪，更新 state 以渲染 GeoAgentPanel。
       setMapEl(el);
     });
     return () => {
@@ -159,12 +181,14 @@ function ArcGISMapExample() {
     };
   }, []);
 
-  // Seed demo data through the agent's own tools once the panel has attached
-  // (child effects run before parent effects, so the tools exist here).
+  // 面板挂载完成后，通过 agent 自身的工具机制预置示例数据
+  // （子组件 effect 先于父组件 effect 执行，因此此处工具已就绪）。
   useEffect(() => {
     if (!mapEl) return;
     const tools = core.getTools();
     if (!tools) return;
+    // 以 add_geojson_data 工具注入 GeoJSON 图层；样式键沿用
+    // MapLibre 的 paint 属性命名（circle-color / line-color），由 shim 转换。
     void tools.runCommand('add_geojson_data', {
       name: 'sf-demo',
       data: DEMO_GEOJSON,
@@ -175,6 +199,7 @@ function ArcGISMapExample() {
   return (
     <div className="flex w-full">
       <div className="flex shrink-0 flex-col overflow-hidden border-r bg-muted">
+        {/* web component 的视图就绪后才渲染面板；core 已在 useState 中创建。 */}
         {mapEl && (
           <GeoAgentPanel
             core={core}
@@ -186,6 +211,7 @@ function ArcGISMapExample() {
           />
         )}
       </div>
+      {/* ArcGIS 2D 地图：topo 地形底图，初始中心 (10, 12)、zoom 2（全球视野）。 */}
       <arcgis-map
         ref={mapElement}
         basemap="topo"
@@ -193,13 +219,14 @@ function ArcGISMapExample() {
         zoom="2"
         className="relative min-w-0 flex-1"
       >
-        {/* Zoom in/out buttons live in the view's UI at the requested slot. */}
+        {/* 缩放按钮放在视图 UI 的指定 slot 位置。 */}
         <arcgis-zoom slot="top-right" />
       </arcgis-map>
     </div>
   );
 }
 
+// 将示例挂载到 #root；外层 ExampleShell 提供页面标题与说明栏。
 createRoot(document.getElementById('root')!).render(
   <ExampleShell title={HOMEPAGE_I18N[locale].arcgisMapTitle}>
     <ArcGISMapExample />

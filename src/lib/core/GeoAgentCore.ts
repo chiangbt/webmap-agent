@@ -1,3 +1,8 @@
+/**
+ * 无头引擎 GeoAgentCore 的实现：provider 配置与 sessionStorage 持久化、
+ * Strands agent 生命周期、会话/状态/提示三路订阅流、system prompt 组装，
+ * 以及 prompt 历史。自身不持有任何 DOM，由命令式控件与 React 面板分别渲染。
+ */
 import {
   Agent,
   type AgentStreamEvent,
@@ -22,9 +27,15 @@ import type {
   GeoAgentStatusState,
 } from './types';
 
+/** 未指定 defaultProvider 时使用的默认 provider。 */
 const DEFAULT_PROVIDER: GeoAgentProviderId = 'openai-compatible';
+/** sessionStorage 键的默认前缀。 */
 const DEFAULT_STORAGE_PREFIX = 'web-geoagent';
 
+/**
+ * 两个内置 provider 的基础配置（不含 storageKey——它依赖运行时的
+ * storagePrefix）；defaultModel 会被宿主的 defaultModel 选项覆盖。
+ */
 const BASE_PROVIDER_CONFIGS: Record<
   GeoAgentProviderId,
   Omit<GeoAgentProviderConfig, 'storageKey'>
@@ -34,8 +45,7 @@ const BASE_PROVIDER_CONFIGS: Record<
     label: 'OpenAI-Compatible (Custom)',
     keyLabel: 'API Key',
     keyPlaceholder: 'sk-... or token',
-    // No default model: custom endpoints expose their own model names, so the
-    // user enters one or loads the list from the endpoint.
+    // 无默认模型：自定义端点使用自己的模型名，由用户手动填写或从端点加载列表。
     defaultModel: '',
     requiresBaseUrl: true,
     baseUrlPlaceholder: 'https://host/v1',
@@ -51,6 +61,10 @@ const BASE_PROVIDER_CONFIGS: Record<
   },
 };
 
+/**
+ * 浏览器地图 agent 的内置 system prompt 基础段：约定工具工作流（底图/滤镜
+ * 工具的选择、Earth Engine 工具优先）、经纬度顺序差异，以及回复风格。
+ */
 const BROWSER_MAP_SYSTEM_PROMPT = `You are an AI assistant embedded in a browser web app with direct access to a live web map through dedicated browser tools.
 
 Workflow guidance:
@@ -63,30 +77,36 @@ Workflow guidance:
 - Keep responses concise and include layer names, locations, and tool results when useful.`;
 
 /**
- * Engine capability paragraph appended to the system prompt, so the agent
- * knows the map's boundaries BEFORE it calls any tool — not only through a
- * runtime error after the fact. Empty for maplibre-gl, whose capabilities the
- * base prompt and the full tool list already describe.
+ * 追加到 system prompt 的引擎能力段落，让代理在调用任何工具“之前”就了解
+ * 地图的能力边界，而不是事后靠运行时报错得知。maplibre-gl 返回空串——
+ * 其能力已由基础 prompt 与完整工具清单描述。
  *
- * Exported for tests; the parameters are `options.mapEngine?.kind` and, for
- * ArcGIS hosts, `options.mapEngine.viewKind` ('map' | 'scene').
+ * 导出仅供测试使用；参数为 `options.mapEngine?.kind`，ArcGIS 宿主另传
+ * `options.mapEngine.viewKind`（'map' | 'scene'）。
  */
 export function engineCapabilityPrompt(
   engineKind: string | undefined,
   arcgisViewKind?: 'map' | 'scene',
 ): string {
+  // Leaflet：纯 2D 引擎——无 3D/地形/天空/3D 建筑，无截图；pitch/bearing 恒为 0。
   if (engineKind === 'leaflet') {
     return `The live map is rendered by Leaflet, a 2D-only engine. Leaflet cannot render 3D: there is no globe projection, no terrain, no sky, no 3D buildings (fill-extrusion), and no map screenshot; the corresponding tools are not available on this map. Camera pitch and bearing are always 0, and the projection is always Web Mercator. If the user asks for a 3D effect, explain that Leaflet does not support it and offer a 2D alternative instead of attempting workarounds.`;
   }
+  // OpenLayers：本集成下为 2D 引擎——能力限制与 Leaflet 类似，bearing 跟随视图旋转。
   if (engineKind === 'openlayers') {
     return `The live map is rendered by OpenLayers, a 2D engine in this integration. It cannot render 3D here: there is no globe projection, no terrain, no sky, no 3D buildings (fill-extrusion), and no map screenshot; the corresponding tools are not available on this map. Camera pitch is always 0 (bearing follows the view rotation), and the projection is always Web Mercator. If the user asks for a 3D effect, explain that the OpenLayers engine does not support it and offer a 2D alternative instead of attempting workarounds.`;
   }
+  // ArcGIS SceneView：3D 球体——地形/大气内建，add_terrain/set_sky 不适用；
+  // 截图可用，GeoJSON 渲染为贴地的客户端 FeatureLayer，不支持 vector-tile。
   if (engineKind === 'arcgis' && arcgisViewKind === 'scene') {
     return `The live map is rendered by an ArcGIS SceneView — a 3D globe. Terrain comes from the scene's ground elevation layers and the atmosphere is built in, so add_terrain/set_sky are not applicable and will report errors. Camera bearing follows the camera heading and pitch follows the camera tilt; screenshot_map IS supported and composites the globe. GeoJSON renders as client-side FeatureLayers draped on the globe; vector-tile sources are not supported. fly_to moves the camera while keeping its tilt. For SceneView-specific camera work (heading/tilt targets), write ArcGIS Maps SDK code with run_maplibre_script.`;
   }
+  // ArcGIS MapView：2D 引擎——无 3D 但支持截图；GeoJSON 渲染为逐要素符号的
+  // FeatureLayer，不支持 vector-tile 与 image source。
   if (engineKind === 'arcgis') {
     return `The live map is rendered by the ArcGIS Maps SDK for JavaScript (MapView, a 2D engine). It cannot render 3D here: there is no globe projection, no terrain, no sky, and no 3D buildings (fill-extrusion); the corresponding tools report errors. Camera pitch is always 0 (bearing follows the view rotation), and the projection is Web Mercator. GeoJSON renders as client-side FeatureLayers with per-feature symbols; vector-tile and image sources are not supported. Map screenshots ARE supported on this engine (screenshot_map composites the view). If the user asks for a 3D effect, explain that the ArcGIS MapView engine does not support it and offer a 2D alternative instead of attempting workarounds.`;
   }
+  // Mapbox GL JS：仅 sky 工具不可用（Mapbox 经 style layer 绘制天空）。
   if (engineKind === 'mapbox') {
     return `The live map is rendered by Mapbox GL JS. Sky specification tools are not supported by Mapbox GL JS (it draws sky through a style layer) and will report an error.`;
   }
@@ -94,35 +114,40 @@ export function engineCapabilityPrompt(
 }
 
 /**
- * Code-execution paragraph for the system prompt. Engine-aware: the snippet
- * bindings and the API the model must write differ per engine — on Leaflet the
- * code receives the real L.Map and the L namespace, on OpenLayers the real
- * ol/Map and the ol namespace, and MapLibre calls would fail there.
+ * system prompt 的代码执行段落。按引擎感知生成：代码片段拿到的绑定与模型
+ * 应写的 API 因引擎而异——Leaflet 下代码拿到真实的 L.Map 与 L 命名空间，
+ * OpenLayers 下拿到真实的 ol/Map 与 ol 命名空间，此时写 MapLibre 调用会失败。
  *
- * Exported for tests; the parameter is `options.mapEngine?.kind`.
+ * 导出仅供测试使用；参数为 `options.mapEngine?.kind`。
  */
 export function codeExecutionPrompt(
   engineKind: string | undefined,
   arcgisViewKind?: 'map' | 'scene',
 ): string {
+  // 基础声明：该工具在页面上下文执行任意 JS，不是安全边界，仅限本地受信场景。
   const base = `Browser JavaScript code execution is enabled for this local session. This tool runs arbitrary JavaScript in the page context and is not a safety boundary; treat it as a trusted, local-only escape hatch.`;
+  // 护栏：代码只做地图操作，不碰凭据、storage、无关 DOM 与大范围网络请求。
   const guardrails = `Keep code focused on map operations, and avoid credential handling, storage access, unrelated DOM manipulation, or broad network operations.`;
+  // Leaflet：作用域注入真实的 L.Map 与 L 命名空间，要求模型写 Leaflet API。
   if (engineKind === 'leaflet') {
     return `${base}
 
 When no dedicated browser map tool can perform the requested operation, write a short JavaScript snippet and run it with run_maplibre_script. The snippet executes in the browser with these names in scope: map (the real Leaflet L.Map), L (the Leaflet namespace), and helpers. Write Leaflet API code — this map is not MapLibre, and MapLibre calls will fail. ${guardrails}`;
   }
+  // OpenLayers：作用域注入真实的 ol/Map 与 ol 命名空间对象。
   if (engineKind === 'openlayers') {
     return `${base}
 
 When no dedicated browser map tool can perform the requested operation, write a short JavaScript snippet and run it with run_maplibre_script. The snippet executes in the browser with these names in scope: map (the real OpenLayers ol/Map), ol (the OpenLayers namespace object), and helpers. Write OpenLayers API code — this map is not MapLibre, and MapLibre calls will fail. ${guardrails}`;
   }
+  // ArcGIS：按 viewKind 注入真实的 MapView/SceneView 与经 mapEngine 传入的 esri 类。
   if (engineKind === 'arcgis') {
     const viewName = arcgisViewKind === 'scene' ? 'ArcGIS SceneView' : 'ArcGIS MapView';
     return `${base}
 
 When no dedicated browser map tool can perform the requested operation, write a short JavaScript snippet and run it with run_maplibre_script. The snippet executes in the browser with these names in scope: map (the real ${viewName}), esri (the namespace classes passed via mapEngine), and helpers. Write ArcGIS Maps SDK code — this map is not MapLibre, and MapLibre calls will fail. ${guardrails}`;
   }
+  // MapLibre/Mapbox：注入 map 与对应的全局命名空间（maplibregl / mapboxgl）。
   const api = engineKind === 'mapbox' ? 'Mapbox GL JS' : 'MapLibre GL JS';
   const namespaceName = engineKind === 'mapbox' ? 'mapboxgl' : 'maplibregl';
   return `${base}
@@ -130,6 +155,7 @@ When no dedicated browser map tool can perform the requested operation, write a 
 When no dedicated browser map tool can perform the requested ${api} operation, write a short JavaScript snippet and run it with run_maplibre_script. The snippet executes in the browser with these names in scope: map, ${namespaceName}, and helpers. Prefer ${api} API calls, ${guardrails.toLowerCase()}`;
 }
 
+/** 从 sessionStorage 读取值；不可用（如隐私模式）或键不存在时返回 null。 */
 function storageGet(key: string): string | null {
   try {
     return globalThis.sessionStorage?.getItem(key) ?? null;
@@ -138,26 +164,37 @@ function storageGet(key: string): string | null {
   }
 }
 
+/** 向 sessionStorage 写入值；失败静默忽略。 */
 function storageSet(key: string, value: string): void {
   try {
     globalThis.sessionStorage?.setItem(key, value);
   } catch {
-    // Ignore storage failures in private or restricted browser contexts.
+    // 忽略隐私模式等受限浏览器环境下的 storage 写入失败。
   }
 }
 
+/** 从 sessionStorage 移除值；失败静默忽略。 */
 function storageRemove(key: string): void {
   try {
     globalThis.sessionStorage?.removeItem(key);
   } catch {
-    // Ignore storage failures in private or restricted browser contexts.
+    // 忽略隐私模式等受限浏览器环境下的 storage 写入失败。
   }
 }
 
+/** 返回第一个 trim 后非空的值；全部为空时返回空字符串。 */
 function firstValue(...values: Array<string | undefined | null>): string {
   return values.find((value) => value?.trim())?.trim() ?? '';
 }
 
+/**
+ * 解析某 provider 的默认模型。
+ *
+ * @param providerId provider 标识
+ * @param defaultModel 宿主的 defaultModel 选项：全局字符串、按 provider 的
+ *   映射，或 undefined
+ * @returns 生效的默认模型 ID；宿主值缺省或为空时回退到 provider 自身默认值
+ */
 function defaultModelFor(
   providerId: GeoAgentProviderId,
   defaultModel: GeoAgentControlOptions['defaultModel'],
@@ -166,19 +203,20 @@ function defaultModelFor(
   if (defaultModel === undefined) {
     return providerDefault;
   }
-  // An empty string (or an empty per-provider entry) means "no host default"
-  // (e.g. an unset env model) — fall through to the provider's own default.
+  // 空字符串（或空的按 provider 条目）表示“宿主没有默认模型”（如未设置的
+  // 环境变量），回退到 provider 自身默认值。
   if (typeof defaultModel === 'string') {
     return defaultModel || providerDefault;
   }
   return defaultModel[providerId] || providerDefault;
 }
 
+/** 把角色名转成“首字母大写、其余小写”的展示标题（如 markdown 导出用）。 */
 function markdownHeading(role: string): string {
   return role.charAt(0).toUpperCase() + role.slice(1).toLowerCase();
 }
 
-/** Human-readable map engine name for log messages, keyed by `mapEngine.kind`. */
+/** 日志消息用的地图引擎展示名，按 `mapEngine.kind` 索引。 */
 const ENGINE_LABELS: Record<string, string> = {
   maplibre: 'MapLibre',
   mapbox: 'Mapbox GL JS',
@@ -187,38 +225,48 @@ const ENGINE_LABELS: Record<string, string> = {
   arcgis: 'ArcGIS Maps SDK',
 };
 
+/** 会话条目自增计数器，用于生成模块内唯一的 entry id。 */
 let conversationEntryCount = 0;
 
+/** 生成下一个会话条目 id（形如 geoagent-entry-N）。 */
 function generateEntryId(): string {
   conversationEntryCount += 1;
   return `geoagent-entry-${conversationEntryCount}`;
 }
 
+/** 会话变更订阅回调：携带增量变更与全量条目快照。 */
 type ConversationHandler = (
   change: GeoAgentConversationChange,
   entries: GeoAgentConversationEntry[],
 ) => void;
+/** 状态徽标变更订阅回调。 */
 type StatusHandler = (status: GeoAgentStatusState) => void;
+/** 配置提示变更订阅回调。 */
 type NoteHandler = (note: GeoAgentNoteState) => void;
 
+/** 通用事件（collapse/expand/statechange）到处理器集合的映射表。 */
 type EventHandlersMap = globalThis.Map<
   GeoAgentControlEvent,
   Set<GeoAgentControlEventHandler>
 >;
 
 /**
- * Headless GeoAgent engine: provider configuration and persistence, the
- * Strands agent lifecycle, conversation state, and prompt history — with no
- * DOM of its own. Both the imperative {@link GeoAgentControl} panel and the
- * React {@link GeoAgentPanel} render from this core.
+ * 无头 GeoAgent 引擎：provider 配置与持久化、Strands agent 生命周期、
+ * 会话状态与 prompt 历史——自身不持有任何 DOM。命令式面板
+ * {@link GeoAgentControl} 与 React 面板 {@link GeoAgentPanel} 都从这份核心
+ * 渲染。
  *
- * Lifecycle: construct with options, call {@link attach} with the map (any
- * engine supported by `mapEngine`), drive it through the setter methods, and
- * call {@link dispose} when done. Conversation, status-badge, and
- * configuration-note changes are delivered through the dedicated
- * `onConversation` / `onStatus` / `onNote` subscriptions.
+ * 生命周期：先以选项构造，再调用 {@link attach} 绑定地图（`mapEngine` 支持
+ * 的任意引擎），随后通过各 setter 方法驱动，结束时调用 {@link dispose}。
+ * 会话、状态徽标与配置提示的变更分别经 `onConversation` / `onStatus` /
+ * `onNote` 订阅推送。
  */
 export class GeoAgentCore {
+  /**
+   * 归一化后的完整选项：缺省项已填默认值；仅 defaultModel、basemaps、
+   * earthEngine、apiKeys、panelHeight、customTools、customSystemPrompt、
+   * mapEngine 允许保持 undefined（工具层会自行兜底）。
+   */
   readonly options: Required<
     Omit<
       GeoAgentControlOptions,
@@ -241,46 +289,73 @@ export class GeoAgentCore {
       | 'panelHeight'
       | 'customTools'
       | 'customSystemPrompt'
-      // No default: the tools fall back to this package's own maplibre-gl.
+      // 无默认值：工具会回退到本包自带的 maplibre-gl。
       | 'mapEngine'
     >;
+  /** 当前绑定的地图实例（attach 后存在；非 MapLibre 引擎时也由此字段承载）。 */
   private mapInstance?: MapLibreMap;
+  /** 地图 DOM 容器，用于面板高度钳制等布局计算。 */
   private mapContainer?: HTMLElement;
+  /** 与当前地图绑定的工具集（attach 时创建，detach/重挂载时销毁）。 */
   private tools?: GeoAgentTools;
+  /** 缓存的 Strands Agent 实例；配置变化后失效为 null，下次运行时重建。 */
   private agent: Agent | null = null;
+  /** 创建当前 agent 时的配置签名，用于判断缓存实例是否仍然有效。 */
   private agentSignature = '';
+  /** 流式输出进行中的 assistant 条目 id；null 表示本轮流式输出尚未开始。 */
   private streamingEntryId: string | null = null;
+  /** 本轮流式输出累计的 assistant 文本。 */
   private streamingAssistantText = '';
+  /** 会话条目列表（核心持有；UI 层经事件镜像，core 不依赖 UI）。 */
   private entries: GeoAgentConversationEntry[] = [];
+  /** 已发送 prompt 的历史（ArrowUp/ArrowDown 导航用）。 */
   private promptHistory: string[] = [];
+  /** 当前历史导航位置；-1 表示不在导航状态。 */
   private promptHistoryIndex = -1;
+  /** 进入历史导航前输入框中的草稿，导航越过历史末尾时恢复。 */
   private promptHistoryDraft = '';
+  /** 控件运行时状态（折叠、尺寸、provider、模型、权限开关等）。 */
   private state: GeoAgentState;
+  /** 通用事件（collapse/expand/statechange）的订阅处理器集合。 */
   private eventHandlers: EventHandlersMap = new globalThis.Map();
+  /** 会话变更订阅者。 */
   private conversationHandlers = new Set<ConversationHandler>();
+  /** 状态徽标变更订阅者。 */
   private statusHandlers = new Set<StatusHandler>();
+  /** 配置提示变更订阅者。 */
   private noteHandlers = new Set<NoteHandler>();
+  /** 当前运行的中止控制器，用于取消进行中的模型请求。 */
   private activeAbortController: AbortController | null = null;
+  /** 用户已请求取消但取消尚未落定的标记。 */
   private cancelRequested = false;
-  // The API key the agent actually uses. Updated only when the user commits the
-  // key field (Enter or blur), never on every keystroke, so a half-typed key
-  // does not flip the badge to "Ready" or get written to storage.
+  // 代理实际使用的 API key。仅在用户提交 key 输入框（Enter 或失焦）时更新，
+  // 不随每次键入更新，避免输入到一半的 key 把徽标翻成 "Ready" 或写入 storage。
   private committedApiKey = '';
+  /** 配置提示自动隐藏的定时器。 */
   private noteTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 复制成功徽标恢复空闲状态的定时器。 */
   private statusCopyTimer: ReturnType<typeof setTimeout> | null = null;
-  // Kind of the currently displayed idle status badge ('connected' | 'setup'),
-  // or null while a transient status (Running, Cancelled, Error, Copied) is
-  // shown. Tracked by kind instead of comparing badge text so the idle status
-  // keeps working in every locale.
+  // 当前展示的空闲状态徽标类别（'connected' | 'setup'）；瞬态状态（Running、
+  // Cancelled、Error、Copied）展示期间为 null。按类别而非文本比较，保证空闲
+  // 状态在所有 locale 下都正常工作。
   private idleStatusKind: 'connected' | 'setup' | null = null;
+  /** 当前状态徽标内容。 */
   private status: GeoAgentStatusState = {
     text: '',
     kind: '',
     transient: false,
   };
+  /** 当前配置提示内容。 */
   private note: GeoAgentNoteState = { text: '', kind: null };
 
+  /**
+   * 构造无头引擎：归一化选项（填默认值）并初始化 provider/model/baseUrl 等
+   * 运行时状态；此时不触碰 DOM，也不创建工具与 agent。
+   *
+   * @param options 宿主传入的可配置项，全部可省略
+   */
   constructor(options: GeoAgentControlOptions = {}) {
+    // 逐项补默认值，得到完整、可直接读取的 options（此后 core 内部不再判空）。
     this.options = {
       collapsed: options.collapsed ?? true,
       position: options.position ?? 'top-right',
@@ -295,7 +370,7 @@ export class GeoAgentCore {
       className: options.className ?? '',
       defaultProvider: options.defaultProvider ?? DEFAULT_PROVIDER,
       storagePrefix: options.storagePrefix ?? DEFAULT_STORAGE_PREFIX,
-      // Deployment-wide fallbacks (e.g. injected from .env by the host app).
+      // 部署级兜底值（如宿主应用从 .env 注入）。
       defaultApiKey: options.defaultApiKey ?? '',
       defaultBaseUrl: options.defaultBaseUrl ?? '',
       allowCodeExecutionDefault: options.allowCodeExecutionDefault ?? true,
@@ -309,6 +384,7 @@ export class GeoAgentCore {
       customSystemPrompt: options.customSystemPrompt,
       mapEngine: options.mapEngine,
     };
+    // 初始 provider 优先取存储偏好；其余状态按该 provider 的存储值/默认值填充。
     const providerId = this.initialProviderId();
     this.state = {
       collapsed: this.options.collapsed,
@@ -327,25 +403,22 @@ export class GeoAgentCore {
     };
   }
 
-  // ---------------------------------------------------------------- lifecycle
+  // ---------------------------------------------------------------- 生命周期
 
   /**
-   * Wire the core to a map. Creates the engine-appropriate agent tools (the
-   * map is handed to them through the constructor), loads the persisted
-   * provider settings, and appends the ready/setup log entry.
+   * 把核心绑定到地图。创建与引擎匹配的 agent 工具（地图经参数交给工具）、
+   * 读取持久化的 provider 设置，并追加就绪/缺配置的系统日志条目。
    */
   attach(map: MapLibreMap): void {
-    // Re-attaching (e.g. a React panel whose map instance changed) replaces the
-    // previous tools binding instead of leaking it.
+    // 重新绑定（如 React 面板的地图实例发生变化）时销毁旧工具绑定，避免泄漏。
     if (this.tools) {
       this.tools.destroy();
       this.tools = undefined;
     }
     this.mapInstance = map;
-    // MapLibre/Mapbox/Leaflet hosts expose getContainer(); OpenLayers maps
-    // expose getTargetElement(); ArcGIS MapViews expose a `container`
-    // property — resolveMapContainer accepts all of them so overlays and the
-    // height clamping have a container on every engine.
+    // MapLibre/Mapbox/Leaflet 宿主暴露 getContainer()；OpenLayers 地图暴露
+    // getTargetElement()；ArcGIS MapView 暴露 `container` 属性——
+    // resolveMapContainer 全部兼容，保证覆盖层与高度钳制在每种引擎下都有容器。
     const mapContainer = resolveMapContainer(map);
     if (!mapContainer) {
       throw new Error(
@@ -353,6 +426,8 @@ export class GeoAgentCore {
       );
     }
     this.mapContainer = mapContainer;
+    // 创建工具集：权限开关经 getter 回调读取（工具每次调用都拿到最新值），
+    // 工具产生的 data 变更合并回状态并广播 statechange。
     this.tools = createGeoAgentTools(map, {
       basemaps: { ...DEFAULT_BASEMAPS, ...this.options.basemaps },
       allowCodeExecution: () => this.state.allowCodeExecution,
@@ -369,7 +444,7 @@ export class GeoAgentCore {
     this.appendEntry('system', this.readyLogMessage());
   }
 
-  /** Drop the map binding without touching the conversation or listeners. */
+  /** 解除地图绑定，但不触碰会话与监听器。 */
   detach(): void {
     this.tools?.destroy();
     this.tools = undefined;
@@ -377,8 +452,9 @@ export class GeoAgentCore {
     this.mapContainer = undefined;
   }
 
-  /** Full teardown: abort any run, drop the map binding, clear all listeners. */
+  /** 完整销毁：中止进行中的运行、解除地图绑定、清空全部监听器与定时器。 */
   dispose(): void {
+    // 先取消进行中的模型请求与 agent 任务，再逐步释放其余资源。
     this.activeAbortController?.abort();
     this.agent?.cancel();
     this.activeAbortController = null;
@@ -386,6 +462,7 @@ export class GeoAgentCore {
     this.agent = null;
     this.agentSignature = '';
     this.detach();
+    // 清掉两个可能仍在排队的定时器，避免销毁后回调触碰已清理的状态。
     if (this.noteTimer !== null) {
       clearTimeout(this.noteTimer);
       this.noteTimer = null;
@@ -403,57 +480,68 @@ export class GeoAgentCore {
     this.noteHandlers.clear();
   }
 
+  /** 返回当前绑定的地图实例；未 attach 时为 undefined。 */
   getMap(): MapLibreMap | undefined {
     return this.mapInstance;
   }
 
-  /** The engine-bound tools, or undefined before `attach`. */
+  /** 返回与引擎绑定的工具集；`attach` 之前为 undefined。 */
   getTools(): GeoAgentTools | undefined {
     return this.tools;
   }
 
-  /** Live (uncopied) state for UI layers that read it on every render. */
+  /** 返回内部 state 的活引用（未拷贝），供 UI 层在每次渲染时直接读取。 */
   peekState(): GeoAgentState {
     return this.state;
   }
 
-  // ------------------------------------------------------------------ events
+  // ------------------------------------------------------------------ 事件
 
+  /** 订阅通用事件（collapse/expand/statechange）。 */
   on(event: GeoAgentControlEvent, handler: GeoAgentControlEventHandler): void {
+    // 按事件名惰性建集合；同一 handler 会被 Set 去重。
     if (!this.eventHandlers.has(event)) {
       this.eventHandlers.set(event, new Set());
     }
     this.eventHandlers.get(event)!.add(handler);
   }
 
+  /** 取消通用事件订阅。 */
   off(event: GeoAgentControlEvent, handler: GeoAgentControlEventHandler): void {
     this.eventHandlers.get(event)?.delete(handler);
   }
 
+  /** 订阅会话变更流（append/update/reset 增量 + 全量条目快照）。 */
   onConversation(handler: ConversationHandler): void {
     this.conversationHandlers.add(handler);
   }
 
+  /** 取消会话变更订阅。 */
   offConversation(handler: ConversationHandler): void {
     this.conversationHandlers.delete(handler);
   }
 
+  /** 订阅状态徽标变更流。 */
   onStatus(handler: StatusHandler): void {
     this.statusHandlers.add(handler);
   }
 
+  /** 取消状态徽标订阅。 */
   offStatus(handler: StatusHandler): void {
     this.statusHandlers.delete(handler);
   }
 
+  /** 订阅配置提示变更流。 */
   onNote(handler: NoteHandler): void {
     this.noteHandlers.add(handler);
   }
 
+  /** 取消配置提示订阅。 */
   offNote(handler: NoteHandler): void {
     this.noteHandlers.delete(handler);
   }
 
+  /** 向对应事件的全部订阅者派发（附最新状态快照）。 */
   private emit(event: GeoAgentControlEvent): void {
     const handlers = this.eventHandlers.get(event);
     if (!handlers) {
@@ -463,23 +551,27 @@ export class GeoAgentCore {
     handlers.forEach((handler) => handler(eventData));
   }
 
+  /** 向会话订阅者广播增量变更；每次都附上全量条目快照便于整体重绘。 */
   private emitConversation(change: GeoAgentConversationChange): void {
     const entries = this.getConversation();
     this.conversationHandlers.forEach((handler) => handler(change, entries));
   }
 
+  /** 向状态订阅者广播最新徽标内容。 */
   private emitStatus(): void {
     const status = this.getStatus();
     this.statusHandlers.forEach((handler) => handler(status));
   }
 
+  /** 向配置提示订阅者广播最新提示内容（拷贝快照）。 */
   private emitNote(): void {
     const note = { ...this.note };
     this.noteHandlers.forEach((handler) => handler(note));
   }
 
-  // ------------------------------------------------------------------- state
+  // ------------------------------------------------------------------- 状态
 
+  /** 返回状态快照（data 做浅拷贝），外部改动不会影响内部状态。 */
   getState(): GeoAgentState {
     return {
       ...this.state,
@@ -488,11 +580,12 @@ export class GeoAgentCore {
   }
 
   /**
-   * Merge a partial state. Panel size values are clamped; provider, model, and
-   * code-execution changes invalidate the cached agent; collapse changes emit
-   * the expand/collapse events. DOM side effects belong to the UI layers.
+   * 合并部分状态。面板尺寸值会被钳制；provider、model 与代码执行开关的
+   * 变化会使缓存的 agent 失效；折叠变化会派发 expand/collapse 事件。
+   * DOM 副作用归 UI 层负责。
    */
   setState(newState: Partial<GeoAgentState>): void {
+    // 先基于旧值记录两类变化：折叠翻转（要发事件）、agent 相关配置变化（要失效缓存）。
     const collapsedChanged =
       newState.collapsed !== undefined && newState.collapsed !== this.state.collapsed;
     const agentInvalidating =
@@ -501,6 +594,7 @@ export class GeoAgentCore {
       (newState.allowCodeExecution !== undefined &&
         newState.allowCodeExecution !== this.state.allowCodeExecution);
     this.state = { ...this.state, ...newState };
+    // 尺寸值先经 clamp，保证面板尺寸永远落在 min/max 区间内。
     if (newState.panelWidth !== undefined) {
       this.state.panelWidth = this.constrainPanelWidth(newState.panelWidth);
     }
@@ -520,30 +614,33 @@ export class GeoAgentCore {
     this.emit('statechange');
   }
 
+  /** 切换面板折叠状态。 */
   toggle(): void {
     this.setState({ collapsed: !this.state.collapsed });
   }
 
+  /** 展开面板；已展开时无操作。 */
   expand(): void {
     if (this.state.collapsed) {
       this.toggle();
     }
   }
 
+  /** 折叠面板；已折叠时无操作。 */
   collapse(): void {
     if (!this.state.collapsed) {
       this.toggle();
     }
   }
 
-  // -------------------------------------------------------------- i18n texts
+  // -------------------------------------------------------------- i18n 文案
 
-  /** Localized UI string for this core's locale. */
+  /** 按本核心的 locale 返回本地化 UI 文案。 */
   translate(key: GeoAgentMessageKey, params?: Record<string, string | number>): string {
     return t(this.options.locale, key, params);
   }
 
-  /** Display label for a chat log role, honoring the core's locale. */
+  /** 会话日志角色的展示标签，遵循核心的 locale；未知角色回退为首字母大写。 */
   roleLabel(role: string): string {
     const known: Record<string, GeoAgentMessageKey> = {
       system: 'roleSystem',
@@ -556,7 +653,7 @@ export class GeoAgentCore {
     return key ? this.translate(key) : markdownHeading(role);
   }
 
-  /** Localized API key field label for a provider. */
+  /** 指定 provider 的本地化 API key 字段标签。 */
   localizedApiKeyLabel(providerId: GeoAgentProviderId): string {
     const key: GeoAgentMessageKey =
       providerId === 'anthropic-compatible'
@@ -565,7 +662,7 @@ export class GeoAgentCore {
     return this.translate(key);
   }
 
-  /** Placeholder hint shown in the prompt field while it is locked. */
+  /** 输入框被锁定时 prompt 字段展示的占位提示（列出还缺哪些配置项）。 */
   blockedPromptHint(configured: boolean): string {
     const missing = configured ? '' : this.missingConfigSummary();
     return missing
@@ -573,7 +670,7 @@ export class GeoAgentCore {
       : this.translate('hintConfigureProvider');
   }
 
-  /** Tooltip for the Send button while configuration is incomplete. */
+  /** 配置未完成时 Send 按钮的 tooltip 提示。 */
   sendBlockedHint(): string {
     const missing = this.missingConfigSummary();
     return missing
@@ -581,8 +678,9 @@ export class GeoAgentCore {
       : this.translate('hintConfigRequiredToSend');
   }
 
-  // -------------------------------------------------------------- providers
+  // -------------------------------------------------------------- provider 配置
 
+  /** 返回两个内置 provider 的完整配置（含按 storagePrefix 派生的 storageKey）。 */
   providerConfigs(): Record<GeoAgentProviderId, GeoAgentProviderConfig> {
     return {
       'openai-compatible': this.providerConfig('openai-compatible'),
@@ -590,16 +688,18 @@ export class GeoAgentCore {
     };
   }
 
+  /** 返回单个 provider 的配置：基础配置 + 派生 storageKey + 生效的默认模型。 */
   providerConfig(providerId: GeoAgentProviderId): GeoAgentProviderConfig {
     const base = BASE_PROVIDER_CONFIGS[providerId];
     return {
       ...base,
+      // API key 的 sessionStorage 键按 provider 隔离，避免切换 provider 时串键。
       storageKey: `${this.options.storagePrefix}.${providerId}.api_key`,
       defaultModel: defaultModelFor(providerId, this.options.defaultModel),
     };
   }
 
-  /** API key label + placeholder for the current provider (for input chrome). */
+  /** 当前 provider 的 API key 标签与 placeholder（供输入框装饰）。 */
   currentApiKeyChrome(): { label: string; placeholder: string } {
     const provider = this.providerConfig(this.state.providerId);
     return {
@@ -608,6 +708,7 @@ export class GeoAgentCore {
     };
   }
 
+  /** 初始 provider：优先取 sessionStorage 中已保存的偏好，无效时用宿主默认值。 */
   private initialProviderId(): GeoAgentProviderId {
     const storedProvider = storageGet(`${this.options.storagePrefix}.provider`);
     if (storedProvider && storedProvider in BASE_PROVIDER_CONFIGS) {
@@ -616,6 +717,7 @@ export class GeoAgentCore {
     return this.options.defaultProvider;
   }
 
+  /** 初始模型 ID：存储值优先，其次宿主 defaultModel，最后 provider 默认值。 */
   private initialModelId(providerId: GeoAgentProviderId): string {
     return (
       storageGet(this.modelStorageKey(providerId)) ||
@@ -623,14 +725,17 @@ export class GeoAgentCore {
     );
   }
 
+  /** 某 provider 的模型 ID 在 sessionStorage 中的键。 */
   private modelStorageKey(providerId: GeoAgentProviderId): string {
     return `${this.options.storagePrefix}.model.${providerId}`;
   }
 
+  /** 某 provider 的 base URL 在 sessionStorage 中的键。 */
   private baseUrlStorageKey(providerId: GeoAgentProviderId): string {
     return `${this.options.storagePrefix}.baseUrl.${providerId}`;
   }
 
+  /** 初始 base URL：存储值优先，其次宿主的 defaultBaseUrl 兜底。 */
   private initialBaseUrl(providerId: GeoAgentProviderId): string {
     return (
       storageGet(this.baseUrlStorageKey(providerId)) ||
@@ -638,19 +743,21 @@ export class GeoAgentCore {
     );
   }
 
+  /** Earth Engine 项目 ID 在 sessionStorage 中的键。 */
   private earthEngineProjectIdStorageKey(): string {
     return `${this.options.storagePrefix}.earthEngine.projectId`;
   }
 
   /**
-   * Load the persisted settings (model, committed API key, base URL) for the
-   * current provider from sessionStorage. Host-supplied `apiKeys` and the
-   * deployment-wide `defaultApiKey`/`defaultBaseUrl` fallbacks (e.g. injected
-   * from .env by the host app) fill in whatever storage does not provide, and
-   * are never written to storage here.
+   * 从 sessionStorage 读取当前 provider 的持久化设置（模型、已提交 API key、
+   * base URL）。宿主传入的 `apiKeys` 与部署级 `defaultApiKey`/`defaultBaseUrl`
+   * 兜底值（如宿主从 .env 注入）填补 storage 缺失的部分，且这里不会把它们
+   * 写入 storage。
    */
   loadProviderSettings(): void {
     const provider = this.providerConfig(this.state.providerId);
+    // 宿主 key 优先级：provider 专属 apiKeys > 部署级 defaultApiKey；
+    // 仅当 storage 没有保存过 key 时才作为 committedApiKey 生效。
     const initialApiKey =
       this.options.apiKeys?.[provider.id]?.trim() ||
       this.options.defaultApiKey;
@@ -660,13 +767,15 @@ export class GeoAgentCore {
     this.state.baseUrl = this.initialBaseUrl(provider.id);
   }
 
-  /** Switch providers: persist the choice and reload its stored settings. */
+  /** 切换 provider：持久化选择并重新加载该 provider 的存储设置。 */
   switchProvider(providerId: GeoAgentProviderId): void {
+    // 未知 provider 直接忽略，防止把任意字符串写进状态与存储。
     if (!(providerId in BASE_PROVIDER_CONFIGS)) {
       return;
     }
     storageSet(`${this.options.storagePrefix}.provider`, providerId);
     this.state.providerId = providerId;
+    // 加载新 provider 的模型/key/baseUrl，并使旧 agent 失效。
     this.loadProviderSettings();
     this.invalidateAgent();
     this.hideNote();
@@ -674,24 +783,28 @@ export class GeoAgentCore {
     this.emit('statechange');
   }
 
+  /** 设置模型 ID：写入/清除存储，失效 agent 并刷新空闲徽标。 */
   setModelId(value: string): void {
     const modelId = value.trim();
     this.state.modelId = modelId;
+    // 空值视为“清除已保存模型”，从 storage 移除而不是存空串。
     if (modelId) {
       storageSet(this.modelStorageKey(this.state.providerId), modelId);
     } else {
       storageRemove(this.modelStorageKey(this.state.providerId));
     }
     this.invalidateAgent();
-    // Refresh the idle badge (no-op while a transient status is shown), mirroring
-    // the imperative panel's updateControls() -> applyIdleStatus() chain.
+    // 刷新空闲徽标（瞬态状态展示期间是 no-op），与命令式面板
+    // updateControls() -> applyIdleStatus() 的链路保持一致。
     this.applyIdleStatus();
     this.emit('statechange');
   }
 
+  /** 设置 base URL：写入/清除存储，失效 agent 并刷新空闲徽标。 */
   setBaseUrl(value: string): void {
     const baseUrl = value.trim();
     this.state.baseUrl = baseUrl;
+    // 与模型 ID 相同的约定：清空输入即移除存储值。
     if (baseUrl) {
       storageSet(this.baseUrlStorageKey(this.state.providerId), baseUrl);
     } else {
@@ -702,20 +815,23 @@ export class GeoAgentCore {
     this.emit('statechange');
   }
 
+  /** 切换代码执行工具开关；该配置影响 system prompt，需失效缓存的 agent。 */
   setAllowCodeExecution(checked: boolean): void {
     this.state.allowCodeExecution = checked;
     this.invalidateAgent();
     this.emit('statechange');
   }
 
+  /** 切换破坏性工具开关；工具经回调实时读取该值，无需失效 agent。 */
   setAllowDestructiveTools(checked: boolean): void {
     this.state.allowDestructiveTools = checked;
     this.emit('statechange');
   }
 
-  /** React to an in-progress edit of the API key without committing it. */
+  /** 响应 API key 输入框的编辑中状态，但不提交（不写 storage、不生效）。 */
   setApiKeyEdited(value: string): void {
     const apiKey = value.trim();
+    // 与已提交值不同的非空输入提示按 Enter 保存；清空输入则收起提示。
     if (apiKey && apiKey !== this.committedApiKey) {
       this.showNote(this.translate('notePressEnterToSaveKey'), 'info', false);
     } else if (!apiKey) {
@@ -723,11 +839,12 @@ export class GeoAgentCore {
     }
   }
 
-  /** Persist the typed API key and refresh the connection state. */
+  /** 提交（持久化）输入的 API key 并刷新连接状态。 */
   commitApiKey(value: string): void {
     const apiKey = value.trim();
     this.committedApiKey = apiKey;
     const storageKey = this.providerConfig(this.state.providerId).storageKey;
+    // 有值写入 storage；清空则移除，回到宿主兜底值/空的状态。
     if (apiKey) {
       storageSet(storageKey, apiKey);
     } else {
@@ -739,18 +856,20 @@ export class GeoAgentCore {
     } else {
       this.hideNote();
     }
+    // key 提交可能改变 Ready/Setup 结论，强制刷新空闲徽标。
     this.applyIdleStatus(true);
     this.emit('statechange');
   }
 
-  /** The API key the agent actually uses (committed value, not live input). */
+  /** 代理实际使用的 API key（已提交值，而非输入框的实时内容）。 */
   getCommittedApiKey(): string {
     return this.committedApiKey;
   }
 
-  /** Apply the current provider's default model ("Use latest" button). */
+  /** 应用当前 provider 的默认模型（“Use latest” 按钮）。无默认模型时提示并返回 false。 */
   applyLatestModel(): boolean {
     const latestModel = this.providerConfig(this.state.providerId).defaultModel;
+    // 自定义端点没有内置默认模型，提示用户手填模型 ID。
     if (!latestModel) {
       this.showNote(this.translate('noteEnterCustomModelId'), 'info', true);
       return false;
@@ -764,14 +883,15 @@ export class GeoAgentCore {
     return true;
   }
 
-  // ------------------------------------------------------------ earth engine
+  // ------------------------------------------------------------ Earth Engine
 
   /**
-   * Merge Earth Engine settings (host OAuth client id, user project id),
-   * persist the project id, and push the merged options to the tools. Called
-   * during panel setup (before `attach` creates the tools) and on edits.
+   * 合并 Earth Engine 设置（宿主 OAuth client id、用户 project id），持久化
+   * project id，并把合并后的 options 推给工具。在面板装配阶段（`attach`
+   * 创建工具之前）与后续编辑时都会调用。
    */
   setEarthEngineSettings(patch: { oauthClientId?: string; projectId?: string }): void {
+    // 宿主未启用 Earth Engine 时忽略任何设置。
     if (!this.options.earthEngine) {
       return;
     }
@@ -782,6 +902,7 @@ export class GeoAgentCore {
     if (patch.projectId !== undefined) {
       const projectId = patch.projectId.trim();
       merged.projectId = projectId;
+      // project id 由用户填写，值得跨会话记住；清空则移除存储值。
       if (projectId) {
         storageSet(this.earthEngineProjectIdStorageKey(), projectId);
       } else {
@@ -789,11 +910,12 @@ export class GeoAgentCore {
       }
     }
     this.options.earthEngine = merged;
+    // 工具尚不存在（attach 之前）时跳过；已存在则即时同步新配置。
     this.tools?.updateEarthEngineOptions(merged);
     this.emit('statechange');
   }
 
-  /** Initial project id for the Earth Engine field (storage wins over options). */
+  /** Earth Engine 字段的初始 project id（storage 优先于 options）。 */
   getEarthEngineProjectId(): string {
     return firstValue(
       storageGet(this.earthEngineProjectIdStorageKey()),
@@ -801,14 +923,16 @@ export class GeoAgentCore {
     );
   }
 
-  /** Localized Earth Engine status line for the settings section. */
+  /** 设置区内展示的本地化 Earth Engine 状态行。 */
   getEarthEngineStatusText(): string {
     const oauthClientId = firstValue(this.options.earthEngine?.oauthClientId);
     const accessToken = this.options.earthEngine?.accessToken?.trim();
     const projectId = this.options.earthEngine?.projectId?.trim() ?? '';
+    // 工具运行后会把初始化结果写入 state.data.earthEngine，据此展示更详细的状态。
     const earthEngine = this.state.data?.earthEngine as
       | { initialized?: boolean; layerCount?: number }
       | undefined;
+    // 状态优先级：无凭据 > 无 project id > 已初始化详情 > 已配置待初始化。
     if (!oauthClientId && !accessToken) {
       return this.translate('eeStatusNoCredentials');
     }
@@ -823,16 +947,14 @@ export class GeoAgentCore {
       : this.translate('eeStatusConfigured');
   }
 
-  // --------------------------------------------------------- configured state
+  // --------------------------------------------------------- 配置完备性
 
   /**
-   * Whether the agent has everything it needs to run a prompt for the current
-   * provider: a committed API key, a model id, and (for compatible providers)
-   * a valid base URL.
+   * 当前 provider 是否已具备运行 prompt 的全部条件：已提交的 API key、
+   * 模型 ID，以及（兼容型 provider）合法的 base URL。
    */
   isConfigured(): boolean {
-    // Uses the committed key (not the live input) so typing a key does not flip
-    // the badge to "Ready" before the user commits it.
+    // 使用已提交 key（而非实时输入），避免键入到一半就把徽标翻成 "Ready"。
     if (!this.committedApiKey.trim() || !this.state.modelId.trim()) {
       return false;
     }
@@ -846,11 +968,11 @@ export class GeoAgentCore {
   }
 
   /**
-   * Human-readable, comma-separated list of the configuration fields that are
-   * still missing for the current provider (empty when fully configured).
+   * 当前 provider 仍缺失的配置项的可读列表（逗号分隔）；配置齐全时为空串。
    */
   missingConfigSummary(): string {
     const missing: string[] = [];
+    // 缺失项按“key → base URL → 模型”的顺序收集，与设置表单顺序一致。
     if (!this.committedApiKey.trim()) {
       missing.push(this.localizedApiKeyLabel(this.state.providerId));
     }
@@ -866,12 +988,13 @@ export class GeoAgentCore {
     return missing.join(', ');
   }
 
-  /** The map engine actually in use, for engine-aware log messages. */
+  /** 当前实际使用的地图引擎名，供引擎感知的日志消息使用。 */
   private engineLabel(): string {
     const kind = this.options.mapEngine?.kind;
     return (kind && ENGINE_LABELS[kind]) || 'MapLibre';
   }
 
+  /** attach 后追加的系统日志文案：按配置情况输出“就绪”或“缺哪些配置”。 */
   private readyLogMessage(): string {
     const engine = this.engineLabel();
     if (this.isConfigured()) {
@@ -883,14 +1006,14 @@ export class GeoAgentCore {
       : this.translate('logLoaded', { engine });
   }
 
+  /** 归一化 base URL：去首尾空格并移除末尾的全部斜杠。 */
   private normalizeBaseUrl(baseUrl: string): string {
     return baseUrl.trim().replace(/\/+$/, '');
   }
 
   /**
-   * Whether a custom base URL is an absolute http(s) URL. Relative values (e.g.
-   * `api` or `/proxy`) would resolve against the app origin and leak the API key
-   * to the wrong endpoint, so they are rejected.
+   * 判断自定义 base URL 是否为绝对 http(s) URL。相对值（如 `api` 或 `/proxy`）
+   * 会按应用自身 origin 解析，导致 API key 泄漏给错误端点，因此直接拒绝。
    */
   private isValidBaseUrl(baseUrl: string): boolean {
     const trimmed = baseUrl.trim();
@@ -898,6 +1021,7 @@ export class GeoAgentCore {
       return false;
     }
     try {
+      // 能被 URL 构造器解析且协议为 http/https 才算合法（拒绝相对路径与非 http 协议）。
       const url = new URL(trimmed);
       return url.protocol === 'http:' || url.protocol === 'https:';
     } catch {
@@ -905,21 +1029,22 @@ export class GeoAgentCore {
     }
   }
 
-  // ------------------------------------------------------------ status badge
+  // ------------------------------------------------------------ 状态徽标
 
+  /** 返回当前状态徽标内容的拷贝。 */
   getStatus(): GeoAgentStatusState {
     return { ...this.status };
   }
 
+  /** 写入徽标内容并广播给订阅者。 */
   private setStatusState(text: string, kind: string, transient: boolean): void {
     this.status = { text, kind, transient };
     this.emitStatus();
   }
 
   /**
-   * Render the idle status badge from the current configuration and record its
-   * kind. The idle status is recomputed from the configuration, so it flips
-   * between ready/setup as the user fills in or clears credentials.
+   * 按当前配置渲染空闲状态徽标并记录其类别。空闲状态由配置重算得出，
+   * 用户填入或清空凭据时会在 Ready/Setup 之间切换。
    */
   private setIdleBadge(): void {
     if (this.isConfigured()) {
@@ -932,9 +1057,8 @@ export class GeoAgentCore {
   }
 
   /**
-   * Render a transient status (Running, Cancelled, Error, Copied) and clear the
-   * idle-kind tracking so the badge is not clobbered by configuration changes
-   * until the next forced idle refresh.
+   * 渲染瞬态状态（Running、Cancelled、Error、Copied）并清空空闲类别记录，
+   * 使配置变化在下一次强制空闲刷新之前不会覆盖掉该徽标。
    */
   private setTransientStatus(text: string, kind: string): void {
     this.setStatusState(text, kind, true);
@@ -942,31 +1066,33 @@ export class GeoAgentCore {
   }
 
   /**
-   * Refresh the idle status badge so it reflects whether the agent has the
-   * credentials it needs. Transient run statuses (Running, Cancelled, Error,
-   * Copied) are left untouched unless `force` is set, so this can be called
-   * from configuration changes on every keystroke without clobbering them.
+   * 刷新空闲状态徽标，使其反映代理是否已具备所需凭据。瞬态运行状态
+   * （Running、Cancelled、Error、Copied）在未指定 `force` 时保持不动，
+   * 因此可以安全地在每次键入的配置变化中调用而不覆盖它们。
    */
   applyIdleStatus(force = false): void {
-    // A forced refresh (run finished, copy timeout, mount) must win even while
-    // `busy` is still set, otherwise the badge stays stuck on "Running" because
-    // the post-run call happens before the finally block clears `busy`.
+    // 强制刷新（运行结束、复制超时、挂载）必须在 `busy` 尚未清零时也能生效，
+    // 否则徽标会卡在 "Running"——因为运行后的刷新调用发生在 finally 清理
+    // `busy` 之前。
     if (this.state.busy && !force) {
       return;
     }
+    // 正在展示瞬态状态（idleStatusKind 为 null）且非强制时跳过，避免覆盖。
     if (!force && this.idleStatusKind === null) {
       return;
     }
     this.setIdleBadge();
   }
 
-  // ----------------------------------------------------- configuration notes
+  // ----------------------------------------------------- 配置提示
 
+  /** 展示配置提示；autoHide 为 true 时 5 秒后自动隐藏。 */
   private showNote(
     text: string,
     kind: 'success' | 'error' | 'info',
     autoHide: boolean,
   ): void {
+    // 先取消可能仍在排队的上一条提示的隐藏定时器，避免新提示被提前清掉。
     if (this.noteTimer !== null) {
       clearTimeout(this.noteTimer);
       this.noteTimer = null;
@@ -978,6 +1104,7 @@ export class GeoAgentCore {
     }
   }
 
+  /** 隐藏配置提示（清空内容并取消定时器）。 */
   private hideNote(): void {
     if (this.noteTimer !== null) {
       clearTimeout(this.noteTimer);
@@ -987,17 +1114,20 @@ export class GeoAgentCore {
     this.emitNote();
   }
 
-  // ------------------------------------------------------------ conversation
+  // ------------------------------------------------------------ 会话
 
+  /** 返回会话条目的浅拷贝数组，外部改动不影响内部列表。 */
   getConversation(): GeoAgentConversationEntry[] {
     return [...this.entries];
   }
 
+  /** 追加一条会话条目并广播 append 变更；markdown 条目在渲染层走净化管线。 */
   private appendEntry(
     role: GeoAgentConversationEntry['role'],
     content: string,
     markdown = false,
   ): GeoAgentConversationEntry {
+    // markdown 标志只在需要时写入对象，保持普通条目形状最小。
     const entry: GeoAgentConversationEntry = markdown
       ? { id: generateEntryId(), role, content, markdown: true }
       : { id: generateEntryId(), role, content };
@@ -1006,6 +1136,7 @@ export class GeoAgentCore {
     return entry;
   }
 
+  /** 按 id 更新既有条目的内容并广播 update 变更；条目不存在时静默跳过。 */
   private updateEntry(id: string, content: string): void {
     const entry = this.entries.find((candidate) => candidate.id === id);
     if (!entry) {
@@ -1015,7 +1146,7 @@ export class GeoAgentCore {
     this.emitConversation({ type: 'update', entry });
   }
 
-  /** Reset the conversation, invalidate the agent, and log the clear. */
+  /** 清空会话、失效 agent，并记录“已清空”的系统日志；busy 期间拒绝清空。 */
   clearConversation(): void {
     if (this.state.busy) {
       return;
@@ -1023,12 +1154,14 @@ export class GeoAgentCore {
     this.entries = [];
     this.streamingEntryId = null;
     this.streamingAssistantText = '';
+    // agent 的消息历史与会话展示是两份状态，清空展示后同样要重建 agent，
+    // 避免模型继续引用已被清空的历史。
     this.invalidateAgent();
     this.emitConversation({ type: 'reset' });
     this.appendEntry('system', this.translate('logChatCleared'));
   }
 
-  /** Export the conversation as Markdown sections, one per entry. */
+  /** 把会话导出为 Markdown：每个条目一个小节（## 角色标题 + 内容）。 */
   conversationMarkdown(): string {
     return this.entries
       .map(
@@ -1039,18 +1172,20 @@ export class GeoAgentCore {
       .join('\n\n');
   }
 
-  /** Copy the conversation to the clipboard and flash the Copied badge. */
+  /** 把会话以 Markdown 复制到剪贴板，并短暂闪现 Copied 徽标。 */
   async copyConversationAsMarkdown(): Promise<void> {
     const markdown = this.conversationMarkdown();
     if (!markdown) {
       return;
     }
     try {
+      // 优先使用异步 Clipboard API；不可用（非安全上下文等）时抛错走降级路径。
       if (!navigator.clipboard?.writeText) {
         throw new Error('Clipboard API is unavailable.');
       }
       await navigator.clipboard.writeText(markdown);
     } catch {
+      // 降级：用隐藏 textarea + execCommand 兼容旧环境完成复制。
       const textarea = document.createElement('textarea');
       textarea.value = markdown;
       textarea.setAttribute('readonly', '');
@@ -1065,6 +1200,7 @@ export class GeoAgentCore {
     if (this.statusCopyTimer !== null) {
       clearTimeout(this.statusCopyTimer);
     }
+    // 1.2 秒后强制恢复空闲徽标，让 Copied 状态自动消失。
     this.statusCopyTimer = setTimeout(() => {
       this.statusCopyTimer = null;
       this.applyIdleStatus(true);
@@ -1073,20 +1209,25 @@ export class GeoAgentCore {
 
   // ------------------------------------------------------------------ agent
 
+  /** 使缓存的 agent 失效；下次 getAgent 时按当前配置重建。 */
   private invalidateAgent(): void {
     this.agent = null;
     this.agentSignature = '';
   }
 
+  /** 是否已有待落定的取消请求（用于禁用/启用 Cancel 按钮）。 */
   isCancelRequested(): boolean {
     return this.cancelRequested;
   }
 
+  /** 请求取消进行中的运行：中止 HTTP 请求并终止 agent 任务。 */
   cancelActiveRun(): void {
+    // 空闲中或取消已在途时无需重复处理。
     if (!this.state.busy || this.cancelRequested) {
       return;
     }
     this.cancelRequested = true;
+    // 双通道取消：abort 掐断底层模型请求，cancel 终止 agent 的运行循环。
     this.activeAbortController?.abort();
     this.agent?.cancel();
     this.setTransientStatus(this.translate('statusCancelling'), 'connected');
@@ -1094,6 +1235,10 @@ export class GeoAgentCore {
     this.emit('statechange');
   }
 
+  /**
+   * 创建 provider 对应的模型客户端实例；模型实现按需动态加载，
+   * 避免把未使用的 provider SDK 打进主包。
+   */
   private async createProviderModel(
     providerId: GeoAgentProviderId,
     modelId: string,
@@ -1107,6 +1252,7 @@ export class GeoAgentCore {
         modelId,
         apiKey,
         clientConfig: {
+          // 浏览器端直连需要显式放行 SDK 的“仅在服务端使用”限制。
           dangerouslyAllowBrowser: true,
           baseURL: this.normalizeBaseUrl(baseUrl),
         },
@@ -1117,8 +1263,8 @@ export class GeoAgentCore {
       return new AnthropicModel({
         modelId,
         apiKey,
-        // Anthropic-compatible gateways are pointable at a self-hosted base URL
-        // the same way OpenAI-compatible endpoints are.
+        // Anthropic-compatible 网关同样可以指向自建 base URL，与
+        // OpenAI-compatible 端点一致。
         clientConfig: {
           dangerouslyAllowBrowser: true,
           baseURL: this.normalizeBaseUrl(baseUrl),
@@ -1128,7 +1274,12 @@ export class GeoAgentCore {
     throw new Error(`Unsupported browser provider: ${providerId}`);
   }
 
+  /**
+   * 取得可用的 Agent 实例：先校验配置完整性，再按配置签名复用或重建
+   * （system prompt 也在此按引擎与权限开关组装）。
+   */
   private async getAgent(): Promise<Agent> {
+    // 工具未创建说明尚未 attach，无法提供地图上下文。
     if (!this.tools) {
       throw new Error('GeoAgent control is not mounted.');
     }
@@ -1136,6 +1287,7 @@ export class GeoAgentCore {
     const apiKey = this.committedApiKey.trim();
     const modelId = this.state.modelId.trim();
     const baseUrl = this.state.baseUrl.trim();
+    // 逐项校验并抛出本地化的错误信息，由 sendPrompt 落成会话里的 error 条目。
     if (!apiKey) {
       throw new Error(
         this.translate('errorApiKeyRequired', {
@@ -1150,6 +1302,8 @@ export class GeoAgentCore {
       throw new Error(this.translate('errorBaseUrlRequired'));
     }
 
+    // 配置签名：签名一致即可复用缓存实例；key/model/baseUrl/权限任一变化都会
+    // 触发重建（provider.requiresBaseUrl 为假时 base URL 不参与签名）。
     const signature = JSON.stringify({
       providerId: provider.id,
       modelId,
@@ -1161,6 +1315,7 @@ export class GeoAgentCore {
       return this.agent;
     }
 
+    // 解析引擎类型；ArcGIS 还需 viewKind 以区分 MapView/SceneView 的能力段落。
     const engineKind = this.options.mapEngine?.kind;
     const arcgisViewKind =
       this.options.mapEngine?.kind === 'arcgis'
@@ -1168,6 +1323,8 @@ export class GeoAgentCore {
             this.options.mapEngine as { viewKind?: 'map' | 'scene' }
           ).viewKind
         : undefined;
+    // system prompt 分段拼装：基础段 + 引擎能力段 + （启用时的）代码执行段 +
+    // 宿主自定义段，过滤空段后以空行连接。
     const systemPromptParts = [
       BROWSER_MAP_SYSTEM_PROMPT,
       engineCapabilityPrompt(engineKind, arcgisViewKind),
@@ -1183,6 +1340,7 @@ export class GeoAgentCore {
       model,
       systemPrompt,
       tools: [...this.tools.createTools(), ...this.resolveCustomTools()],
+      // 关闭 SDK 自带的控制台打印；工具串行执行，保证地图操作的时序可预期。
       printer: false,
       toolExecutor: 'sequential',
     });
@@ -1190,6 +1348,7 @@ export class GeoAgentCore {
     return this.agent;
   }
 
+  /** 解析宿主的 customTools 选项：支持数组或返回数组的工厂函数。 */
   private resolveCustomTools(): Tool[] {
     const tools = this.options.customTools;
     if (!tools) {
@@ -1198,23 +1357,31 @@ export class GeoAgentCore {
     return (typeof tools === 'function' ? tools() : tools) as Tool[];
   }
 
-  // ------------------------------------------------------------- run a prompt
+  // ------------------------------------------------------------- 运行 prompt
 
+  /** 把流式文本增量累加进同一条 assistant 条目；首个增量时才创建该条目。 */
   private appendAssistantDelta(text: string): void {
     if (!text) {
       return;
     }
+    // 本轮尚无流式条目时先创建一个空的 markdown assistant 条目占位。
     if (!this.streamingEntryId) {
       const entry = this.appendEntry('assistant', '', true);
       this.streamingEntryId = entry.id;
     }
     this.streamingAssistantText += text;
+    // 每个增量都触发一次 update，UI 侧形成打字机效果。
     this.updateEntry(this.streamingEntryId, this.streamingAssistantText);
   }
 
+  /**
+   * 处理单条 agent 流事件：文本增量写入流式条目、工具调用前追加 tool 日志、
+   * 结果事件返回最终答案文本；其余事件返回 undefined。
+   */
   private handleAgentStreamEvent(event: AgentStreamEvent): string | undefined {
     if (event.type === 'modelStreamUpdateEvent') {
       const modelEvent = event.event;
+      // 只关心文本增量（textDelta）；其他内容块类型（如工具参数）不进会话。
       if (
         modelEvent.type === 'modelContentBlockDeltaEvent' &&
         modelEvent.delta.type === 'textDelta'
@@ -1225,6 +1392,7 @@ export class GeoAgentCore {
     }
 
     if (event.type === 'beforeToolCallEvent') {
+      // 每次工具调用前展示“正在执行某工具”，让用户能看到代理的动作。
       this.appendEntry('tool', this.translate('logRunningTool', { tool: event.toolUse.name }));
       return undefined;
     }
@@ -1237,12 +1405,12 @@ export class GeoAgentCore {
   }
 
   /**
-   * Run a prompt through the agent. The text has already been read and cleared
-   * by the UI layer; the core records it, streams the answer into a single
-   * assistant entry, and owns the busy/cancel lifecycle.
+   * 运行一条 prompt。文本此时已由 UI 层读取并清空；核心负责记录历史、
+   * 把答案流式写入单条 assistant 条目，并掌管 busy/cancel 生命周期。
    */
   async sendPrompt(text: string): Promise<void> {
     const trimmed = text.trim();
+    // 空文本或已有运行在途时直接忽略，避免并发运行互相干扰。
     if (!trimmed || this.state.busy) {
       return;
     }
@@ -1252,6 +1420,7 @@ export class GeoAgentCore {
     this.streamingAssistantText = '';
     this.state.busy = true;
     this.cancelRequested = false;
+    // 每次运行一个独立的 AbortController；挂在 core 上供 cancelActiveRun 使用。
     const abortController = new AbortController();
     this.activeAbortController = abortController;
     this.setTransientStatus(this.translate('statusRunning'), 'connected');
@@ -1259,11 +1428,15 @@ export class GeoAgentCore {
     try {
       const activeAgent = await this.getAgent();
       let finalAnswer = '';
+      // 消费 agent 的异步事件流；handleAgentStreamEvent 返回的最终答案
+      // 持续覆盖 finalAnswer（结果事件通常只有一条）。
       for await (const event of activeAgent.stream(trimmed, {
         cancelSignal: abortController.signal,
       })) {
         finalAnswer = this.handleAgentStreamEvent(event) ?? finalAnswer;
       }
+      // 取消时展示统一文案；否则优先取结果事件答案，回退到流式累计文本，
+      // 再回退到“已完成”占位（纯工具运行、无文本输出的情形）。
       const answer = abortController.signal.aborted
         ? this.translate('answerCancelled')
         : finalAnswer || this.streamingAssistantText || this.translate('answerDone');
@@ -1280,14 +1453,17 @@ export class GeoAgentCore {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (abortController.signal.aborted) {
+        // 取消导致的异常不算错误：会话记一条取消答复，徽标展示 Cancelled。
         this.appendEntry('assistant', this.translate('answerCancelled'), true);
         this.setTransientStatus(this.translate('statusCancelled'), 'connected');
       } else {
+        // 真实错误：会话追加 error 条目，徽标进入 error 状态。
         this.appendEntry('error', message);
         this.setTransientStatus(this.translate('statusError'), 'error');
       }
     } finally {
       this.state.busy = false;
+      // 只有当挂着的仍是本次运行的控制器时才清空，防止误清新一轮运行的控制器。
       if (this.activeAbortController === abortController) {
         this.activeAbortController = null;
       }
@@ -1298,8 +1474,9 @@ export class GeoAgentCore {
     }
   }
 
-  // ---------------------------------------------------------- prompt history
+  // ---------------------------------------------------------- prompt 历史
 
+  /** 记录一条已发送的 prompt：与上一条相同则去重，并重置导航状态。 */
   private rememberPrompt(text: string): void {
     if (this.promptHistory[this.promptHistory.length - 1] !== text) {
       this.promptHistory.push(text);
@@ -1309,17 +1486,19 @@ export class GeoAgentCore {
   }
 
   /**
-   * Previous prompt for ArrowUp navigation. Returns null when navigation does
-   * not apply (no history, or the caret is not on the textarea's first line).
+   * ArrowUp 导航：返回上一条 prompt。导航不适用时返回 null（无历史，或
+   * 光标不在 textarea 的第一行——多行编辑时让出方向键）。
    */
   historyUp(value: string, selectionStart: number, _selectionEnd: number): string | null {
     if (this.promptHistory.length === 0) {
       return null;
     }
     const beforeSelection = value.slice(0, selectionStart);
+    // 光标前方已有换行说明不在首行，方向键交给正常的文本移动。
     if (beforeSelection.includes('\n')) {
       return null;
     }
+    // 首次进入导航时保存当前草稿，供 ArrowDown 越过末尾时恢复。
     if (this.promptHistoryIndex === -1) {
       this.promptHistoryDraft = value;
     }
@@ -1331,28 +1510,30 @@ export class GeoAgentCore {
   }
 
   /**
-   * Next prompt for ArrowDown navigation. Returns null when navigation does
-   * not apply (not currently navigating, or the caret is not on the last line;
-   * a null past the end of history restores the in-progress draft).
+   * ArrowDown 导航：返回下一条 prompt。导航不适用时返回 null（未处于导航
+   * 状态，或光标不在最后一行）；越过历史末尾时返回 null 并恢复进行中的草稿。
    */
   historyDown(value: string, _selectionStart: number, selectionEnd: number): string | null {
     if (this.promptHistory.length === 0 || this.promptHistoryIndex === -1) {
       return null;
     }
     const afterSelection = value.slice(selectionEnd);
+    // 光标后方还有换行说明不在最后一行，不劫持方向键。
     if (afterSelection.includes('\n')) {
       return null;
     }
     this.promptHistoryIndex += 1;
     if (this.promptHistoryIndex >= this.promptHistory.length) {
+      // 越过末尾：退出导航状态并恢复进入导航前的草稿。
       this.promptHistoryIndex = -1;
       return this.promptHistoryDraft;
     }
     return this.promptHistory[this.promptHistoryIndex];
   }
 
-  // ------------------------------------------------------------- panel sizes
+  // ------------------------------------------------------------- 面板尺寸
 
+  /** 把面板宽度钳制到 [panelMinWidth, panelMaxWidth] 区间（四舍五入到整数）。 */
   private constrainPanelWidth(width: number): number {
     return Math.max(
       this.options.panelMinWidth,
@@ -1360,9 +1541,10 @@ export class GeoAgentCore {
     );
   }
 
+  /** 把面板高度钳制到 [panelMinHeight, 有效最大高度] 区间。 */
   private constrainPanelHeight(height: number): number {
-    // The map container is the practical ceiling, so the panel can be dragged
-    // to nearly fill it (not just the option default).
+    // 地图容器是实际上的上限，让面板能被拖到几乎填满地图
+    // （而不只是 option 的默认最大值）。
     let max = this.options.panelMaxHeight;
     const mapHeight = this.mapContainer?.clientHeight ?? 0;
     if (mapHeight > 0) {

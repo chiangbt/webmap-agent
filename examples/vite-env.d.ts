@@ -1,24 +1,36 @@
+/**
+ * examples 目录的环境类型声明文件（vite-env.d.ts）。
+ *
+ * 作用：
+ * - 引入 vite/client 的环境模块声明，使编辑器能识别通过 Vite 资源管线
+ *   导入的图片等资源模块；
+ * - 为 @arcgis/map-components 的 web component 声明 JSX 内置元素类型，
+ *   使 <arcgis-map> / <arcgis-scene> / <arcgis-zoom> 能在 React 中
+ *   以普通 JSX 标签使用。
+ */
 /// <reference types="vite/client" />
 
-// The examples import binary assets (e.g. the milky way panorama) through
-// Vite's asset pipeline. tsconfig excludes this folder from the build, but
-// editors still need the ambient module declarations from vite/client.
+// 示例通过 Vite 的资源管线导入二进制资源（例如银河全景图）。
+// tsconfig 在构建时排除了本目录，但编辑器仍需要 vite/client 提供的环境模块声明。
 
-// The @arcgis/map-components web components are set through React refs and
-// plain JSX tags; React 18's JSX types need the intrinsic element declared.
+// @arcgis/map-components 的 web component 通过 React ref 与普通 JSX 标签
+// 使用；React 18 的 JSX 类型需要显式声明这些内置元素（intrinsic element）。
 import type { DetailedHTMLProps, HTMLAttributes } from 'react';
 
 declare global {
   namespace JSX {
     interface IntrinsicElements {
+      /** ArcGIS 2D 地图视图（MapView）web component。 */
       'arcgis-map': DetailedHTMLProps<
         HTMLAttributes<HTMLElement>,
         HTMLElement
       >;
+      /** ArcGIS 3D 场景视图（SceneView）web component。 */
       'arcgis-scene': DetailedHTMLProps<
         HTMLAttributes<HTMLElement>,
         HTMLElement
       >;
+      /** 地图 / 场景的缩放按钮 web component。 */
       'arcgis-zoom': DetailedHTMLProps<
         HTMLAttributes<HTMLElement>,
         HTMLElement

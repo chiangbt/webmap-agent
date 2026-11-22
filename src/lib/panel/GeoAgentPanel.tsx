@@ -38,26 +38,26 @@ import { renderMarkdownToSafeHtml } from './markdown';
 
 export interface GeoAgentPanelProps extends GeoAgentControlOptions {
   /**
-   * Bind the panel to an existing core. When omitted the panel creates and
-   * disposes its own core from the remaining props (captured at mount, like
-   * the imperative control captures its options).
+   * 将面板绑定到一个已有的 core 实例。缺省时面板会用其余 props 创建
+   * 并自行释放自己的 core（options 在挂载时捕获一次，与命令式控件
+   * 捕获 options 的方式一致）。
    */
   core?: GeoAgentCore;
   /**
-   * Map to attach the core to: a MapLibre/Mapbox map, or a Leaflet/OpenLayers
-   * map when `mapEngine` is configured. Attaching happens on mount and
-   * whenever the map instance changes.
+   * 要挂载 core 的地图实例：MapLibre/Mapbox 地图，或在配置了 `mapEngine`
+   * 时传入 Leaflet/OpenLayers 地图。挂载发生在组件挂载时，并在 map
+   * 实例变化时重新挂载。
    */
   map?: unknown;
   onStateChange?: (state: GeoAgentState) => void;
-  /** Panel width in pixels. Defaults to the `panelWidth` option (390). */
+  /** 面板宽度（像素）。缺省取 `panelWidth` 选项（390）。 */
   width?: number;
-  /** Show the header collapse button (default true). */
+  /** 是否显示头部折叠按钮（默认 true）。 */
   showCollapseButton?: boolean;
   className?: string;
 }
 
-/** Badge look for each status kind. */
+/** 根据状态种类返回对应徽章外观（variant）。 */
 function statusVariant(kind: string): ComponentProps<typeof Badge>['variant'] {
   switch (kind) {
     case 'connected':
@@ -71,6 +71,10 @@ function statusVariant(kind: string): ComponentProps<typeof Badge>['variant'] {
   }
 }
 
+/**
+ * 单条对话条目视图：显示角色标签与内容。内容可按 markdown 渲染
+ * （先经 DOMPurify 消毒）或按纯文本换行展示。
+ */
 function ConversationEntryView({ entry, roleLabel }: { entry: GeoAgentConversationEntry; roleLabel: string }) {
   return (
     <div
@@ -82,12 +86,14 @@ function ConversationEntryView({ entry, roleLabel }: { entry: GeoAgentConversati
         {roleLabel}
       </div>
       {entry.markdown ? (
+        // markdown 模式：先渲染再消毒，结果交给 dangerouslySetInnerHTML 是安全的。
         <div
           className="geoagent-md"
           data-testid="geoagent-entry-markdown"
           dangerouslySetInnerHTML={{ __html: renderMarkdownToSafeHtml(entry.content) }}
         />
       ) : (
+        // 纯文本模式：保留换行并允许断词。
         <div className="text-[13px] break-words whitespace-pre-wrap">{entry.content}</div>
       )}
     </div>
@@ -95,10 +101,10 @@ function ConversationEntryView({ entry, roleLabel }: { entry: GeoAgentConversati
 }
 
 /**
- * React chat panel for the GeoAgent, built entirely from shadcn/ui components
- * on top of the headless {@link GeoAgentCore}. Render it anywhere (a sidebar,
- * a portal, a docked column) — the core handles map tool wiring, provider
- * persistence, and the agent run lifecycle.
+ * GeoAgent 的 React 聊天面板：完全基于 shadcn/ui 组件构建，架在无头
+ * （headless）的 {@link GeoAgentCore} 之上。可渲染到任意位置（侧栏、
+ * portal、停靠列）——地图工具接线、provider 持久化与智能体运行生命周期
+ * 都由 core 负责。
  */
 export function GeoAgentPanel({
   core: controlledCore,
@@ -109,17 +115,21 @@ export function GeoAgentPanel({
   className,
   ...options
 }: GeoAgentPanelProps) {
-  // Own the core unless one is handed in; options are captured at mount.
+  // 传入 core 就复用，否则自行持有；options 仅在挂载时捕获一次。
   const [ownedCore] = useState(() => controlledCore ?? new GeoAgentCore(options));
   const core = controlledCore ?? ownedCore;
 
+  // 从 core 的当前快照初始化各状态，避免首帧闪烁。
   const [state, setState] = useState<GeoAgentState>(() => core.getState());
   const [entries, setEntries] = useState(() => core.getConversation());
   const [status, setStatus] = useState<GeoAgentStatusState>(() => core.getStatus());
   const [note, setNote] = useState<GeoAgentNoteState>(() => ({ text: '', kind: null }));
   const [apiKey, setApiKey] = useState(() => core.getCommittedApiKey());
   const [prompt, setPrompt] = useState('');
+  // 未完成配置时默认展开设置区，方便用户先填 key。
   const [settingsOpen, setSettingsOpen] = useState(() => !core.isConfigured());
+  // Earth Engine 区块：缺少凭据（OAuth Client ID / access token 都没有）或
+  // 还没有项目 ID 时默认展开，引导用户先完成配置。
   const [earthEngineOpen, setEarthEngineOpen] = useState(() => {
     const ee = core.options.earthEngine;
     const hasCredentials = !!(ee?.oauthClientId?.trim() || ee?.accessToken?.trim());
@@ -131,18 +141,22 @@ export function GeoAgentPanel({
 
   const logRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  // 用 ref 持有 onStateChange 回调，使订阅 effect 无需因回调更新而重新绑定。
   const onStateChangeRef = useRef(onStateChange);
+  // 记录上一帧的「已配置」状态，用于识别配置完成的边沿。
   const wasConfiguredRef = useRef(core.isConfigured());
 
+  // 每次渲染都同步最新回调到 ref（直接赋值，非 effect）。
   onStateChangeRef.current = onStateChange;
 
   const provider = core.providerConfig(state.providerId);
   const providerConfigs = core.providerConfigs();
   const configured = core.isConfigured();
   const busy = state.busy;
+  // Earth Engine 设置区是否渲染：仅当配置了 earthEngine 且未被显式禁用时显示。
   const earthEngineEnabled = !!core.options.earthEngine && core.options.earthEngine.enabled !== false;
 
-  // Subscribe to the core streams.
+  // 订阅 core 的各路事件流（对话、状态徽章、配置提示、整体状态）。
   useEffect(() => {
     const onConversation = (_change: unknown, next: ReturnType<GeoAgentCore['getConversation']>) => {
       setEntries(next);
@@ -150,6 +164,7 @@ export function GeoAgentPanel({
     const onStatus = (next: GeoAgentStatusState) => setStatus(next);
     const onNote = (next: GeoAgentNoteState) => setNote(next);
     const onStateChange = (event: { state: GeoAgentState }) => {
+      // 同步 core 状态到 React，同时透传给宿主的 onStateChange 回调。
       setState(event.state);
       onStateChangeRef.current?.(event.state);
     };
@@ -157,6 +172,7 @@ export function GeoAgentPanel({
     core.onStatus(onStatus);
     core.onNote(onNote);
     core.on('statechange', onStateChange);
+    // 卸载时解除全部订阅，避免泄漏与重复触发。
     return () => {
       core.offConversation(onConversation);
       core.offStatus(onStatus);
@@ -165,19 +181,19 @@ export function GeoAgentPanel({
     };
   }, [core]);
 
-  // Attach/detach the map binding.
+  // 挂载/更新时绑定地图，卸载时解绑。
   useEffect(() => {
     if (!map) {
       return;
     }
     core.attach(map as Parameters<GeoAgentCore['attach']>[0]);
-    // attach() reloads the committed key (storage, apiKeys, or the
-    // deployment default) — sync it into the field so it is visible.
+    // attach() 会重新加载已提交的 key（来自 storage、apiKeys 或部署默认值）
+    // —— 把它同步进输入框以便用户看到当前值。
     setApiKey(core.getCommittedApiKey());
     return () => core.detach();
   }, [core, map]);
 
-  // Dispose an owned core when the panel goes away.
+  // 面板卸载时释放自建的 core（外部传入的 core 归属宿主，不在此释放）。
   useEffect(
     () => () => {
       if (!controlledCore) {
@@ -187,7 +203,7 @@ export function GeoAgentPanel({
     [core, controlledCore],
   );
 
-  // Follow the conversation to keep the log scrolled to the newest entry.
+  // 跟随对话更新，把日志滚动到最新条目。
   useEffect(() => {
     const log = logRef.current;
     if (log) {
@@ -195,8 +211,8 @@ export function GeoAgentPanel({
     }
   }, [entries]);
 
-  // Fold the settings away the first time setup completes (same edge rule as
-  // the imperative control: never auto-open, respect manual re-opening).
+  // 首次完成配置时自动收起设置区（与命令式控件相同的边沿规则：
+  // 绝不自动展开，尊重用户手动重新展开的操作）。
   useEffect(() => {
     if (configured && !wasConfiguredRef.current) {
       setSettingsOpen(false);
@@ -204,17 +220,25 @@ export function GeoAgentPanel({
     wasConfiguredRef.current = configured;
   }, [state, configured, core]);
 
+  /** 提交提示词：空文本或 agent 忙碌时忽略；发出后清空输入框。 */
   const submitPrompt = (): void => {
     const text = prompt.trim();
     if (!text || busy) {
       return;
     }
+    // 发送为异步操作，面板不 await，交给 core 内部管理运行状态。
     void core.sendPrompt(text);
     setPrompt('');
   };
 
+  /**
+   * 提示词输入框键盘处理：
+   * - Ctrl+Enter 插入换行；裸 Enter 发送；上下方向键在历史记录间回溯。
+   * - isComposing 检查避免中文等 IME 组合输入被误当作回车提交。
+   */
   const handlePromptKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>): void => {
     const textarea = promptRef.current;
+    // Ctrl+Enter：在光标处插入换行符，并把新文本同步回受控 state。
     if (event.key === 'Enter' && event.ctrlKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       if (textarea) {
@@ -223,6 +247,7 @@ export function GeoAgentPanel({
       }
       return;
     }
+    // 裸 Enter（无修饰键、非 IME 组合中）：直接发送提示词。
     if (
       event.key === 'Enter' &&
       !event.ctrlKey &&
@@ -235,6 +260,7 @@ export function GeoAgentPanel({
       submitPrompt();
       return;
     }
+    // 上/下方向键：回溯输入历史（historyUp/historyDown 返回 null 表示到头了）。
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
       if (!textarea) {
         return;
@@ -248,18 +274,20 @@ export function GeoAgentPanel({
       }
       event.preventDefault();
       setPrompt(next);
+      // 等受控值渲染后，把光标移到回填文本的末尾。
       requestAnimationFrame(() => {
         textarea.setSelectionRange(next.length, next.length);
       });
     }
   };
 
-  // Collapsed panels render nothing — a docked panel simply disappears from
-  // its container until the host calls expand()/sets collapsed={false}.
+  // 折叠状态的面板不渲染任何内容 —— 停靠面板会从容器中直接消失，
+  // 直到宿主调用 expand()/设置 collapsed={false}。
   if (state.collapsed) {
     return null;
   }
 
+  // 面板宽度优先级：width prop > panelWidth 选项 > 默认 390。
   const panelWidth = width ?? options.panelWidth ?? 390;
 
   return (
@@ -271,7 +299,7 @@ export function GeoAgentPanel({
       )}
       style={{ width: `${panelWidth}px` }}
     >
-      {/* Header */}
+      {/* 头部 */}
       <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b px-3">
         <span className="truncate text-sm font-semibold">{options.title ?? 'GeoAgent'}</span>
         <div className="flex items-center gap-1.5">
@@ -292,7 +320,7 @@ export function GeoAgentPanel({
         </div>
       </div>
 
-      {/* Provider & model settings */}
+      {/* 提供商与模型设置 */}
       <Collapsible
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
@@ -314,6 +342,7 @@ export function GeoAgentPanel({
               <Select
                 value={state.providerId}
                 onValueChange={(value) => {
+                  // 切换提供商后重新读取该提供商已提交的 key 回填输入框。
                   core.switchProvider(value as GeoAgentProviderId);
                   setApiKey(core.getCommittedApiKey());
                 }}
@@ -341,11 +370,13 @@ export function GeoAgentPanel({
                 value={apiKey}
                 placeholder={provider.keyPlaceholder}
                 onChange={(event) => {
+                  // 输入过程先标记为“已编辑”，提交则留到 blur / Enter。
                   setApiKey(event.target.value);
                   core.setApiKeyEdited(event.target.value);
                 }}
                 onBlur={() => core.commitApiKey(apiKey)}
                 onKeyDown={(event) => {
+                  // Enter（非 IME 组合中）也可提交 API key。
                   if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                     event.preventDefault();
                     core.commitApiKey(apiKey);
@@ -354,6 +385,7 @@ export function GeoAgentPanel({
               />
             </Label>
 
+            {/* 仅当当前提供商需要自定义 Base URL 时显示该输入项（如 OpenAI 兼容端点）。 */}
             {provider.requiresBaseUrl && (
               <Label className="flex-col items-start gap-1" htmlFor="geoagent-panel-base-url">
                 {core.translate('baseUrlLabel')}
@@ -397,6 +429,7 @@ export function GeoAgentPanel({
               </div>
             </div>
 
+            {/* 配置提示/成功/错误消息（aria-live 保证屏幕阅读器可感知）。 */}
             {note.text && (
               <div
                 data-testid="geoagent-config-note"
@@ -415,7 +448,7 @@ export function GeoAgentPanel({
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Earth Engine settings */}
+      {/* Earth Engine 设置 */}
       {earthEngineEnabled && (
         <Collapsible
           open={earthEngineOpen}
@@ -439,11 +472,13 @@ export function GeoAgentPanel({
                   value={earthEngineProjectId}
                   placeholder="Earth Engine project"
                   onChange={(event) => {
+                    // 本地受控值与 core 设置同步更新，保证状态文本即时反映。
                     setEarthEngineProjectId(event.target.value);
                     core.setEarthEngineSettings({ projectId: event.target.value });
                   }}
                 />
               </Label>
+              {/* Earth Engine 鉴权/初始化状态说明文本。 */}
               <div
                 data-testid="geoagent-earth-engine-status"
                 className="text-muted-foreground text-xs leading-relaxed"
@@ -455,7 +490,7 @@ export function GeoAgentPanel({
         </Collapsible>
       )}
 
-      {/* Permission toggles */}
+      {/* 权限开关 */}
       {options.showPermissionToggles && (
         <div
           className="grid shrink-0 gap-1.5 border-b px-3 py-2"
@@ -480,7 +515,7 @@ export function GeoAgentPanel({
         </div>
       )}
 
-      {/* Conversation log */}
+      {/* 对话日志 */}
       <div
         ref={logRef}
         data-testid="geoagent-log"
@@ -496,11 +531,12 @@ export function GeoAgentPanel({
         ))}
       </div>
 
-      {/* Prompt form */}
+      {/* 提示词表单 */}
       <form
         className="shrink-0 border-t px-3 pt-2 pb-2.5"
         data-testid="geoagent-form"
         onSubmit={(event) => {
+          // 阻止原生表单提交导致的页面刷新，改走 submitPrompt。
           event.preventDefault();
           submitPrompt();
         }}
@@ -522,6 +558,7 @@ export function GeoAgentPanel({
           onKeyDown={handlePromptKeyDown}
         />
         <div className="mt-2 flex flex-wrap items-center gap-2">
+          {/* 发送按钮：忙碌、无输入或未配置时禁用；未配置时 title 提示原因。 */}
           <Button
             type="submit"
             data-testid="geoagent-send"
@@ -531,6 +568,7 @@ export function GeoAgentPanel({
             <SendIcon />
             {core.translate('sendButton')}
           </Button>
+          {/* 取消按钮：仅在运行中且尚未请求过取消时可用。 */}
           <Button
             type="button"
             variant="secondary"
@@ -541,6 +579,7 @@ export function GeoAgentPanel({
             <SquareIcon />
             {core.translate('cancelButton')}
           </Button>
+          {/* 复制按钮：对话为空时禁用；把整段对话复制为 markdown 文本。 */}
           <Button
             type="button"
             variant="secondary"

@@ -1,14 +1,18 @@
 import type { GeoAgentMessageKey } from './en';
 
 /**
- * Traditional Chinese (zh-TW) UI strings for the GeoAgent control. Taiwan
- * terminology is used throughout (金鑰/位址/專案/提供者/使用者/智慧代理/儲存),
- * and brand names and technical terms (MapLibre JS, Earth Engine, placeholder
- * key formats) are intentionally identical to English. The
- * `Record<GeoAgentMessageKey, string>` annotation keeps the key set in
- * lockstep with `en.ts` at compile time.
+ * GeoAgent 控件的繁体中文（zh-TW）UI 文案包。全文采用台湾用语习惯
+ * （金鑰/位址/專案/提供者/使用者/智慧代理/儲存等），品牌名与技术名词
+ * （MapLibre JS、Earth Engine、占位 key 格式等）刻意与英文保持一致。
+ * `Record<GeoAgentMessageKey, string>` 类型标注使 key 集合在编译期与
+ * `en.ts` 严格对齐。
  */
 
+/**
+ * 繁体中文语言包：覆盖 GeoAgent 面板的全部 UI 文案，key 集合与英文包
+ * （`en.ts`，key 的事实来源）完全一致。字符串中的 `{name}` 为占位符，
+ * 运行时由 `t()` 用参数插值替换。
+ */
 export const zhTW: Record<GeoAgentMessageKey, string> = {
   closeButtonLabel: '關閉',
   resizeHandleLabel: '調整 GeoAgent 面板大小',

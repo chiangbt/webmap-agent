@@ -1,3 +1,15 @@
+/**
+ * React 接入示例：演示在 React 应用中使用 GeoAgentPanel 组件接入
+ * MapLibre GL 地图。
+ *
+ * 与其它示例的差异：
+ * - 地图同样是原生 MapLibre GL 引擎，无需 mapEngine 兼容 shim，直接把
+ *   Map 实例作为 map prop 传给 GeoAgentPanel；
+ * - 与 basic 示例结构相同，但重点展示 React 集成方式：useRef 持有地图
+ *   容器、useState 保存就绪的地图实例、useEffect 负责初始化与卸载清理；
+ * - 额外演示了 globe（球体）投影、MaplibreStarfieldLayer 星空背景与
+ *   LayerControl 图层控制的组合效果。
+ */
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import maplibregl, { type Map } from 'maplibre-gl';
@@ -11,12 +23,12 @@ import { readLlmEnvConfig } from '@/demo/env';
 import '@/demo/demo.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import 'maplibre-gl-layer-control/style.css';
-// ESO/S. Brunier milky way panorama (CC BY 4.0), equirectangular 4096x2048.
+// ESO/S. Brunier 银河全景图（CC BY 4.0 授权），等距圆柱（equirectangular）投影，4096x2048。
 import milkywayUrl from '../assets/milkyway.jpg';
 
-// Follow the language chosen on the examples homepage (localStorage).
+// 跟随示例首页选择的语言（存储在 localStorage）。
 const locale = resolveExamplesLocale();
-// Deployment defaults from .env (LLM_API_URL / LLM_API_KEY / LLM_API_MODEL).
+// 从 .env 读取的部署默认值（LLM_API_URL / LLM_API_KEY / LLM_API_MODEL）。
 const llm = readLlmEnvConfig();
 applyExamplePageLocale(locale, {
   en: 'web-geoagent - MapLibre GL React Example',
@@ -24,49 +36,59 @@ applyExamplePageLocale(locale, {
   tw: 'web-geoagent - MapLibre GL React 範例',
 });
 
+/**
+ * 页面主组件：创建 MapLibre GL 地图，地图加载完成后渲染左侧 GeoAgentPanel。
+ * @returns 左侧 GeoAgent 面板 + 右侧地图容器的页面布局。
+ */
 function ReactExample() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<Map | null>(null);
 
+  // 空依赖数组：仅在组件首次挂载后执行一次地图初始化。
   useEffect(() => {
+    // 容器尚未挂载时跳过初始化。
     if (!mapContainer.current) return;
 
+    // 创建地图实例：使用 OpenFreeMap 的 Liberty 样式作为底图。
     const mapInstance = new maplibregl.Map({
       container: mapContainer.current,
       style: 'https://tiles.openfreemap.org/styles/liberty',
-      // Tilted/rotated initial view so the milky way band of the skybox is
-      // visible around the globe right after load.
-      // Global initial extent: the whole world in view on load.
+      // 初始视角带倾斜/旋转，使星空天球的银河带在加载后即可环绕地球可见。
+      // 全球初始范围：加载时整个世界都在视野内。
       center: [10, 12],
       zoom: 1.6,
-      bearing: 0, // north-up, matching the Earth Engine example
+      bearing: 0, // 指北，与 Earth Engine 示例保持一致
       maxPitch: 85,
+      // preserveDrawingBuffer 保留绘图缓冲区，agent 的地图截图工具才能从 canvas 读帧。
       canvasContextAttributes: { preserveDrawingBuffer: true },
     });
 
+    // 右上角依次添加导航（缩放/罗盘）、全屏与 globe 投影切换控件。
     mapInstance.addControl(new maplibregl.NavigationControl(), 'top-right');
     mapInstance.addControl(new maplibregl.FullscreenControl(), 'top-right');
     mapInstance.addControl(new maplibregl.GlobeControl(), 'top-right');
+    // 地图样式加载完成后，再添加依赖样式结构的图层与控件。
     mapInstance.on('load', () => {
-      // Spherical (globe) projection at a global initial extent: the whole
-      // globe in view on load. The GlobeControl / the agent's
-      // set_projection tool can switch to flat Mercator on demand.
+      // 全球初始范围下使用球体（globe）投影：加载时整个地球都在视野内。
+      // GlobeControl / agent 的 set_projection 工具可按需切换为平面 Mercator 投影。
       mapInstance.setProjection({ type: 'globe' });
 
-      // Starfield background: milky way panorama skybox + point stars,
-      // inserted below every other layer so the globe renders in front.
+      // 星空背景：银河全景图天球盒（skybox）+ 点状星星，
+      // 插入到最底层，使地球渲染在其前方。
       mapInstance.addLayer(
         new MaplibreStarfieldLayer({
           galaxyTextureUrl: milkywayUrl,
-          // The ESO panorama is a real dark-sky photograph; the plugin
-          // default (0.35) renders it almost black, 1.5 makes the band show.
+          // ESO 全景图是真实的暗夜空照片；插件默认亮度 0.35 几乎全黑，
+          // 调到 1.5 才能让银河带显现。
           galaxyBrightness: 1.5,
           starCount: 4000,
           starSize: 2.0,
         }),
+        // 第二个参数为 beforeId：插到当前首个图层之前，即所有图层的最下方。
         mapInstance.getStyle().layers[0]?.id,
       );
 
+      // 图层控制面板：默认折叠，可切换底图样式，面板宽度在 240–420px 间可拖拽。
       mapInstance.addControl(
         new LayerControl({
           collapsed: true,
@@ -77,9 +99,11 @@ function ReactExample() {
         }),
         'top-right',
       );
+      // 地图完全就绪后更新 state，触发左侧 GeoAgentPanel 渲染。
       setMap(mapInstance);
     });
 
+    // 组件卸载时销毁地图实例，释放 WebGL 等资源。
     return () => {
       mapInstance.remove();
     };
@@ -88,6 +112,7 @@ function ReactExample() {
   return (
     <div className="flex w-full">
       <div className="flex shrink-0 flex-col overflow-hidden border-r bg-muted">
+        {/* 地图实例就绪后才渲染面板，保证 map prop 不为 null。 */}
         {map && (
           <GeoAgentPanel
             map={map}
@@ -101,11 +126,13 @@ function ReactExample() {
           />
         )}
       </div>
+      {/* 地图挂载容器。 */}
       <div ref={mapContainer} className="relative min-w-0 flex-1" />
     </div>
   );
 }
 
+// 将示例挂载到 #root；外层 ExampleShell 提供页面标题与说明栏。
 createRoot(document.getElementById('root')!).render(
   <ExampleShell title={HOMEPAGE_I18N[locale].reactTitle}>
     <ReactExample />

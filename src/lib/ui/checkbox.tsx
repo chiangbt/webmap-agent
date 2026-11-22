@@ -4,6 +4,13 @@ import { CheckIcon } from 'lucide-react';
 
 import { cn } from './utils';
 
+/**
+ * 复选框组件：基于 Radix UI Checkbox 的受控/非受控勾选框。
+ *
+ * 选中态通过 `data-[state=checked]` 切换为主题色底 + 白色对勾图标；
+ * 支持 Radix Root 的 checked / onCheckedChange / disabled 等全部 props。
+ * className 用于覆盖默认样式。
+ */
 function Checkbox({
   className,
   ...props
@@ -17,6 +24,7 @@ function Checkbox({
       )}
       {...props}
     >
+      {/* Indicator 仅在勾选状态下渲染，内部放对勾图标，颜色跟随文字前景色 */}
       <CheckboxPrimitive.Indicator
         data-slot="checkbox-indicator"
         className="flex items-center justify-center text-current"
