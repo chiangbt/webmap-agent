@@ -1,4 +1,6 @@
 import {
+  memo,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -8,6 +10,7 @@ import {
 import { ChevronDownIcon, CopyIcon, SendIcon, SquareIcon, XIcon } from 'lucide-react';
 import { GeoAgentCore } from '../core/GeoAgentCore';
 import type {
+  GeoAgentConversationChange,
   GeoAgentConversationEntry,
   GeoAgentControlOptions,
   GeoAgentNoteState,
@@ -74,8 +77,19 @@ function statusVariant(kind: string): ComponentProps<typeof Badge>['variant'] {
 /**
  * 单条对话条目视图：显示角色标签与内容。内容可按 markdown 渲染
  * （先经 DOMPurify 消毒）或按纯文本换行展示。
+ *
+ * memo 化是流式渲染性能的关键：core 的 updateEntry 会原地改写条目内容
+ * （对象引用不变），增量更新路径对被更新的条目做浅拷贝产生新引用，
+ * 其余条目保持引用稳定，因此每个文本增量只重渲染正在输出的那一条，
+ * 而不是对整个会话逐条重跑 marked + DOMPurify。
  */
-function ConversationEntryView({ entry, roleLabel }: { entry: GeoAgentConversationEntry; roleLabel: string }) {
+const ConversationEntryView = memo(function ConversationEntryView({
+  entry,
+  roleLabel,
+}: {
+  entry: GeoAgentConversationEntry;
+  roleLabel: string;
+}) {
   return (
     <div
       data-testid="geoagent-entry"
@@ -98,7 +112,7 @@ function ConversationEntryView({ entry, roleLabel }: { entry: GeoAgentConversati
       )}
     </div>
   );
-}
+});
 
 /**
  * GeoAgent 的 React 聊天面板：完全基于 shadcn/ui 组件构建，架在无头
@@ -156,10 +170,55 @@ export function GeoAgentPanel({
   // Earth Engine 设置区是否渲染：仅当配置了 earthEngine 且未被显式禁用时显示。
   const earthEngineEnabled = !!core.options.earthEngine && core.options.earthEngine.enabled !== false;
 
+  // 会话增量应用：core 的 updateEntry 是原地改写条目内容（引用不变），
+  // 这里对被更新的条目做浅拷贝产生新引用，让 memo 化的条目组件感知变化；
+  // 其余条目引用保持稳定，流式期间只有正在输出的那一条重渲染。
+  const applyConversation = useCallback(
+    (change: GeoAgentConversationChange, next: GeoAgentConversationEntry[]) => {
+      if (change.type === 'update' && change.entry) {
+        const updatedId = change.entry.id;
+        const updated = change.entry;
+        setEntries(
+          next.map((entry) => (entry.id === updatedId ? { ...updated } : entry)),
+        );
+        return;
+      }
+      // append/reset：快照已是新数组，未变更条目的引用保持稳定。
+      setEntries(next);
+    },
+    [],
+  );
+
+  // 流式输出期间 core 对每个文本增量都广播一次 update；rAF 合帧把一帧内
+  // 的多次更新折叠成一次应用。用最后一次变更类型 + 最后一次全量快照即可
+  // 完整表达结果（快照始终是 core 的当前全量状态）。
+  const pendingChangeRef = useRef<GeoAgentConversationChange | null>(null);
+  const pendingSnapshotRef = useRef<GeoAgentConversationEntry[]>([]);
+  const conversationRafRef = useRef<number | null>(null);
+
+  const scheduleConversation = useCallback(
+    (change: GeoAgentConversationChange, next: GeoAgentConversationEntry[]) => {
+      pendingChangeRef.current = change;
+      pendingSnapshotRef.current = next;
+      if (conversationRafRef.current !== null) {
+        return;
+      }
+      conversationRafRef.current = requestAnimationFrame(() => {
+        conversationRafRef.current = null;
+        const pendingChange = pendingChangeRef.current;
+        pendingChangeRef.current = null;
+        if (pendingChange) {
+          applyConversation(pendingChange, pendingSnapshotRef.current);
+        }
+      });
+    },
+    [applyConversation],
+  );
+
   // 订阅 core 的各路事件流（对话、状态徽章、配置提示、整体状态）。
   useEffect(() => {
-    const onConversation = (_change: unknown, next: ReturnType<GeoAgentCore['getConversation']>) => {
-      setEntries(next);
+    const onConversation = (change: GeoAgentConversationChange, next: ReturnType<GeoAgentCore['getConversation']>) => {
+      scheduleConversation(change, next);
     };
     const onStatus = (next: GeoAgentStatusState) => setStatus(next);
     const onNote = (next: GeoAgentNoteState) => setNote(next);
@@ -172,14 +231,18 @@ export function GeoAgentPanel({
     core.onStatus(onStatus);
     core.onNote(onNote);
     core.on('statechange', onStateChange);
-    // 卸载时解除全部订阅，避免泄漏与重复触发。
+    // 卸载时解除全部订阅，并取消尚未触发的合帧，避免卸载后 setState。
     return () => {
       core.offConversation(onConversation);
       core.offStatus(onStatus);
       core.offNote(onNote);
       core.off('statechange', onStateChange);
+      if (conversationRafRef.current !== null) {
+        cancelAnimationFrame(conversationRafRef.current);
+        conversationRafRef.current = null;
+      }
     };
-  }, [core]);
+  }, [core, scheduleConversation]);
 
   // 挂载/更新时绑定地图，卸载时解绑。
   useEffect(() => {
