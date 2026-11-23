@@ -61,7 +61,7 @@ export const zhTW: Record<GeoAgentMessageKey, string> = {
   roleTool: '工具',
   roleError: '錯誤',
 
-  logReady: 'WebGIS智慧代理已就緒（{engine}）。',
+  logReady: 'GeoAgent已就緒（{engine}）。',
   logLoadedWithMissing:
     '瀏覽器端 Strands 智慧代理已載入（{engine}）。請新增 {missing} 以開始。',
   logLoaded: '瀏覽器端 Strands 智慧代理已載入（{engine}）。',
