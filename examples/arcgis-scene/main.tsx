@@ -86,10 +86,6 @@ function ArcGISSceneExample() {
       }),
   );
   const [mapEl, setMapEl] = useState<HTMLElementTagNameMap['arcgis-scene'] | null>(null);
-  // 图层面板开关：web component 宿主下 view.ui.add 不生效、arcgis-expand
-  // 组合又会在 calcite popover reposition 上抛 TypeError，因此用本地状态
-  // 直接挂载/卸载 <arcgis-layer-list>，图标按钮由本组件自绘。
-  const [layersOpen, setLayersOpen] = useState(false);
 
   // 等待 <arcgis-scene> 完成 web component 升级（其内部 SceneView 就绪）。
   useEffect(() => {
@@ -154,29 +150,7 @@ function ArcGISSceneExample() {
           <arcgis-zoom slot="top-right" />
           {/* Home 回到初始相机位置（与缩放按钮留 8px 间距）。 */}
           <arcgis-home slot="top-right" style={{ marginTop: 8 }} />
-          {/* 图层面板：点击右上角图层图标后才挂载。 */}
-          {layersOpen && (
-            <arcgis-layer-list
-              slot="top-right"
-              style={{ marginTop: 8, width: 260 }}
-            />
-          )}
         </arcgis-scene>
-        {/* 自绘图层开关：位于 zoom + home 堆叠之下（约 128px）。 */}
-        <button
-          type="button"
-          title="图层"
-          aria-label="图层"
-          onClick={() => setLayersOpen((v) => !v)}
-          className="absolute right-2.5 flex h-8 w-8 items-center justify-center rounded border border-gray-300 bg-white shadow-sm hover:bg-gray-100"
-          style={{ top: 128 }}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-            <path d="M8 1 15 5 8 9 1 5 8 1Z" stroke="#4b4b4b" strokeWidth="1.2" strokeLinejoin="round" />
-            <path d="m1.5 8 6.5 4 6.5-4" stroke="#4b4b4b" strokeWidth="1.2" strokeLinejoin="round" />
-            <path d="m1.5 11 6.5 4 6.5-4" stroke="#4b4b4b" strokeWidth="1.2" strokeLinejoin="round" />
-          </svg>
-        </button>
       </div>
     </div>
   );
