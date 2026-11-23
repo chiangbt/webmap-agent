@@ -21,8 +21,6 @@ import SimpleFillSymbol from '@arcgis/core/symbols/SimpleFillSymbol.js';
 import SimpleLineSymbol from '@arcgis/core/symbols/SimpleLineSymbol.js';
 import SimpleMarkerSymbol from '@arcgis/core/symbols/SimpleMarkerSymbol.js';
 import TextSymbol from '@arcgis/core/symbols/TextSymbol.js';
-import Expand from '@arcgis/core/widgets/Expand.js';
-import LayerList from '@arcgis/core/widgets/LayerList.js';
 import * as reactiveUtils from '@arcgis/core/core/reactiveUtils.js';
 import PictureMarkerSymbol from '@arcgis/core/symbols/PictureMarkerSymbol.js';
 import { GeoAgentCore } from '@/lib/core/GeoAgentCore';
@@ -88,6 +86,10 @@ function ArcGISSceneExample() {
       }),
   );
   const [mapEl, setMapEl] = useState<HTMLElementTagNameMap['arcgis-scene'] | null>(null);
+  // 图层面板开关：web component 宿主下 view.ui.add 不生效、arcgis-expand
+  // 组合又会在 calcite popover reposition 上抛 TypeError，因此用本地状态
+  // 直接挂载/卸载 <arcgis-layer-list>，图标按钮由本组件自绘。
+  const [layersOpen, setLayersOpen] = useState(false);
 
   // 等待 <arcgis-scene> 完成 web component 升级（其内部 SceneView 就绪）。
   useEffect(() => {
@@ -119,31 +121,6 @@ function ArcGISSceneExample() {
     };
   }, []);
 
-  // 图层面板：用 @arcgis/core 的 Expand + LayerList 编程式挂载到 top-right。
-  // 不用 <arcgis-expand> web component——它与 React JSX 嵌套组合时会在内部
-  // calcite popover 的 reposition 上抛 TypeError。
-  useEffect(() => {
-    if (!mapEl) return;
-    const view = (
-      mapEl as unknown as {
-        view?: { ui: { add(w: unknown, p: string): unknown; remove(w: unknown): unknown } };
-      }
-    ).view;
-    if (!view) return;
-    const layerList = new LayerList({ view: view as never });
-    const expand = new Expand({
-      view: view as never,
-      content: layerList,
-      expandIcon: 'layers',
-      expandTooltip: '图层',
-    });
-    view.ui.add(expand, 'top-right');
-    return () => {
-      view.ui.remove(expand);
-      expand.destroy();
-    };
-  }, [mapEl]);
-
   return (
     <div className="flex w-full">
       <div className="flex shrink-0 flex-col overflow-hidden border-r bg-muted">
@@ -162,22 +139,45 @@ function ArcGISSceneExample() {
       {/* 全球 3D 场景：卫星影像叠加真实世界高程。agent 的相机类工具
           （fly_to、zoom_to_bounds、标记、截图）全部经由 shim 驱动这个
           SceneView；初始相机 (10, 12) 上空 2 万千米，heading / tilt 均为 0。 */}
-      <arcgis-scene
-        ref={sceneElement}
-        basemap="satellite"
-        ground="world-elevation"
-        camera-position="10, 12, 20000000"
-        camera-heading="0"
-        camera-tilt="0"
-        className="relative min-w-0 flex-1"
-      >
-        {/* 缩放按钮放在视图 UI 的指定 slot 位置；在 scene 中
-            它们按相机远近步进拉近 / 拉远。 */}
-        <arcgis-zoom slot="top-right" />
-        {/* Home 回到初始相机位置；图层面板查看/切换图层
-            （内联 marginTop 与上方控件留出 8px 间距）。 */}
-        <arcgis-home slot="top-right" style={{ marginTop: 8 }} />
-      </arcgis-scene>
+      <div className="relative min-w-0 flex-1">
+        <arcgis-scene
+          ref={sceneElement}
+          basemap="satellite"
+          ground="world-elevation"
+          camera-position="10, 12, 20000000"
+          camera-heading="0"
+          camera-tilt="0"
+          className="h-full w-full"
+        >
+          {/* 缩放按钮放在视图 UI 的指定 slot 位置；在 scene 中
+              它们按相机远近步进拉近 / 拉远。 */}
+          <arcgis-zoom slot="top-right" />
+          {/* Home 回到初始相机位置（与缩放按钮留 8px 间距）。 */}
+          <arcgis-home slot="top-right" style={{ marginTop: 8 }} />
+          {/* 图层面板：点击右上角图层图标后才挂载。 */}
+          {layersOpen && (
+            <arcgis-layer-list
+              slot="top-right"
+              style={{ marginTop: 8, width: 260 }}
+            />
+          )}
+        </arcgis-scene>
+        {/* 自绘图层开关：位于 zoom + home 堆叠之下（约 128px）。 */}
+        <button
+          type="button"
+          title="图层"
+          aria-label="图层"
+          onClick={() => setLayersOpen((v) => !v)}
+          className="absolute right-2.5 flex h-8 w-8 items-center justify-center rounded border border-gray-300 bg-white shadow-sm hover:bg-gray-100"
+          style={{ top: 128 }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+            <path d="M8 1 15 5 8 9 1 5 8 1Z" stroke="#4b4b4b" strokeWidth="1.2" strokeLinejoin="round" />
+            <path d="m1.5 8 6.5 4 6.5-4" stroke="#4b4b4b" strokeWidth="1.2" strokeLinejoin="round" />
+            <path d="m1.5 11 6.5 4 6.5-4" stroke="#4b4b4b" strokeWidth="1.2" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }
