@@ -23,7 +23,7 @@ import SimpleMarkerSymbol from '@arcgis/core/symbols/SimpleMarkerSymbol.js';
 import TextSymbol from '@arcgis/core/symbols/TextSymbol.js';
 import Expand from '@arcgis/core/widgets/Expand.js';
 import LayerList from '@arcgis/core/widgets/LayerList.js';
-import reactiveUtils from '@arcgis/core/core/reactiveUtils.js';
+import * as reactiveUtils from '@arcgis/core/core/reactiveUtils.js';
 import PictureMarkerSymbol from '@arcgis/core/symbols/PictureMarkerSymbol.js';
 import { GeoAgentCore } from '@/lib/core/GeoAgentCore';
 import { GeoAgentPanel } from '@/react';
