@@ -222,7 +222,7 @@ function ArcGISMapExample() {
         {/* 缩放与 Home（回到初始范围）按钮放在视图 UI 的指定 slot 位置。 */}
         <arcgis-zoom slot="top-right" />
         {/* Home 与缩放按钮之间留出间距（slot 内控件默认贴在一起）。 */}
-        <arcgis-home slot="top-right" className="mt-2" />
+        <arcgis-home slot="top-right" style={{ marginTop: 8 }} />
       </arcgis-map>
     </div>
   );
