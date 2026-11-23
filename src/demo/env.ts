@@ -11,13 +11,15 @@ export interface LlmEnvConfig {
   apiKey: string;
   /** 默认模型名（来自环境变量 LLM_API_MODEL）。 */
   model: string;
+  /** 天地图服务 key（来自环境变量 TIANDITU_SERVER_KEY），用于地名搜索。 */
+  tiandituKey: string;
 }
 
 /**
  * 读取部署注入的 LLM 环境变量配置。
  *
- * @returns 三个字段分别来自 LLM_API_URL / LLM_API_KEY / LLM_API_MODEL，
- *          缺失或非字符串时为空字符串。
+ * @returns 四个字段分别来自 LLM_API_URL / LLM_API_KEY / LLM_API_MODEL /
+ *          TIANDITU_SERVER_KEY，缺失或非字符串时为空字符串。
  */
 export function readLlmEnvConfig(): LlmEnvConfig {
   // 故意使用按名计算访问（而非 import.meta.env.LLM_API_URL）：
@@ -32,5 +34,6 @@ export function readLlmEnvConfig(): LlmEnvConfig {
     baseUrl: read('LLM_API_URL'),
     apiKey: read('LLM_API_KEY'),
     model: read('LLM_API_MODEL'),
+    tiandituKey: read('TIANDITU_SERVER_KEY'),
   };
 }

@@ -5,8 +5,8 @@ import { resolve } from 'path';
 import dts from 'vite-plugin-dts';
 
 export default defineConfig({
-  // Expose LLM_* deployment defaults to the demo alongside VITE_* vars.
-  envPrefix: ['VITE_', 'LLM_'],
+  // Expose LLM_* 与 TIANDITU_* 部署默认值给 demo（与 VITE_* 并列）。
+  envPrefix: ['VITE_', 'LLM_', 'TIANDITU_'],
   server: {
     // 监听所有地址（双栈 ::），使 localhost 与 127.0.0.1 都能访问 dev server：
     // 默认 host='localhost' 在本机解析为 IPv6 ::1，只绑 [::1] 会导致 127.0.0.1（IPv4）连不上。

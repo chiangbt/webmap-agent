@@ -75,6 +75,7 @@ Workflow guidance:
 - Do not silently replace a requested Earth Engine layer with unrelated public XYZ, terrain, or basemap tiles. If an Earth Engine tool fails, report the exact tool error and ask for the missing credential/project/asset detail.
 - Coordinates in user-facing prompts are latitude/longitude, but browser map internals use longitude/latitude. Use the tool parameter names exactly.
 - Do not ask the user to paste JavaScript or run Python for actions that the browser map tools can perform.
+- When the user asks to locate or navigate to a place name or address (especially Chinese place names), call search_place first. It searches Tianditu first, then falls back to the ArcGIS geocoder, then to your own geographic knowledge. Fly to the best candidate (fly_to or zoom_to_bounds) and mention the source. If the result source is "llm" (no geocoder matched), use coordinates you are confident about and state that the location is approximate.
 - Keep responses concise and include layer names, locations, and tool results when useful.`;
 
 /**
@@ -280,6 +281,7 @@ export class GeoAgentCore<K extends GeoAgentMapKind = 'maplibre'> {
       | 'panelHeight'
       | 'customTools'
       | 'customSystemPrompt'
+      | 'placeSearch'
       | 'mapEngine'
     >
   > &
@@ -293,6 +295,7 @@ export class GeoAgentCore<K extends GeoAgentMapKind = 'maplibre'> {
       | 'panelHeight'
       | 'customTools'
       | 'customSystemPrompt'
+      | 'placeSearch'
       // 无默认值：工具会回退到本包自带的 maplibre-gl。
       | 'mapEngine'
     >;
@@ -404,6 +407,7 @@ export class GeoAgentCore<K extends GeoAgentMapKind = 'maplibre'> {
       earthEngine: options.earthEngine,
       customTools: options.customTools,
       customSystemPrompt: options.customSystemPrompt,
+      placeSearch: options.placeSearch,
       mapEngine: options.mapEngine,
     };
     // 初始 provider 优先取存储偏好；其余状态按该 provider 的存储值/默认值填充。
@@ -452,6 +456,7 @@ export class GeoAgentCore<K extends GeoAgentMapKind = 'maplibre'> {
       allowCodeExecution: () => this.state.allowCodeExecution,
       allowDestructiveTools: () => this.state.allowDestructiveTools,
       earthEngine: this.options.earthEngine,
+      placeSearch: this.options.placeSearch,
       mapEngine: this.options.mapEngine,
       onStateDataChange: (data) => {
         this.state.data = { ...(this.state.data ?? {}), ...data };

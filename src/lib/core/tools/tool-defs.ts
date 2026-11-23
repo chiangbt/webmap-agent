@@ -71,6 +71,20 @@ export function buildMapToolDefinitions(ctx: ToolDefContext, engineTools: Tool[]
       callback: () => ctx.runCommand("get_map_state"),
     }),
     /**
+     * search_place — 地名/地址搜索（内置三级回退：天地图 → ArcGIS geocoder
+     * → LLM 自身知识）。中文地名优先走天地图；返回归一化候选列表与命中来源。
+     * 拿到候选后应紧随 fly_to / zoom_to_bounds 完成定位。
+     */
+    tool({
+      name: "search_place",
+      description:
+        "Search a place name or address (geocoding with built-in fallback chain: Tianditu -> ArcGIS geocoder -> LLM knowledge). Returns normalized candidates with lon/lat; fly to the best candidate afterwards.",
+      inputSchema: z.object({
+        query: z.string().describe("Place name or address, e.g. a Chinese place name like 天安门."),
+      }),
+      callback: (input) => ctx.runCommand("search_place", input),
+    }),
+    /**
      * set_center — 立即跳转（无动画）将地图中心设为指定经纬度。
      * lat/lon 为十进制度；zoom 可选，缺省保持当前缩放级别。
      */

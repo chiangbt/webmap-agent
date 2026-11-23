@@ -40,6 +40,7 @@ import {
   buildScriptTool,
   type ToolDefContext,
 } from "./tool-defs";
+import { searchPlaceChain, type PlaceSearchOptions } from "../geocoding/place-search";
 
 /** 通用 JSON 对象类型：键为 string、值为任意 unknown 的宽松记录。 */
 export type JsonObject = Record<string, unknown>;
@@ -734,6 +735,11 @@ export interface GeoAgentToolsOptions {
   allowDestructiveTools: () => boolean;
   /** Google Earth Engine 配置；未传或 disabled 时不注册 GEE 工具。 */
   earthEngine?: EarthEngineOptions;
+  /**
+   * 地名/地址搜索配置（三级回退：天地图 → ArcGIS geocoder → LLM）。
+   * 未传 tiandituKey 时第一级自动跳过；search_place 工具始终注册。
+   */
+  placeSearch?: PlaceSearchOptions;
   /** 向宿主 UI 发布非对话状态数据（如截图、GEE 状态）的回调。 */
   onStateDataChange?: (data: Record<string, unknown>) => void;
   /**
@@ -772,6 +778,8 @@ export abstract class GeoAgentTools {
   private commandChain: Promise<void> = Promise.resolve();
   /** Google Earth Engine 服务封装；未配置时为 undefined。 */
   private readonly earthEngine?: EarthEngineService;
+  /** 地名/地址搜索配置（天地图 key、端点、超时等）。 */
+  private readonly placeSearch?: PlaceSearchOptions;
   /** 经子类 resolveEngine 校验后的引擎声明。 */
   protected readonly engine: GeoAgentMapEngine;
   /**
@@ -795,6 +803,7 @@ export abstract class GeoAgentTools {
       this.earthEngine = new EarthEngineService(options.earthEngine);
       this.publishEarthEngineState();
     }
+    this.placeSearch = options.placeSearch;
   }
 
   /* ------------------------------------------------------------ hooks */
@@ -997,6 +1006,7 @@ export abstract class GeoAgentTools {
       ...this.sourceLayerStyleCommands(),
       ...this.geeCommands(),
       ...this.scriptCommands(),
+      ...this.placeSearchCommands(),
     };
     const handler = this.commandTable[command];
     if (handler) {
@@ -1107,6 +1117,30 @@ export abstract class GeoAgentTools {
           .queryRenderedFeatures(point, layers.length ? { layers } : {})
           .slice(0, 50)
           .map(this.serializableFeature);
+      },
+    };
+  }
+
+  /**
+   * 地名/地址搜索命令：search_place。跑 geocoding 模块的三级回退链
+   * （天地图 → ArcGIS geocoder → LLM 指引），视口包围盒作为天地图查询的
+   * focusRectangle 传入，使结果向当前视野倾斜。
+   */
+  private placeSearchCommands(): Record<string, (args: JsonObject) => Promise<unknown>> {
+    return {
+      search_place: async (args) => {
+        const query = stringArg(args, "query");
+        const bounds = this.map.getBounds();
+        return searchPlaceChain(
+          query,
+          this.placeSearch ?? {},
+          {
+            west: bounds.getWest(),
+            south: bounds.getSouth(),
+            east: bounds.getEast(),
+            north: bounds.getNorth(),
+          },
+        );
       },
     };
   }

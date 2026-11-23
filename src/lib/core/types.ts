@@ -7,6 +7,7 @@ import type { Map, StyleSpecification } from 'maplibre-gl';
 import type { GeoAgentLocale } from '../i18n';
 import type { GeoAgentMapEngine } from './tools/geoagent-tools';
 import type { EarthEngineOptions } from './earth-engine/earth-engine';
+import type { PlaceSearchOptions } from './geocoding/place-search';
 
 /** 支持的 provider 标识：OpenAI 兼容端点与 Anthropic 兼容端点。 */
 export type GeoAgentProviderId =
@@ -168,6 +169,13 @@ export interface GeoAgentControlOptions {
    * 提供短期 access token。不要向这个浏览器端包提供 service account 私钥。
    */
   earthEngine?: EarthEngineOptions;
+
+  /**
+   * 地名/地址搜索配置（三级回退：天地图 → ArcGIS geocoder → LLM）。
+   * 传入 tiandituKey（如部署环境变量 TIANDITU_SERVER_KEY）后，中文地名
+   * 搜索优先走天地图；两级地理编码都无结果时由 LLM 用自身知识兜底。
+   */
+  placeSearch?: PlaceSearchOptions;
 
   /**
    * 额外暴露给代理的领域专属 Strands tools（数组或返回数组的工厂函数）。
