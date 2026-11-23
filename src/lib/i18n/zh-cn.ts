@@ -60,7 +60,7 @@ export const zhCN: Record<GeoAgentMessageKey, string> = {
   roleTool: '工具',
   roleError: '错误',
 
-  logReady: '浏览器端 Strands 智能体已就绪（{engine}）。',
+  logReady: 'WebGIS智能体已就绪（{engine}）。',
   logLoadedWithMissing:
     '浏览器端 Strands 智能体已加载（{engine}）。请添加 {missing} 以开始。',
   logLoaded: '浏览器端 Strands 智能体已加载（{engine}）。',
