@@ -266,6 +266,14 @@ export interface ArcGISNamespace {
   SimpleMarkerSymbol: new (options?: Record<string, unknown>) => unknown;
   TextSymbol: new (options?: Record<string, unknown>) => unknown;
   PictureMarkerSymbol: new (options?: Record<string, unknown>) => unknown;
+  /**
+   * 可选的 reactiveUtils（@arcgis/core/core/reactiveUtils.js）。提供时用
+   * reactiveUtils.watch 监听视图属性（4.32 起 view.watch 已弃用）；缺省时
+   * 回退到弃用的 view.watch，老版本宿主不受影响。
+   */
+  reactiveUtils?: {
+    watch(getter: () => unknown, listener: () => void): ArcGISWatchHandle;
+  };
 }
 
 /** asArcGISNamespace 校验时要求 namespace 必须提供的 esri 类名清单。 */
@@ -689,7 +697,7 @@ export class ArcGISMapShim implements GeoAgentMapSurface {
       // SceneView 通过 camera 导航；watch 一个 camera 就能在一个处理器里
       // 同时覆盖 zoom（scale）、heading、tilt 与平移。
       this.watchHandles.push(
-        map.watch("camera", () => {
+        this.watchView("camera", () => {
           for (const source of this.sources.values()) {
             source.invalidateClusterCache();
           }
@@ -701,7 +709,7 @@ export class ArcGISMapShim implements GeoAgentMapSurface {
       // MapView 分开监听：zoom 变化影响聚合缓存与 zoom 范围可见性；
       // extent/rotation 只影响 marker/popup 的屏幕位置。
       this.watchHandles.push(
-        map.watch("zoom", () => {
+        this.watchView("zoom", () => {
           for (const source of this.sources.values()) {
             source.invalidateClusterCache();
           }
@@ -710,14 +718,31 @@ export class ArcGISMapShim implements GeoAgentMapSurface {
         }),
       );
       this.watchHandles.push(
-        map.watch("extent", () => this.syncMarkers()),
+        this.watchView("extent", () => this.syncMarkers()),
       );
       this.watchHandles.push(
-        map.watch("rotation", () => this.syncMarkers()),
+        this.watchView("rotation", () => this.syncMarkers()),
       );
     }
     // 点击地图任意处即收起已展示的 marker popup。
     this.clickHandle = map.on("click", () => this.hideMarkerPopups());
+  }
+
+  /**
+   * 监听视图属性变化：宿主 namespace 提供 reactiveUtils 时走
+   * reactiveUtils.watch（4.32+ 推荐，view.watch 已弃用），否则回退到
+   * 弃用的 view.watch 以兼容老版本宿主。
+   */
+  private watchView(
+    property: "camera" | "zoom" | "extent" | "rotation",
+    listener: () => void,
+  ): ArcGISWatchHandle {
+    const reactiveUtils = this.ns.reactiveUtils;
+    if (reactiveUtils) {
+      const view = this.view as unknown as Record<string, unknown>;
+      return reactiveUtils.watch(() => view[property], listener);
+    }
+    return this.view.watch(property, listener);
   }
 
   /**

@@ -25,6 +25,7 @@ import TextSymbol from '@arcgis/core/symbols/TextSymbol.js';
 import PictureMarkerSymbol from '@arcgis/core/symbols/PictureMarkerSymbol.js';
 import Expand from '@arcgis/core/widgets/Expand.js';
 import LayerList from '@arcgis/core/widgets/LayerList.js';
+import reactiveUtils from '@arcgis/core/core/reactiveUtils.js';
 import { GeoAgentCore } from '@/lib/core/GeoAgentCore';
 import { GeoAgentPanel } from '@/react';
 import { waitForArcGISComponent } from '@/lib/core/engines/arcgis-engine';
@@ -159,6 +160,8 @@ function ArcGISMapExample() {
             SimpleMarkerSymbol,
             TextSymbol,
             PictureMarkerSymbol,
+            // 4.32 起 view.watch 弃用，提供 reactiveUtils 走新监听通道。
+            reactiveUtils,
           },
         },
       }),
