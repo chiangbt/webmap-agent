@@ -224,8 +224,10 @@ function ArcGISMapExample() {
       >
         {/* 缩放与 Home（回到初始范围）按钮放在视图 UI 的指定 slot 位置。 */}
         <arcgis-zoom slot="top-right" />
-        {/* Home 与缩放按钮之间留出间距（slot 内控件默认贴在一起）。 */}
+        {/* Home 回到初始范围；图层面板查看/切换底图与业务图层
+            （内联 marginTop 与上方控件留出 8px 间距）。 */}
         <arcgis-home slot="top-right" style={{ marginTop: 8 }} />
+        <arcgis-layer-list slot="top-right" style={{ marginTop: 8 }} />
       </arcgis-map>
     </div>
   );
