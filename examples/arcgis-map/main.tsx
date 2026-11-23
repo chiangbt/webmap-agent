@@ -219,8 +219,9 @@ function ArcGISMapExample() {
         zoom="2"
         className="relative min-w-0 flex-1"
       >
-        {/* 缩放按钮放在视图 UI 的指定 slot 位置。 */}
+        {/* 缩放与 Home（回到初始范围）按钮放在视图 UI 的指定 slot 位置。 */}
         <arcgis-zoom slot="top-right" />
+        <arcgis-home slot="top-right" />
       </arcgis-map>
     </div>
   );
