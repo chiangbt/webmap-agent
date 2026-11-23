@@ -23,6 +23,8 @@ import SimpleLineSymbol from '@arcgis/core/symbols/SimpleLineSymbol.js';
 import SimpleMarkerSymbol from '@arcgis/core/symbols/SimpleMarkerSymbol.js';
 import TextSymbol from '@arcgis/core/symbols/TextSymbol.js';
 import PictureMarkerSymbol from '@arcgis/core/symbols/PictureMarkerSymbol.js';
+import Expand from '@arcgis/core/widgets/Expand.js';
+import LayerList from '@arcgis/core/widgets/LayerList.js';
 import { GeoAgentCore } from '@/lib/core/GeoAgentCore';
 import { GeoAgentPanel } from '@/react';
 import { waitForArcGISComponent } from '@/lib/core/engines/arcgis-engine';
@@ -184,6 +186,31 @@ function ArcGISMapExample() {
     };
   }, []);
 
+  // 图层面板：用 @arcgis/core 的 Expand + LayerList 编程式挂载到 top-right。
+  // 不用 <arcgis-expand> web component——它与 React JSX 嵌套组合时会在内部
+  // calcite popover 的 reposition 上抛 TypeError。
+  useEffect(() => {
+    if (!mapEl) return;
+    const view = (
+      mapEl as unknown as {
+        view?: { ui: { add(w: unknown, p: string): unknown; remove(w: unknown): unknown } };
+      }
+    ).view;
+    if (!view) return;
+    const layerList = new LayerList({ view: view as never });
+    const expand = new Expand({
+      view: view as never,
+      content: layerList,
+      expandIcon: 'layers',
+      expandTooltip: '图层',
+    });
+    view.ui.add(expand, 'top-right');
+    return () => {
+      view.ui.remove(expand);
+      expand.destroy();
+    };
+  }, [mapEl]);
+
   // 面板挂载完成后，通过 agent 自身的工具机制预置示例数据
   // （子组件 effect 先于父组件 effect 执行，因此此处工具已就绪）。
   useEffect(() => {
@@ -227,10 +254,6 @@ function ArcGISMapExample() {
         {/* Home 回到初始范围；图层面板查看/切换底图与业务图层
             （内联 marginTop 与上方控件留出 8px 间距）。 */}
         <arcgis-home slot="top-right" style={{ marginTop: 8 }} />
-        {/* Expand 包装：默认只显示一个图标按钮，点击才展开图层面板。 */}
-        <arcgis-expand slot="top-right" expand-tooltip="图层">
-          <arcgis-layer-list />
-        </arcgis-expand>
       </arcgis-map>
     </div>
   );
