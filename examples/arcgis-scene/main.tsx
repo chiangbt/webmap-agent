@@ -51,7 +51,7 @@ applyExamplePageLocale(locale, {
  * @returns 左侧 GeoAgent 面板 + 右侧 3D 场景容器的页面布局。
  */
 function ArcGISSceneExample() {
-  const sceneElement = useRef<HTMLElement>(null);
+  const sceneElement = useRef<HTMLElementTagNameMap['arcgis-scene']>(null);
   // 惰性初始化 GeoAgentCore：仅在首次渲染时创建一次，
   // 并在此挂接 ArcGIS 兼容引擎与 esri 命名空间。
   const [core] = useState(
@@ -82,7 +82,7 @@ function ArcGISSceneExample() {
         },
       }),
   );
-  const [mapEl, setMapEl] = useState<HTMLElement | null>(null);
+  const [mapEl, setMapEl] = useState<HTMLElementTagNameMap['arcgis-scene'] | null>(null);
 
   // 等待 <arcgis-scene> 完成 web component 升级（其内部 SceneView 就绪）。
   useEffect(() => {

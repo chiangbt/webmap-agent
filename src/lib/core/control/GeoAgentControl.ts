@@ -7,6 +7,7 @@ import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import type { IControl, Map as MapLibreMap } from 'maplibre-gl';
 import { GeoAgentCore } from '../GeoAgentCore';
+import type { GeoAgentMapKind } from '../map-binding';
 import { resolveMapContainer } from '../map-container';
 import type { GeoAgentTools } from '../tools/geoagent-tools';
 import type {
@@ -60,7 +61,7 @@ type PanelResizeCorner = 'bottom-left' | 'bottom-right';
  */
 export class GeoAgentControl implements IControl {
   /** 无头引擎核心：配置、agent 与会话都在这里，控件只做渲染与转发。 */
-  private readonly core: GeoAgentCore;
+  private readonly core: GeoAgentCore<GeoAgentMapKind>;
   /** onAdd 传入的地图实例。 */
   private map?: MapLibreMap;
   /** 地图 DOM 容器，用于面板定位与拖拽钳制。 */
@@ -107,7 +108,7 @@ export class GeoAgentControl implements IControl {
    * @param options 控件可配置项，全部可省略
    */
   constructor(options: GeoAgentControlOptions = {}) {
-    this.core = new GeoAgentCore(options);
+    this.core = new GeoAgentCore<GeoAgentMapKind>(options);
   }
 
   /** 选项存放在 core 中；引擎挂载辅助函数会读写其中的 `position`。 */
@@ -140,12 +141,17 @@ export class GeoAgentControl implements IControl {
     this.mapContainer = mapContainer;
     this.container = this.createContainer();
     this.panel = this.createPanel();
-    // 浮动面板直接挂在地图容器上，随地图缩放定位，而非放进 IControl 停靠容器。
-    this.mapContainer.appendChild(this.panel);
     // 先订阅核心事件再 attach，保证不漏掉任何事件；attach 期间触发的快照
     // （状态徽标、就绪日志条目）随后即被渲染出来。
     this.subscribeCoreEvents();
-    this.core.attach(map);
+    try {
+      this.core.attach(map);
+    } catch (error) {
+      this.onRemove();
+      throw error;
+    }
+    // 校验完成后才将浮动面板挂到地图容器。
+    this.mapContainer.appendChild(this.panel);
     this.setupEventListeners();
     // 仅当仍需配置时让设置区初始展开；配置完成后该区自动收起，给聊天留出
     // 更多空间（无论哪种情况状态徽标都会展示连接状态）。
@@ -246,7 +252,7 @@ export class GeoAgentControl implements IControl {
 
   /** 返回当前绑定的地图实例。 */
   getMap(): MapLibreMap | undefined {
-    return this.core.getMap();
+    return this.map;
   }
 
   /** 返回 IControl 根容器（含切换按钮）。 */

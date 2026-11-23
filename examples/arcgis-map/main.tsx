@@ -128,7 +128,7 @@ const DEMO_GEOJSON = {
  * @returns 左侧 GeoAgent 面板 + 右侧地图容器的页面布局。
  */
 function ArcGISMapExample() {
-  const mapElement = useRef<HTMLElement>(null);
+  const mapElement = useRef<HTMLElementTagNameMap['arcgis-map']>(null);
   // 惰性初始化 GeoAgentCore：仅在首次渲染时创建一次，
   // 并在此挂接 ArcGIS 兼容引擎与 esri 命名空间。
   const [core] = useState(
@@ -158,7 +158,7 @@ function ArcGISMapExample() {
         },
       }),
   );
-  const [mapEl, setMapEl] = useState<HTMLElement | null>(null);
+  const [mapEl, setMapEl] = useState<HTMLElementTagNameMap['arcgis-map'] | null>(null);
 
   // 等待 <arcgis-map> 完成 web component 升级（其内部 MapView 就绪）。
   useEffect(() => {

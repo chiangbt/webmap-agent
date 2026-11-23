@@ -14,7 +14,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 function map() {
-  return { getContainer: () => document.createElement('div') } as never;
+  return { getContainer: () => document.createElement('div'), getStyle: () => ({ layers: [] }) } as never;
 }
 function configuredCore() {
   return new GeoAgentCore({ defaultApiKey: 'test', defaultBaseUrl: 'https://example.com/v1', defaultModel: 'test' });

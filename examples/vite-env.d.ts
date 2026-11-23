@@ -21,13 +21,13 @@ declare global {
   namespace JSX {
     interface IntrinsicElements {
       /** ArcGIS 2D 地图视图（MapView）web component。 */
-      'arcgis-map': DetailedHTMLProps<HTMLAttributes<HTMLElement>, HTMLElement> & {
+      'arcgis-map': DetailedHTMLProps<HTMLAttributes<HTMLElementTagNameMap['arcgis-map']>, HTMLElementTagNameMap['arcgis-map']> & {
         basemap?: string;
         center?: string;
         zoom?: string;
       };
       /** ArcGIS 3D 场景视图（SceneView）web component。 */
-      'arcgis-scene': DetailedHTMLProps<HTMLAttributes<HTMLElement>, HTMLElement> & {
+      'arcgis-scene': DetailedHTMLProps<HTMLAttributes<HTMLElementTagNameMap['arcgis-scene']>, HTMLElementTagNameMap['arcgis-scene']> & {
         basemap?: string;
         ground?: string;
         'camera-position'?: string;

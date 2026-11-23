@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArcGISTools } from '../src/lib/core/tools/arcgis-tools';
+import { GeoAgentCore } from '../src/lib/core/GeoAgentCore';
 import type { GeoAgentMapEngine } from '../src/lib/core/tools/maplibre-tools';
 import {
   resolveMapContainer,
@@ -260,6 +261,21 @@ describe('arcgis structural helpers', () => {
     expect(() => createArcGISMapShim(view, arcgisNamespace)).toThrow(
       /spatial reference 2277/,
     );
+  });
+
+  it('rejects an ArcGIS view that disagrees with the configured viewKind', () => {
+    const mapView = new FakeView();
+    const sceneCore = new GeoAgentCore({
+      mapEngine: { kind: 'arcgis', viewKind: 'scene', namespace: arcgisNamespace },
+    });
+    try {
+      expect(() => sceneCore.attach(mapView)).toThrow(/expected an ArcGIS SceneView/);
+      expect(sceneCore.getMap()).toBeUndefined();
+      expect(sceneCore.getTools()).toBeUndefined();
+    } finally {
+      mapView.cleanup();
+      sceneCore.dispose();
+    }
   });
 });
 

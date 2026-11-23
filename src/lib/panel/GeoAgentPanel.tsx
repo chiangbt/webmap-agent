@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { ChevronDownIcon, CopyIcon, SendIcon, SquareIcon, XIcon } from 'lucide-react';
 import { GeoAgentCore } from '../core/GeoAgentCore';
+import type { GeoAgentMapFor, GeoAgentMapKind, GeoAgentOptionsFor } from '../core/map-binding';
 import type {
   GeoAgentConversationChange,
   GeoAgentConversationEntry,
@@ -39,19 +40,7 @@ import { Textarea } from '../ui/textarea';
 import { cn } from '../ui/utils';
 import { renderMarkdownToSafeHtml } from './markdown';
 
-export interface GeoAgentPanelProps extends GeoAgentControlOptions {
-  /**
-   * 将面板绑定到一个已有的 core 实例。缺省时面板会用其余 props 创建
-   * 并自行释放自己的 core（options 在挂载时捕获一次，与命令式控件
-   * 捕获 options 的方式一致）。
-   */
-  core?: GeoAgentCore;
-  /**
-   * 要挂载 core 的地图实例：MapLibre/Mapbox 地图，或在配置了 `mapEngine`
-   * 时传入 Leaflet/OpenLayers 地图。挂载发生在组件挂载时，并在 map
-   * 实例变化时重新挂载。
-   */
-  map?: unknown;
+interface PanelOptions extends Omit<GeoAgentControlOptions, 'mapEngine'> {
   onStateChange?: (state: GeoAgentState) => void;
   /** 面板宽度（像素）。缺省取 `panelWidth` 选项（390）。 */
   width?: number;
@@ -59,6 +48,14 @@ export interface GeoAgentPanelProps extends GeoAgentControlOptions {
   showCollapseButton?: boolean;
   className?: string;
 }
+
+/** The map follows the engine selected by the supplied Core or mapEngine option. */
+export type GeoAgentPanelProps = {
+  [K in GeoAgentMapKind]: PanelOptions & { map?: GeoAgentMapFor<K> | null } & (
+    | { core: GeoAgentCore<K>; mapEngine?: GeoAgentOptionsFor<K>['mapEngine'] }
+    | (GeoAgentOptionsFor<K> & { core?: undefined })
+  );
+}[GeoAgentMapKind];
 
 /** 根据状态种类返回对应徽章外观（variant）。 */
 function statusVariant(kind: string): ComponentProps<typeof Badge>['variant'] {
@@ -130,7 +127,7 @@ export function GeoAgentPanel({
   ...options
 }: GeoAgentPanelProps) {
   // 传入 core 就复用，否则自行持有；options 仅在挂载时捕获一次。
-  const [ownedCore] = useState(() => new GeoAgentCore(options));
+  const [ownedCore] = useState(() => new GeoAgentCore<GeoAgentMapKind>(options));
   const core = controlledCore ?? ownedCore;
 
   // 从 core 的当前快照初始化各状态，避免首帧闪烁。
@@ -253,7 +250,7 @@ export function GeoAgentPanel({
     if (!map) {
       return;
     }
-    core.attach(map as Parameters<GeoAgentCore['attach']>[0]);
+    core.attach(map);
     // attach() 会重新加载已提交的 key（来自 storage、apiKeys 或部署默认值）
     // —— 把它同步进输入框以便用户看到当前值。
     setApiKey(core.getCommittedApiKey());

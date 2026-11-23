@@ -132,7 +132,8 @@ export interface OpenLayersViewLike {
   getProjection(): { getCode(): string };
   calculateExtent(size: number[]): number[];
   fit(extent: number[], options?: Record<string, unknown>): void;
-  animate(options: Record<string, unknown>, callback?: (completed: boolean) => void): void;
+  animate(options: Record<string, unknown>): void;
+  animate(options: Record<string, unknown>, callback: (completed: boolean) => void): void;
   cancelAnimations?(): void;
 }
 

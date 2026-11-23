@@ -1,5 +1,6 @@
 {
   "extends": "./tsconfig.json",
+  "files": ["tests/types/map-binding.tsx"],
   "include": ["src", "examples"],
   "exclude": ["node_modules", "dist", "dist-examples", "tests"]
 }

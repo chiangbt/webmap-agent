@@ -60,7 +60,7 @@ function createMockMap() {
   container.style.height = '600px';
   document.body.appendChild(container);
   return {
-    map: { getContainer: () => container, on: vi.fn(), off: vi.fn() } as never,
+    map: { getContainer: () => container, getStyle: () => ({ layers: [] }), on: vi.fn(), off: vi.fn() } as never,
     cleanup: () => container.remove(),
   };
 }

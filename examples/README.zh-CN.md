@@ -17,6 +17,9 @@ shadcn 卡片与语言切换器，每个示例页共享 `src/demo/example-shell.
 MapLibre GL 基础示例在地图上挂载浮动的 `GeoAgentControl`。其余示例将
 `<GeoAgentPanel>` 渲染到地图左侧的侧栏。Leaflet 和 OpenLayers 通过
 `mapEngine` 选项指定引擎。
+省略引擎配置时，`GeoAgentCore` 和 `GeoAgentPanel` 默认使用 MapLibre。
+TypeScript 会检查地图实例是否与配置的引擎或传入的 Core 匹配。ArcGIS 示例
+在组件的内部视图就绪后再绑定。
 
 所有示例均跟随示例首页选择的语言：首页的 中文/English 下拉框会把选择保存在
 `localStorage`（`geoagent.locale`），每个示例页读取该选择并通过 `locale`

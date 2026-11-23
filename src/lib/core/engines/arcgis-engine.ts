@@ -334,8 +334,11 @@ export function isArcGISSceneView(value: unknown): boolean {
 export function isArcGISComponent(value: unknown): value is ArcGISComponentLike {
   return (
     isRecord(value) &&
-    typeof (value as { when?: unknown }).when === "function" &&
-    "view" in value
+    "view" in value &&
+    (value.tagName === "ARCGIS-MAP" ||
+      value.tagName === "ARCGIS-SCENE" ||
+      isArcGISView(value.view) ||
+      typeof value.when === "function")
   );
 }
 

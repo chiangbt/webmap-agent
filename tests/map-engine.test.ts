@@ -253,6 +253,7 @@ describe('GeoAgentControl mapEngine plumbing', () => {
     document.body.appendChild(container);
     const map = {
       getContainer: () => container,
+      getStyle: () => ({ layers: [] }),
       on: vi.fn(),
       off: vi.fn(),
     };
@@ -270,7 +271,7 @@ describe('GeoAgentControl mapEngine plumbing', () => {
     const control = new GeoAgentControl({});
     const container = document.createElement('div');
     document.body.appendChild(container);
-    control.onAdd({ getContainer: () => container, on: vi.fn(), off: vi.fn() } as never);
+    control.onAdd({ getContainer: () => container, getStyle: () => ({ layers: [] }), on: vi.fn(), off: vi.fn() } as never);
 
     const tools = (control as unknown as { tools?: { engine?: { kind?: string } } }).tools;
     expect(tools?.engine?.kind).toBe('maplibre');

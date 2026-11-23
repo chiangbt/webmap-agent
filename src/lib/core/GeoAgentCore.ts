@@ -10,9 +10,9 @@ import {
   type Model,
   type Tool,
 } from '@strands-agents/sdk';
-import type { Map as MapLibreMap } from 'maplibre-gl';
 import { t, type GeoAgentMessageKey } from '../i18n';
 import { resolveMapContainer } from './map-container';
+import { validateMapBinding, type GeoAgentMapFor, type GeoAgentMapKind, type GeoAgentOptionsFor } from './map-binding';
 import { DEFAULT_BASEMAPS, type GeoAgentTools } from './tools/geoagent-tools';
 import { createGeoAgentTools } from './tools/tools-factory';
 import type {
@@ -262,7 +262,8 @@ type EventHandlersMap = globalThis.Map<
  * 会话、状态徽标与配置提示的变更分别经 `onConversation` / `onStatus` /
  * `onNote` 订阅推送。
  */
-export class GeoAgentCore {
+export class GeoAgentCore<K extends GeoAgentMapKind = 'maplibre'> {
+  readonly mapEngineKind: K;
   /**
    * 归一化后的完整选项：缺省项已填默认值；仅 defaultModel、basemaps、
    * earthEngine、apiKeys、panelHeight、customTools、customSystemPrompt、
@@ -296,7 +297,8 @@ export class GeoAgentCore {
       | 'mapEngine'
     >;
   /** 当前绑定的地图实例（attach 后存在；非 MapLibre 引擎时也由此字段承载）。 */
-  private mapInstance?: MapLibreMap;
+  private mapInstance?: GeoAgentMapFor<K>;
+  private arcgisViewKind?: 'map' | 'scene';
   /** 地图 DOM 容器，用于面板高度钳制等布局计算。 */
   private mapContainer?: HTMLElement;
   /** 与当前地图绑定的工具集（attach 时创建，detach/重挂载时销毁）。 */
@@ -368,7 +370,10 @@ export class GeoAgentCore {
    *
    * @param options 宿主传入的可配置项，全部可省略
    */
+  constructor(options: GeoAgentOptionsFor<K> | ('maplibre' extends K ? undefined : never));
+  constructor(...args: 'maplibre' extends K ? [] : [never]);
   constructor(options: GeoAgentControlOptions = {}) {
+    this.mapEngineKind = (options.mapEngine?.kind ?? 'maplibre') as K;
     // 逐项补默认值，得到完整、可直接读取的 options（此后 core 内部不再判空）。
     this.options = {
       collapsed: options.collapsed ?? true,
@@ -426,10 +431,8 @@ export class GeoAgentCore {
    * 把核心绑定到地图。创建与引擎匹配的 agent 工具（地图经参数交给工具）、
    * 读取持久化的 provider 设置，并追加就绪/缺配置的系统日志条目。
    */
-  attach(map: MapLibreMap): void {
-    // 先终止旧绑定的运行；迟到的事件只能属于旧运行，不能写入新绑定。
-    this.detach();
-    this.mapInstance = map;
+  attach(map: GeoAgentMapFor<K>): void {
+    const arcgisViewKind = validateMapBinding(map, this.options.mapEngine);
     // MapLibre/Mapbox/Leaflet 宿主暴露 getContainer()；OpenLayers 地图暴露
     // getTargetElement()；ArcGIS MapView 暴露 `container` 属性——
     // resolveMapContainer 全部兼容，保证覆盖层与高度钳制在每种引擎下都有容器。
@@ -439,7 +442,8 @@ export class GeoAgentCore {
         'GeoAgentControl: the map exposes neither getContainer() nor getTargetElement() nor a container element; cannot mount the agent panel.',
       );
     }
-    this.mapContainer = mapContainer;
+    // 校验新实例后再解除旧绑定，错误的地图不影响当前运行。
+    this.detach();
     // 创建工具集：权限开关经 getter 回调读取（工具每次调用都拿到最新值），
     // 工具产生的 data 变更合并回状态并广播 statechange。
     this.tools = createGeoAgentTools(map, {
@@ -454,6 +458,9 @@ export class GeoAgentCore {
         this.emit('statechange');
       },
     });
+    this.mapInstance = map;
+    this.mapContainer = mapContainer;
+    this.arcgisViewKind = arcgisViewKind;
     this.loadProviderSettings();
     // 工具集已重建：强制失效缓存的 agent，避免旧 agent 继续持有已销毁的
     // 工具集（其签名不含 tools 标识，单靠签名比对不会触发重建）。
@@ -480,6 +487,7 @@ export class GeoAgentCore {
     this.tools = undefined;
     this.mapInstance = undefined;
     this.mapContainer = undefined;
+    this.arcgisViewKind = undefined;
     if (hadBinding) {
       this.applyIdleStatus(true);
       this.emit('statechange');
@@ -509,7 +517,7 @@ export class GeoAgentCore {
   }
 
   /** 返回当前绑定的地图实例；未 attach 时为 undefined。 */
-  getMap(): MapLibreMap | undefined {
+  getMap(): GeoAgentMapFor<K> | undefined {
     return this.mapInstance;
   }
 
@@ -1372,12 +1380,7 @@ export class GeoAgentCore {
 
     // 解析引擎类型；ArcGIS 还需 viewKind 以区分 MapView/SceneView 的能力段落。
     const engineKind = this.options.mapEngine?.kind;
-    const arcgisViewKind =
-      this.options.mapEngine?.kind === 'arcgis'
-        ? (
-            this.options.mapEngine as { viewKind?: 'map' | 'scene' }
-          ).viewKind
-        : undefined;
+    const arcgisViewKind = this.arcgisViewKind;
     // system prompt 分段拼装：基础段 + 引擎能力段 + （启用时的）代码执行段 +
     // 宿主自定义段，过滤空段后以空行连接。
     const systemPromptParts = [

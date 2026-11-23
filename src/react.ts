@@ -9,7 +9,8 @@ import './lib/styles/geoagent-panel.css';
 export { GeoAgentControlReact } from './lib/core/control/GeoAgentControlReact';
 // 纯 React 实现的浮动聊天面板：基于 shadcn/ui 组件直接渲染无头 GeoAgentCore，
 // 可放在侧栏、portal 等任意宿主位置。
-export { GeoAgentPanel } from './lib/panel/GeoAgentPanel';
+export { GeoAgentPanel, type GeoAgentPanelProps } from './lib/panel/GeoAgentPanel';
+export type { GeoAgentMapFor, GeoAgentMapKind, GeoAgentMaps, GeoAgentOptionsFor } from './lib/core/map-binding';
 // 本地维护 GeoAgentState 快照的 React hook（与 GeoAgentCore 事件解耦的轻量方案）。
 export { useGeoAgentState } from './lib/hooks';
 

@@ -19,6 +19,9 @@ panel.
 The MapLibre GL basic example mounts a floating `GeoAgentControl` on the map.
 The other examples render `<GeoAgentPanel>` in a left sidebar alongside the map.
 Leaflet and OpenLayers specify their engine through the `mapEngine` option.
+Without an engine configuration, `GeoAgentCore` and `GeoAgentPanel` use MapLibre.
+TypeScript checks that the map matches the configured engine or supplied core.
+The ArcGIS examples wait for their web component's view before attaching.
 
 All examples follow the language chosen on the examples homepage: the
 homepage's 中文/English dropdown persists the choice in `localStorage`

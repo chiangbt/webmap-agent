@@ -7,6 +7,7 @@ import './lib/styles/geoagent-control.css';
 // 命令式浮动面板控件（实现 MapLibre IControl）与无头引擎核心 GeoAgentCore。
 export { GeoAgentControl } from './lib/core/control/GeoAgentControl';
 export { GeoAgentCore } from './lib/core/GeoAgentCore';
+export type { GeoAgentMapFor, GeoAgentMapKind, GeoAgentMaps, GeoAgentOptionsFor } from './lib/core/map-binding';
 // 地图工具层：工具集类、默认底图配置、GeoJSON 渲染辅助函数与相关类型。
 export {
   GeoAgentTools,

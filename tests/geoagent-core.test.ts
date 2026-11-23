@@ -13,6 +13,7 @@ function createMockMap() {
   document.body.appendChild(container);
   const map = {
     getContainer: () => container,
+    getStyle: () => ({ layers: [] }),
     on: vi.fn(),
     off: vi.fn(),
   };
@@ -334,6 +335,10 @@ describe('GeoAgentCore conversation', () => {
     // layers and registers a zoomend listener.
     const leafletMap = {
       getContainer: () => mapContext.container,
+      getCenter: () => ({ lat: 0, lng: 0 }),
+      setView: () => {},
+      addLayer: () => {},
+      latLngToContainerPoint: () => ({ x: 0, y: 0 }),
       eachLayer: (_cb: (layer: unknown) => void) => {},
       whenReady: (cb: () => void) => {
         cb();
@@ -351,6 +356,18 @@ describe('GeoAgentCore conversation', () => {
     expect(core.conversationMarkdown()).toBe(
       '## System\n\nBrowser-only Strands agent ready (Leaflet).',
     );
+    core.dispose();
+  });
+
+  it('preserves the active map when a different engine is passed', () => {
+    const core = new GeoAgentCore();
+    core.attach(mapContext.map);
+    const tools = core.getTools();
+    const leafletMap = L.map(document.createElement('div'));
+    expect(() => core.attach(leafletMap as never)).toThrow(/expected a MapLibre GL map/);
+    expect(core.getMap()).toBe(mapContext.map);
+    expect(core.getTools()).toBe(tools);
+    leafletMap.remove();
     core.dispose();
   });
 
