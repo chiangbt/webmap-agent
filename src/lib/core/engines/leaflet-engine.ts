@@ -82,6 +82,7 @@ export interface LeafletMapLike {
   /** 通知 Leaflet 容器尺寸已变化并重算地图尺寸；flyTo 起飞前刷新容器用。 */
   invalidateSize(options?: unknown): unknown;
   flyTo(center: unknown, zoom?: number, options?: unknown): unknown;
+  stop?(): unknown;
   fitBounds(bounds: unknown, options?: unknown): unknown;
   setZoom(zoom: number, options?: unknown): unknown;
   project(latlng: unknown, zoom?: number): LeafletPointLike;
@@ -1100,6 +1101,7 @@ export class LeafletMapShim implements GeoAgentMapSurface {
    */
   destroy(): void {
     this.disposed = true;
+    if (this.isMoving()) this.stop();
     this.raw.off("zoomend", this.zoomHandler);
     // 取消未触发的 style.load 模拟定时器，避免销毁后仍向地图 fire 事件。
     if (this.styleLoadTimer !== null) {
@@ -1184,8 +1186,25 @@ export class LeafletMapShim implements GeoAgentMapSurface {
     );
   }
 
+  private cameraMoveEnd?: () => void;
+
+  isMoving(): boolean {
+    return this.cameraMoveEnd !== undefined;
+  }
+
+  private clearCameraMove(): void {
+    if (this.cameraMoveEnd) this.raw.off("moveend", this.cameraMoveEnd);
+    this.cameraMoveEnd = undefined;
+  }
+
+  stop(): void {
+    this.clearCameraMove();
+    this.raw.stop?.();
+  }
+
   /** 飞行动画到指定中心/缩放级别（Leaflet 默认时长）。 */
   flyTo(options: { center?: [number, number]; zoom?: number }): void {
+    this.stop();
     // 容器尺寸可能已变（面板收起/展开后 Leaflet 并不知道），起飞前刷新，
     // 避免动画按过期尺寸计算终点导致目标点偏离视图中心。
     this.raw.invalidateSize();
@@ -1199,9 +1218,11 @@ export class LeafletMapShim implements GeoAgentMapSurface {
     // 动画结束后无条件把视图中心无动画地钉到目标点：flyTo 的终点按起飞
     // 时的容器尺寸计算，用户中途拖拽、连续调用、尺寸变化都会让最终中心
     // 偏离目标；终态校正保证 marker 永远落在视图正中。
-    this.raw.once('moveend', () => {
+    this.cameraMoveEnd = () => {
+      this.clearCameraMove();
       this.raw.setView(target, zoom, { animate: false });
-    });
+    };
+    this.raw.on("moveend", this.cameraMoveEnd);
     this.raw.flyTo(target, zoom);
   }
 
@@ -1210,19 +1231,20 @@ export class LeafletMapShim implements GeoAgentMapSurface {
    * 用短时长（0.3s）的 flyTo 近似。
    */
   easeTo(options: { center?: [number, number]; zoom?: number }): void {
+    this.stop();
     const center = options.center ?? [
       this.raw.getCenter().lng,
       this.raw.getCenter().lat,
     ];
     // 用 0.3 秒的 flyTo 模拟 MapLibre easeTo 的快速缓动（Leaflet duration 单位是毫秒）。
-    this.raw.flyTo([center[1], center[0]], options.zoom ?? this.raw.getZoom(), {
-      duration: 300,
-    });
+    this.cameraMoveEnd = () => this.clearCameraMove();
+    this.raw.on("moveend", this.cameraMoveEnd);
+    this.raw.flyTo([center[1], center[0]], options.zoom ?? this.raw.getZoom(), { duration: 0.3 });
   }
 
   /** 直接设置缩放级别。 */
   setZoom(zoom: number): void {
-    this.raw.setZoom(zoom);
+    this.raw.setZoom(zoom, { animate: false });
   }
 
   /**
@@ -1240,6 +1262,7 @@ export class LeafletMapShim implements GeoAgentMapSurface {
     const padding = typeof options?.padding === "number" ? options.padding : 0;
     const fitOptions: Record<string, unknown> = {
       padding: [padding, padding],
+      animate: false,
     };
     // 仅在显式传入 maxZoom 时设置，避免覆盖 Leaflet 默认值。
     if (options?.maxZoom != null) {

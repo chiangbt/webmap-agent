@@ -26,9 +26,9 @@ jobs:
       # lockfile 与 package.json 一致才放行后续步骤。
       - run: pnpm install --frozen-lockfile
 
-      # 三道门禁与本地验证一致：lint（含类型相关规则）、build（含
-      # tsc -p tsconfig.build.json 的类型检查——此前坏提交进 main 的
-      # 根因正是类型检查只藏在 build 里）、test。
+      # 分别验证发布库与示例站，示例的 Web Component 类型由 tsc 检查。
       - run: pnpm lint
       - run: pnpm build
+      - run: pnpm typecheck:examples
+      - run: pnpm build:examples
       - run: pnpm test

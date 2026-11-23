@@ -1517,6 +1517,39 @@ describe("MapLibreAgentTools native tools", () => {
     expect(map.getLayer("points-point")).toBeTruthy();
   });
 
+  it("preserves live GeoJSON and raster styling across repeated basemap changes", async () => {
+    const { agent, map } = createAgent();
+    await agent.runCommand("add_geojson_data", { name: "points", data: pointData });
+    await agent.runCommand("add_xyz_tile_layer", {
+      name: "imagery",
+      url: "https://example.com/{z}/{x}/{y}.png",
+    });
+    await agent.runCommand("set_layer_visibility", { name: "points", visible: false });
+    await agent.runCommand("set_layer_opacity", { name: "points", opacity: 0.2 });
+    await agent.runCommand("set_layer_opacity", { name: "imagery", opacity: 0.4 });
+    for (let change = 0; change < 2; change += 1) {
+      await agent.runCommand("change_basemap", { style: "osm" });
+      expect(map.getLayer("points-point")).toMatchObject({
+        layout: { visibility: "none" },
+        paint: { "circle-opacity": 0.2 },
+      });
+      expect(map.getLayer("imagery")).toMatchObject({ paint: { "raster-opacity": 0.4 } });
+    }
+  });
+
+  it("reports the failed overlay and still restores subsequent overlays", async () => {
+    const { agent, map } = createAgent();
+    await agent.runCommand("add_geojson_data", { name: "broken", data: pointData });
+    await agent.runCommand("add_geojson_data", { name: "healthy", data: pointData });
+    const addLayer = map.addLayer.bind(map);
+    vi.spyOn(map, "addLayer").mockImplementation((layer, beforeId) => {
+      if (layer.id === "broken-point") throw new Error("Layer rejected");
+      addLayer(layer, beforeId);
+    });
+    await expect(agent.runCommand("change_basemap", { style: "osm" })).rejects.toThrow(/broken: Layer rejected/);
+    expect(map.getLayer("healthy-point")).toBeDefined();
+  });
+
   it("surfaces a timeout error when style.load is not emitted", async () => {
     vi.useFakeTimers();
     try {

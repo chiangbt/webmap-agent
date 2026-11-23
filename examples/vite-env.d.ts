@@ -11,7 +11,7 @@
 /// <reference types="vite/client" />
 
 // 示例通过 Vite 的资源管线导入二进制资源（例如银河全景图）。
-// tsconfig 在构建时排除了本目录，但编辑器仍需要 vite/client 提供的环境模块声明。
+// 资源类型由 vite/client 提供，供示例类型检查使用。
 
 // @arcgis/map-components 的 web component 通过 React ref 与普通 JSX 标签
 // 使用；React 18 的 JSX 类型需要显式声明这些内置元素（intrinsic element）。
@@ -21,15 +21,19 @@ declare global {
   namespace JSX {
     interface IntrinsicElements {
       /** ArcGIS 2D 地图视图（MapView）web component。 */
-      'arcgis-map': DetailedHTMLProps<
-        HTMLAttributes<HTMLElement>,
-        HTMLElement
-      >;
+      'arcgis-map': DetailedHTMLProps<HTMLAttributes<HTMLElement>, HTMLElement> & {
+        basemap?: string;
+        center?: string;
+        zoom?: string;
+      };
       /** ArcGIS 3D 场景视图（SceneView）web component。 */
-      'arcgis-scene': DetailedHTMLProps<
-        HTMLAttributes<HTMLElement>,
-        HTMLElement
-      >;
+      'arcgis-scene': DetailedHTMLProps<HTMLAttributes<HTMLElement>, HTMLElement> & {
+        basemap?: string;
+        ground?: string;
+        'camera-position'?: string;
+        'camera-heading'?: string;
+        'camera-tilt'?: string;
+      };
       /** 地图 / 场景的缩放按钮 web component。 */
       'arcgis-zoom': DetailedHTMLProps<
         HTMLAttributes<HTMLElement>,

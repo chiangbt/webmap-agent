@@ -85,8 +85,8 @@ export class LeafletAgentTools extends GeoAgentTools {
    * 而不是 jumpTo 的瞬时跳转；center 为 [lng, lat]（MapLibre 顺序），
    * shim 的 flyTo 内部会转换成 Leaflet 的 [lat, lng]。
    */
-  protected setCenterCamera(center: [number, number], zoom: number): void {
-    this.map.flyTo({ center, zoom });
+  protected setCenterCamera(center: [number, number], zoom: number): unknown {
+    return this.map.flyTo({ center, zoom });
   }
 
   /**

@@ -132,7 +132,8 @@ export interface OpenLayersViewLike {
   getProjection(): { getCode(): string };
   calculateExtent(size: number[]): number[];
   fit(extent: number[], options?: Record<string, unknown>): void;
-  animate(options: Record<string, unknown>): void;
+  animate(options: Record<string, unknown>, callback?: (completed: boolean) => void): void;
+  cancelAnimations?(): void;
 }
 
 /**
@@ -719,28 +720,36 @@ export class OpenLayersMapShim implements GeoAgentMapSurface {
   }
 
   /** 1.2 秒动画飞行到目标中心/缩放级别（ol View.animate）。 */
-  flyTo(options: { center?: [number, number]; zoom?: number }): void {
-    // 默认时长 1200ms，接近 MapLibre flyTo 的节奏。
-    const animation: Record<string, unknown> = { duration: 1200 };
-    if (options.center) {
-      animation.center = this.ns.fromLonLat(options.center);
-    }
-    if (options.zoom !== undefined && options.zoom !== null) {
-      animation.zoom = Number(options.zoom);
-    }
-    this.requireView().animate(animation);
+  flyTo(options: { center?: [number, number]; zoom?: number }): Promise<void> {
+    return this.animateCamera(options, 1200);
+  }
+
+  stop(): void {
+    this.requireView().cancelAnimations?.();
   }
 
   /** 0.3 秒缓动到目标中心/缩放级别，对应 MapLibre 的 easeTo。 */
-  easeTo(options: { center?: [number, number]; zoom?: number }): void {
-    const animation: Record<string, unknown> = { duration: 300 };
+  easeTo(options: { center?: [number, number]; zoom?: number }): Promise<void> {
+    return this.animateCamera(options, 300);
+  }
+
+  private animateCamera(
+    options: { center?: [number, number]; zoom?: number },
+    duration: number,
+  ): Promise<void> {
+    const animation: Record<string, unknown> = { duration };
     if (options.center) {
       animation.center = this.ns.fromLonLat(options.center);
     }
     if (options.zoom !== undefined && options.zoom !== null) {
       animation.zoom = Number(options.zoom);
     }
-    this.requireView().animate(animation);
+    return new Promise((resolve, reject) => {
+      this.requireView().animate(animation, (completed) => {
+        if (completed) resolve();
+        else reject(new Error("OpenLayers camera movement was interrupted."));
+      });
+    });
   }
 
   /** 直接设置缩放级别。 */
@@ -766,11 +775,12 @@ export class OpenLayersMapShim implements GeoAgentMapSurface {
     );
     // padding 四边同值；maxZoom/duration 提供与 MapLibre 对齐的默认值。
     const padding = Number(options?.padding ?? 48);
+    const duration = options?.duration ?? 0;
     this.requireView().fit(extent, {
       padding: [padding, padding, padding, padding],
       maxZoom: Number(options?.maxZoom ?? 24),
       size: this.effectiveSize(),
-      duration: Number(options?.duration ?? 0),
+      ...(duration > 0 ? { duration } : {}),
     });
   }
 

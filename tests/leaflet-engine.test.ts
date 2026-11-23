@@ -184,7 +184,12 @@ describe('LeafletAgentTools on a real Leaflet map (jsdom)', () => {
     const agent = tools(map);
     // spy 并短路真实动画；断言 set_center 落在 flyTo（平滑）而非 setView（跳转）。
     const flyToSpy = vi.spyOn(map, 'flyTo').mockImplementation(() => map);
-    await agent.runCommand('set_center', { lat: 41, lon: -100, zoom: 5 });
+    const movement = agent.runCommand('set_center', { lat: 41, lon: -100, zoom: 5 });
+    const state = agent.runCommand('get_map_state');
+    await vi.waitFor(() => expect(flyToSpy).toHaveBeenCalledTimes(1));
+    map.fire('moveend');
+    await movement;
+    await expect(state).resolves.toMatchObject({ zoom: 5 });
     expect(flyToSpy).toHaveBeenCalledTimes(1);
     // shim 把 MapLibre 顺序的 [lng, lat] 转成 Leaflet 的 [lat, lng]。
     expect(flyToSpy.mock.calls[0][0]).toEqual([41, -100]);

@@ -115,6 +115,7 @@ export interface ArcGISExtentLike {
   ymin: number;
   xmax: number;
   ymax: number;
+  clone?(): ArcGISExtentLike;
   spatialReference?: {
     wkid?: number;
     isWebMercator?: boolean;
@@ -155,6 +156,7 @@ export interface ArcGISViewLike {
   size?: { width: number; height: number };
   map: ArcGISWebMapLike;
   goTo(target: unknown, options?: unknown): Promise<void> | void;
+  animation?: { stop(): void } | null;
   when?(callback?: () => void, errback?: (error: unknown) => void): unknown;
   takeScreenshot?(options?: unknown): Promise<ArcGISScreenshotLike>;
   on(type: string, listener: (event?: unknown) => void): ArcGISWatchHandle;
@@ -194,11 +196,13 @@ export interface ArcGISComponentLike {
  * @returns 就绪的 MapView/SceneView
  */
 export function waitForArcGISComponent(
-  component: ArcGISComponentLike,
+  component: ArcGISComponentLike | HTMLElement,
   timeoutMs = 30000,
 ): Promise<ArcGISViewLike> {
   // 视图已就绪则跳过事件等待，直接 resolve。
-  const immediate = component.view;
+  // Web components acquire their view only after the SDK upgrades the element.
+  const host = component as ArcGISComponentLike;
+  const immediate = host.view;
   if (isArcGISView(immediate)) {
     return Promise.resolve(immediate);
   }
@@ -214,9 +218,9 @@ export function waitForArcGISComponent(
     };
     // 事件与轮询共用同一探测：view 一旦像 MapView 就清理并 resolve。
     const onChange = (): void => {
-      if (isArcGISView(component.view)) {
+      if (isArcGISView(host.view)) {
         cleanup();
-        resolve(component.view);
+        resolve(host.view);
       }
     };
     // 事件可能错过（组件在挂接前就已就绪），每 150ms 轮询一次兜底。
@@ -251,7 +255,7 @@ export function waitForArcGISComponent(
  *   const namespace = { WebTileLayer, FeatureLayer, Graphic, SimpleFillSymbol,
  *     SimpleLineSymbol, SimpleMarkerSymbol, TextSymbol, PictureMarkerSymbol };
  *
- * 几何与 extent 以 auto-cast 普通对象的形式交给 SDK，因此不需要几何类。
+ * FeatureLayer 几何由 SDK 自动转换。相机范围使用当前视图的 Extent 副本。
  */
 export interface ArcGISNamespace {
   WebTileLayer: new (options?: Record<string, unknown>) => ArcGISLayerLike;
@@ -1013,35 +1017,41 @@ export class ArcGISMapShim implements GeoAgentMapSurface {
   }
 
   /** 带动画飞行（约 1.2s），底层包装 view.goTo。 */
-  flyTo(options: { center?: [number, number]; zoom?: number }): void {
-    this.animateTo(options, { duration: 1200 });
+  flyTo(options: { center?: [number, number]; zoom?: number }): Promise<void> {
+    return this.animateTo(options, 1200);
   }
 
   /** 轻缓动画过渡（约 0.3s），底层包装 view.goTo。 */
-  easeTo(options: { center?: [number, number]; zoom?: number }): void {
-    this.animateTo(options, { duration: 300 });
+  easeTo(options: { center?: [number, number]; zoom?: number }): Promise<void> {
+    return this.animateTo(options, 300);
   }
 
-  /**
-   * flyTo/easeTo 的公共实现：把 center/zoom 并入 goTo 目标对象后
-   * fire-and-forget 调用，view 中途销毁导致的 reject 静默吞掉。
-   */
-  private animateTo(
+  private cameraRevision = 0;
+
+  stop(): void {
+    this.cameraRevision += 1;
+    this.view.animation?.stop();
+  }
+
+  private async animateTo(
     options: { center?: [number, number]; zoom?: number },
-    animOptions: Record<string, unknown>,
-  ): void {
-    const target: Record<string, unknown> = { ...animOptions };
+    duration: number,
+  ): Promise<void> {
+    const revision = ++this.cameraRevision;
+    const target: Record<string, unknown> = {};
     if (options.center) {
       target.center = [options.center[0], options.center[1]];
     }
     if (options.zoom !== undefined && options.zoom !== null) {
-      target.zoom = Number(options.zoom);
+      if (this.isScene) target.scale = zoomToScale(Number(options.zoom));
+      else target.zoom = Number(options.zoom);
     }
-    void Promise.resolve(this.view.goTo(target)).catch((error: unknown) => {
-      // 视图中途销毁会让 goTo reject，属预期；其余失败至少告警，
-      // 不向调用方静默掩盖动画未发生的事实。
-      console.warn("ArcGIS engine: view.goTo failed:", error);
-    });
+    await this.view.goTo(target, { duration });
+    if (revision === this.cameraRevision && this.isScene && typeof target.scale === "number") {
+      // SceneView may adjust the goTo scale while resolving terrain and tilt.
+      this.view.scale = target.scale;
+      this.syncMarkers();
+    }
   }
 
   /** 设置 zoom；SceneView 走 scale 换算，MapView 直接赋值。 */
@@ -1058,25 +1068,21 @@ export class ArcGISMapShim implements GeoAgentMapSurface {
    * 适配到给定的 [西南, 东北] 两角：构造 WGS84 extent 交给 goTo。
    * options 的 padding/maxZoom 在 ArcGIS 侧没有直接对应物，只能尽力而为。
    */
-  fitBounds(
+  async fitBounds(
     corners: [[number, number], [number, number]],
-    options?: { padding?: number; maxZoom?: number },
-  ): void {
+    _options?: { padding?: number; maxZoom?: number },
+  ): Promise<void> {
     const [[west, south], [east, north]] = corners;
-    // WGS84 extent；SDK 会 auto-cast 并相对视图重投影。
-    const extent = {
+    // goTo requires an SDK geometry. Clone the live extent so the shim does
+    // not need another ArcGIS runtime import or mutate the host's view.
+    const extent = Object.assign(this.view.extent?.clone?.() ?? { type: "extent" }, {
       xmin: west,
       ymin: south,
       xmax: east,
       ymax: north,
       spatialReference: { wkid: 4326 },
-    };
-    void Promise.resolve(this.view.goTo({ extent })).catch(() => {
-      // 与 flyTo 相同的 fire-and-forget 契约。
     });
-    // `padding`/`maxZoom` 在 ArcGIS 没有直接对应项；extent 适配是尽力而为
-    // （已在引擎能力提示中注明）。
-    void options;
+    await this.view.goTo(extent, { animate: false });
   }
 
   /** 返回投影类型：SceneView 视为 globe，MapView 视为 mercator。 */

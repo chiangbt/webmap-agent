@@ -41,7 +41,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.build.json && vite build",
-    "build:examples": "NODE_OPTIONS=--max-old-space-size=12288 vite build --config vite.examples.config.ts",
+    "typecheck:examples": "tsc -p tsconfig.examples.json",
+    "build:examples": "node --max-old-space-size=12288 ./node_modules/vite/bin/vite.js build --config vite.examples.config.ts",
     "preview": "vite preview",
     "test": "vitest --run",
     "test:ui": "vitest --ui",

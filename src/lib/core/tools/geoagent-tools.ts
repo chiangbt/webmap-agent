@@ -139,14 +139,16 @@ export interface GeoAgentMapSurface {
     getNorth(): number;
   };
   getProjection(): { type?: unknown; name?: unknown } | undefined;
-  jumpTo(options: { center?: [number, number]; zoom?: number }): void;
-  easeTo(options: { center?: [number, number]; zoom?: number }): void;
-  flyTo(options: { center?: [number, number]; zoom?: number }): void;
-  setZoom(zoom: number): void;
+  jumpTo(options: { center?: [number, number]; zoom?: number }): unknown;
+  easeTo(options: { center?: [number, number]; zoom?: number }): unknown;
+  flyTo(options: { center?: [number, number]; zoom?: number }): unknown;
+  setZoom(zoom: number): unknown;
+  isMoving?(): boolean;
+  stop?(): void;
   fitBounds(
     bounds: [[number, number], [number, number]],
     options?: { padding?: number; maxZoom?: number },
-  ): void;
+  ): unknown;
   loaded(): boolean;
 
   /* ------------------------ style / source / layer ---------------- */
@@ -177,6 +179,7 @@ export interface GeoAgentMapSurface {
 
   /* ---------------------- 事件与渲染生命周期 ---------------------- */
   once(type: string, listener: (event?: unknown) => void): void;
+  on?(type: string, listener: (event?: unknown) => void): void;
   off?(type: string, listener: (event?: unknown) => void): void;
   triggerRepaint?(): void;
 
@@ -1113,8 +1116,8 @@ export abstract class GeoAgentTools {
    * 默认无动画跳转（jumpTo）；引擎子类可覆写——例如 Leaflet 用 flyTo
    * 平滑过渡到目标中心。
    */
-  protected setCenterCamera(center: [number, number], zoom: number): void {
-    this.map.jumpTo({ center, zoom });
+  protected setCenterCamera(center: [number, number], zoom: number): unknown {
+    return this.map.jumpTo({ center, zoom });
   }
 
   /** 视角导航命令：中心点、飞行、缩放、范围缩放。 */
@@ -1124,34 +1127,65 @@ export abstract class GeoAgentTools {
         // zoom 与 lat/lon 一样走有限数值校验，坏值会干净地报错，
         // 而不是把 NaN 交给相机。
         const zoom = args.zoom == null ? this.map.getZoom() : numberArg(args, "zoom");
-        this.setCenterCamera([numberArg(args, "lon"), numberArg(args, "lat")], zoom);
+        const center: [number, number] = [numberArg(args, "lon"), numberArg(args, "lat")];
+        await this.runCameraAction(() => this.setCenterCamera(center, zoom));
         return "Centered map.";
       },
       fly_to: async (args) => {
         // zoom 缺省保持当前级别；numberArg 校验传入了的 zoom。
         const zoom = args.zoom == null ? this.map.getZoom() : numberArg(args, "zoom");
-        this.map.flyTo({
+        await this.runCameraAction(() => this.map.flyTo({
           center: [numberArg(args, "lon"), numberArg(args, "lat")],
           zoom,
-        });
+        }));
         return "Moved map.";
       },
       set_zoom: async (args) => {
-        this.map.setZoom(numberArg(args, "zoom"));
+        await this.runCameraAction(() => this.map.setZoom(numberArg(args, "zoom")));
         return "Zoom updated.";
       },
       zoom_to_bounds: async (args) => {
         // fitBounds 带 48px 内边距与 maxZoom 16，避免小范围时过度放大。
-        this.map.fitBounds(
+        await this.runCameraAction(() => this.map.fitBounds(
           [
             [numberArg(args, "west"), numberArg(args, "south")],
             [numberArg(args, "east"), numberArg(args, "north")],
           ],
           { padding: 48, maxZoom: 16 },
-        );
+        ));
         return "Zoomed to bounds.";
       },
     };
+  }
+
+  /** Await promise-based cameras or the movement event on synchronous map APIs. */
+  private async runCameraAction(action: () => unknown): Promise<void> {
+    const signal = this.activeCommandSignal;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const stop = () => {
+      try {
+        this.map.stop?.();
+      } catch {
+        // The host may have already disposed the map.
+      }
+    };
+    signal.addEventListener("abort", stop, { once: true });
+    try {
+      const result = action();
+      const timeout = new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => reject(new Error("Camera movement timed out.")), MAP_EVENT_TIMEOUT_MS);
+      });
+      await this.awaitCommand(Promise.race([Promise.resolve(result), timeout]));
+      if (this.map.isMoving?.() && !(await this.waitForMapEvent("moveend"))) {
+        throw new Error("Camera movement timed out.");
+      }
+    } catch (error) {
+      if (!signal.aborted) stop();
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+      signal.removeEventListener("abort", stop);
+    }
   }
 
   /** 底图与 overlay 命令：底图添加/切换、marker、GeoJSON/矢量/瓦片/影像/聚合/分级渲染图层、移除与清空。 */
@@ -1188,14 +1222,22 @@ export abstract class GeoAgentTools {
         if (typeof style === "string" && this.basemaps[style]) {
           style = this.basemaps[style];
         }
-        this.map.setStyle(style);
+        const overlayLayerIds = new Set(Array.from(this.overlays.values()).flatMap((overlay) => overlay.layerIds));
+        const liveLayers = new Map(
+          (this.map.getStyle()?.layers ?? [])
+            .filter((layer) => overlayLayerIds.has(layer.id))
+            .map((layer) => [layer.id, this.cloneSpec(layer)]),
+        );
         // 等待新 style 加载完成；超时视为失败，避免在残缺 style 上继续操作。
-        const styleLoaded = await this.waitForMapEvent("style.load");
+        const styleLoaded = await this.waitForMapEvent("style.load", () => this.map.setStyle(style));
         if (!styleLoaded) {
           throw new Error(`Basemap change to ${rawStyle} timed out waiting for style.load.`);
         }
         // setStyle 会清空旧 style 的全部图层，需要按记账重放用户 overlay。
-        await this.restoreOverlaysAfterStyleChange();
+        const failures = await this.restoreOverlaysAfterStyleChange(liveLayers);
+        if (failures.length) {
+          throw new Error(`Basemap changed to ${rawStyle}, but some overlays could not be restored: ${failures.join("; ")}.`);
+        }
         return `Basemap changed to ${rawStyle}.`;
       },
       add_marker: async (args) => {
@@ -1735,14 +1777,19 @@ export abstract class GeoAgentTools {
    * @param eventName - MapLibre 事件名
    * @returns 触发返回 true；超过 MAP_EVENT_TIMEOUT_MS 返回 false
    */
-  private waitForMapEvent(eventName: string): Promise<boolean> {
+  private waitForMapEvent(eventName: string, trigger?: () => void): Promise<boolean> {
     this.assertCommandActive();
     const signal = this.activeCommandSignal;
     return new Promise((resolve, reject) => {
       // settled 防御超时与事件双路径竞争：先到者生效，后到者被忽略。
       let settled = false;
       // 超时路径也要注销 once 监听器，避免事件迟迟不触发时监听器永久残留。
-      const handler = () => finish(true);
+      let triggered = !trigger;
+      let eventReceived = false;
+      const handler = () => {
+        eventReceived = true;
+        if (triggered) finish(true);
+      };
       const onAbort = () => finish(false, true);
       const finish = (value: boolean, aborted = false) => {
         if (settled) {
@@ -1758,7 +1805,17 @@ export abstract class GeoAgentTools {
       };
       const timeoutId = window.setTimeout(() => finish(false), MAP_EVENT_TIMEOUT_MS);
       signal.addEventListener("abort", onAbort, { once: true });
-      this.map.once(eventName, handler);
+      try {
+        if (eventName === "moveend" && this.map.on && this.map.off) this.map.on(eventName, handler);
+        else this.map.once(eventName, handler);
+        trigger?.();
+        triggered = true;
+        if (eventReceived) finish(true);
+      } catch (error) {
+        // 清理监听器。拒绝必须先于 finish 的默认 resolve。
+        reject(error);
+        finish(false);
+      }
     });
   }
 
@@ -2070,32 +2127,31 @@ export abstract class GeoAgentTools {
   /**
    * 缩放到包围盒：单点（west==east 且 south==north）时 easeTo 到该点并把
    * zoom 提到至少 12；正常范围用 fitBounds（48px 内边距、maxZoom 16）。
-   * 包围盒缺失或含非有限数值时返回 false 不做任何动作。
+   * 包围盒缺失或含非有限数值时直接返回。
    */
-  private zoomToGeoJsonBounds(bounds: BBox | null): boolean {
+  private async zoomToGeoJsonBounds(bounds: BBox | null): Promise<void> {
     if (!bounds) {
-      return false;
+      return;
     }
     const [west, south, east, north] = bounds;
     if (![west, south, east, north].every(Number.isFinite)) {
-      return false;
+      return;
     }
     if (west === east && south === north) {
       // 退化为点的包围盒无法 fitBounds：改为居中并保证最低缩放级别。
-      this.map.easeTo({
+      await this.runCameraAction(() => this.map.easeTo({
         center: [west, south],
         zoom: Math.max(this.map.getZoom(), 12),
-      });
-      return true;
+      }));
+      return;
     }
-    this.map.fitBounds(
+    await this.runCameraAction(() => this.map.fitBounds(
       [
         [west, south],
         [east, north],
       ],
       { padding: 48, maxZoom: 16 },
-    );
-    return true;
+    ));
   }
 
   /**
@@ -2166,7 +2222,7 @@ export abstract class GeoAgentTools {
       layerIds: layerDefs.map((item) => item.id),
     });
     if (overlay.zoomTo) {
-      this.zoomToGeoJsonBounds(geoJsonBounds(sourceData ?? overlay.data));
+      await this.zoomToGeoJsonBounds(geoJsonBounds(sourceData ?? overlay.data));
     }
   }
 
@@ -2275,7 +2331,7 @@ export abstract class GeoAgentTools {
     });
     if (layer.bbox) {
       // 数据带 bbox 时自动缩放到数据范围。
-      this.zoomToGeoJsonBounds(layer.bbox as BBox);
+      await this.zoomToGeoJsonBounds(layer.bbox as BBox);
     }
     this.publishEarthEngineState();
     return tileUrl;
@@ -2541,7 +2597,7 @@ export abstract class GeoAgentTools {
       layerSpecs,
     });
     if (args.fit_bounds !== false) {
-      this.zoomToGeoJsonBounds(geoJsonBounds(args.data as GeoJSON.GeoJSON));
+      await this.zoomToGeoJsonBounds(geoJsonBounds(args.data as GeoJSON.GeoJSON));
     }
   }
 
@@ -2597,7 +2653,7 @@ export abstract class GeoAgentTools {
       ],
     });
     if (args.fit_bounds !== false) {
-      this.zoomToGeoJsonBounds(geoJsonBounds(args.data as GeoJSON.GeoJSON));
+      await this.zoomToGeoJsonBounds(geoJsonBounds(args.data as GeoJSON.GeoJSON));
     }
   }
 
@@ -2779,14 +2835,15 @@ export abstract class GeoAgentTools {
    * change_basemap 之后重放全部用户 overlay：setStyle 会清空旧 style 的所有
    * 图层，各类 overlay 按各自类别重建（geojson/raster/basemap/gee 重走添加
    * 流程，marker 重新 addTo，native 按记录的规格重放）。单个 overlay 恢复
-   * 失败只记日志，不中断其余恢复。
+   * 失败后继续恢复其余图层，并把失败详情返回给调用方。
    */
-  private async restoreOverlaysAfterStyleChange(): Promise<void> {
+  private async restoreOverlaysAfterStyleChange(liveLayers: ReadonlyMap<string, LayerSpecification>): Promise<string[]> {
     // 先快照再清空注册表：重建流程本身会往注册表写入。
     const saved = Array.from(this.overlays.values()).map((overlay) => ({
       ...overlay,
     }));
     this.overlays.clear();
+    const failures: string[] = [];
     // Marker 不随 setStyle 消失：保留注册，取消/销毁时仍可清理。
     for (const overlay of saved) {
       if (overlay.kind === "marker") this.overlays.set(overlay.name, overlay);
@@ -2823,6 +2880,7 @@ export abstract class GeoAgentTools {
             kind: "gee",
             name: overlay.name,
             url: overlay.url,
+            attribution: overlay.attribution,
           });
         } else if (overlay.kind === "marker" && overlay.marker) {
           // marker 实例还在内存里：直接重新挂到新地图即可。
@@ -2831,12 +2889,30 @@ export abstract class GeoAgentTools {
         } else if (overlay.kind === "native") {
           await this.replayNativeOverlay(overlay);
         }
+        const restored = this.overlays.get(overlay.name);
+        for (const layerId of restored?.layerIds ?? []) {
+          const current = this.map.getLayer(layerId) as { type?: string } | undefined;
+          if (!current) continue;
+          // Recreated GeoJSON layers can receive a different ID when the new basemap
+          // already uses their original name. Each generated layer type is unique.
+          const previous = overlay.layerIds.includes(layerId)
+            ? liveLayers.get(layerId)
+            : overlay.layerIds.map((id) => liveLayers.get(id)).find((layer) => layer?.type === current.type);
+          if (!previous) continue;
+          for (const [key, value] of Object.entries("paint" in previous ? previous.paint ?? {} : {})) {
+            this.map.setPaintProperty(layerId, key, value);
+          }
+          for (const [key, value] of Object.entries(previous.layout ?? {})) {
+            this.map.setLayoutProperty(layerId, key, value);
+          }
+          if ("filter" in previous && previous.filter) this.map.setFilter(layerId, previous.filter);
+        }
       } catch (error) {
         this.assertCommandActive();
-        // 单个 overlay 恢复失败不影响其余 overlay，也不让 change_basemap 整体失败。
-        console.error(`Failed to restore overlay "${overlay.name}" after style change:`, error);
+        failures.push(`${overlay.name}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+    return failures;
   }
 
   /** 校验宿主是否放行破坏性操作；未放行时抛出带动作名的错误。 */

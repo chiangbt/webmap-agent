@@ -314,7 +314,42 @@ describe('ArcGISTools on a fake ArcGIS view', () => {
       east: -90,
       north: 50,
     });
-    expect(view.goToTargets.at(-1)).toHaveProperty('extent');
+    expect(view.goToTargets.at(-1)).toMatchObject({
+      type: 'extent', xmin: -100, ymin: 30, xmax: -90, ymax: 50,
+    });
+  });
+
+  it('waits for ArcGIS camera completion before reading the view and reports rejected navigation', async () => {
+    const agent = tools(view);
+    let finish!: () => void;
+    const goTo = vi.spyOn(view, 'goTo').mockImplementationOnce(() => new Promise<void>((resolve) => {
+      finish = () => {
+        view.center = { longitude: -91, latitude: 37 };
+        resolve();
+      };
+    }));
+    const movement = agent.runCommand('fly_to', { lat: 37, lon: -91, zoom: 8 });
+    const state = agent.runCommand('get_map_state');
+    await vi.waitFor(() => expect(goTo).toHaveBeenCalledTimes(1));
+    finish();
+    await expect(movement).resolves.toBe('Moved map.');
+    await expect(state).resolves.toMatchObject({ center: [-91, 37] });
+    goTo.mockRejectedValueOnce(new Error('Navigation interrupted'));
+    await expect(agent.runCommand('fly_to', { lat: 38, lon: -90 })).rejects.toThrow('Navigation interrupted');
+  });
+
+  it('stops an ArcGIS animation on cancellation and lets a new command run', async () => {
+    const agent = tools(view);
+    const stop = vi.fn();
+    Object.assign(view, { animation: { stop } });
+    const goTo = vi.spyOn(view, 'goTo').mockImplementationOnce(() => new Promise<void>(() => {}));
+    const movement = agent.runCommand('fly_to', { lat: 37, lon: -91, zoom: 8 });
+    const cancelled = expect(movement).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.waitFor(() => expect(goTo).toHaveBeenCalledTimes(1));
+    agent.cancelPendingCommands();
+    await cancelled;
+    expect(stop).toHaveBeenCalledOnce();
+    await expect(agent.runCommand('get_map_state')).resolves.toMatchObject({ center: [-95, 40] });
   });
 
   it('adds GeoJSON as a client-side FeatureLayer with per-feature symbols', async () => {
@@ -710,8 +745,9 @@ describe('arcgis SceneView support', () => {
     await agent.runCommand('fly_to', { lat: 45, lon: 9, zoom: 9 });
     expect(view.goToTargets.at(-1)).toMatchObject({
       center: [9, 45],
-      zoom: 9,
+      scale: zoomToScale(9),
     });
+    expect(view.scale).toBeCloseTo(zoomToScale(9), 4);
   });
 
   it('watches the camera (not zoom) for scene navigation', async () => {
