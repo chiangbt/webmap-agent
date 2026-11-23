@@ -211,10 +211,10 @@ function ArcGISMapExample() {
           />
         )}
       </div>
-      {/* ArcGIS 2D 地图：topo 地形底图，初始中心 (10, 12)、zoom 2（全球视野）。 */}
+      {/* ArcGIS 2D 地图：OSM 底图，初始中心 (10, 12)、zoom 2（全球视野）。 */}
       <arcgis-map
         ref={mapElement}
-        basemap="topo"
+        basemap="osm"
         center="10, 12"
         zoom="2"
         className="relative min-w-0 flex-1"
