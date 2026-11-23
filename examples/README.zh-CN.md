@@ -14,10 +14,9 @@ shadcn 卡片与语言切换器，每个示例页共享 `src/demo/example-shell.
 `src/demo/components/ui/` 下的 shadcn 组件）。npm 库本体提供无头
 `GeoAgentCore`，同时保留原生控件与 shadcn/ui React 面板两种 UI。
 
-所有示例均采用左右布局：shadcn/ui 的 `<GeoAgentPanel>` 直接渲染在左侧侧栏
-中（无需 dock 手术——面板填满自身容器），地图占据其余空间。Leaflet 与
-OpenLayers 页面传入与原生控件相同的 `mapEngine` 选项，面板在挂载时将核心
-attach 到地图。
+MapLibre GL 基础示例在地图上挂载浮动的 `GeoAgentControl`。其余示例将
+`<GeoAgentPanel>` 渲染到地图左侧的侧栏。Leaflet 和 OpenLayers 通过
+`mapEngine` 选项指定引擎。
 
 所有示例均跟随示例首页选择的语言：首页的 中文/English 下拉框会把选择保存在
 `localStorage`（`geoagent.locale`），每个示例页读取该选择并通过 `locale`
@@ -25,9 +24,9 @@ attach 到地图。
 
 ## MapLibre GL 示例
 
-在 React 页面入口（`main.tsx`）中用 `GeoAgentPanel` 驱动 MapLibre 地图（默认
-的原生风格工具配置）。它默认启用 MapLibre JavaScript 与图层删除能力，同时
-隐藏权限复选框。地图以 globe 投影启动，初始范围即全球（正北朝上，加载后
+地图加载后，通过 `map.addControl()` 在左上角挂载原生 `GeoAgentControl`。
+浮动面板默认展开，可收起为地图控件按钮。地图销毁时由 MapLibre 调用控件的
+清理方法。地图以 globe 投影启动，初始范围即全球（正北朝上，加载后
 整个球体尽收眼底）；底图下方叠加 `@geoql/maplibre-gl-starfield` 星空穹顶
 （ESO 银河全景图，CC BY 4.0），GlobeControl 与 agent 的 `set_projection`
 工具可随时切换到平面 Mercator。
@@ -110,8 +109,8 @@ pnpm dev
 
 ## MapLibre GL React 示例
 
-与基础示例相同的配置——演示面板驱动的示例页全部是 React。它使用与基础示例
-相同的默认权限行为。
+地图就绪后，在左侧栏渲染 `<GeoAgentPanel map={map} />`。面板负责绑定地图，
+并填满 React 侧栏。
 
 ```bash
 pnpm dev

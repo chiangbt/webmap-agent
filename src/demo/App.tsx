@@ -40,7 +40,7 @@ const EXAMPLES: ExampleLink[] = [
     href: './examples/basic/index.html',
     titleKey: 'basicTitle',
     descKey: 'basicDesc',
-    tags: ['MapLibre', 'Vanilla JS'],
+    tags: ['MapLibre', 'IControl'],
   },
   {
     href: './examples/react/index.html',

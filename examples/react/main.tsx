@@ -5,8 +5,8 @@
  * 与其它示例的差异：
  * - 地图同样是原生 MapLibre GL 引擎，无需 mapEngine 兼容 shim，直接把
  *   Map 实例作为 map prop 传给 GeoAgentPanel；
- * - 与 basic 示例结构相同，但重点展示 React 集成方式：useRef 持有地图
- *   容器、useState 保存就绪的地图实例、useEffect 负责初始化与卸载清理；
+ * - React 侧栏管理面板布局，useState 保存就绪的地图实例，
+ *   useEffect 负责初始化与卸载清理；
  * - 额外演示了 globe（球体）投影、MaplibreStarfieldLayer 星空背景与
  *   LayerControl 图层控制的组合效果。
  */
@@ -120,9 +120,9 @@ function ReactExample() {
             locale={locale}
             collapsed={false}
             showCollapseButton={false}
-          defaultBaseUrl={llm.baseUrl}
-          defaultApiKey={llm.apiKey}
-          defaultModel={llm.model}
+            defaultBaseUrl={llm.baseUrl}
+            defaultApiKey={llm.apiKey}
+            defaultModel={llm.model}
           />
         )}
       </div>

@@ -1,21 +1,10 @@
-/**
- * MapLibre GL 基础示例：演示在原生 maplibregl.Map 上直接接入 GeoAgentPanel，
- * 是所有示例中最精简的一条接入路径。
- *
- * 与其它示例的差异：
- * - MapLibre GL 是本库的原生引擎，无需创建 GeoAgentCore，也无需传 mapEngine
- *   兼容 shim，直接把 Map 实例作为 map prop 传给 GeoAgentPanel 即可；
- *   （leaflet / openlayers / arcgis 示例都必须走 mapEngine 兼容层）
- * - 额外演示了 globe（球体）投影、MaplibreStarfieldLayer 星空背景与
- *   LayerControl 图层控制的组合效果；
- * - react 示例与其结构几乎相同，仅页面标题与组件名不同。
- */
-import { useEffect, useRef, useState } from 'react';
+/** MapLibre GL 基础示例通过 MapLibre 的 IControl 接口挂载浮动 GeoAgent 控件。 */
+import { useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import maplibregl, { type Map } from 'maplibre-gl';
+import maplibregl from 'maplibre-gl';
 import { LayerControl } from 'maplibre-gl-layer-control';
 import { MaplibreStarfieldLayer } from '@geoql/maplibre-gl-starfield';
-import { GeoAgentPanel } from '@/react';
+import { GeoAgentControl } from '@/index';
 import { ExampleShell } from '@/demo/example-shell';
 import { applyExamplePageLocale, resolveExamplesLocale } from '@/demo/locale';
 import { HOMEPAGE_I18N } from '@/demo/i18n';
@@ -36,13 +25,8 @@ applyExamplePageLocale(locale, {
   tw: 'web-geoagent - MapLibre GL 範例',
 });
 
-/**
- * 页面主组件：创建 MapLibre GL 地图，地图加载完成后渲染左侧 GeoAgentPanel。
- * @returns 左侧 GeoAgent 面板 + 右侧地图容器的页面布局。
- */
 function BasicExample() {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const [map, setMap] = useState<Map | null>(null);
 
   // 空依赖数组：仅在组件首次挂载后执行一次地图初始化。
   useEffect(() => {
@@ -69,7 +53,7 @@ function BasicExample() {
     mapInstance.addControl(new maplibregl.GlobeControl(), 'top-right');
 
     // 地图样式加载完成后，再添加依赖样式结构的图层与控件。
-    mapInstance.on('load', () => {
+    mapInstance.once('load', () => {
       // 全球初始范围下使用球体（globe）投影：加载时整个地球都在视野内。
       // GlobeControl / agent 的 set_projection 工具可按需切换为平面 Mercator 投影。
       mapInstance.setProjection({ type: 'globe' });
@@ -100,37 +84,26 @@ function BasicExample() {
         }),
         'top-right',
       );
-      // 地图完全就绪后更新 state，触发左侧 GeoAgentPanel 渲染。
-      setMap(mapInstance);
+      mapInstance.addControl(
+        new GeoAgentControl({
+          title: 'GeoAgent（MapLibre GL）',
+          locale,
+          collapsed: false,
+          defaultBaseUrl: llm.baseUrl,
+          defaultApiKey: llm.apiKey,
+          defaultModel: llm.model,
+        }),
+        'top-left',
+      );
     });
 
-    // 组件卸载时销毁地图实例，释放 WebGL 等资源。
+    // 地图销毁时调用原生控件的 onRemove，释放监听器和地图资源。
     return () => {
       mapInstance.remove();
     };
   }, []);
 
-  return (
-    <div className="flex w-full">
-      <div className="flex shrink-0 flex-col overflow-hidden border-r bg-muted">
-        {/* 地图实例就绪后才渲染面板，保证 map prop 不为 null。 */}
-        {map && (
-          <GeoAgentPanel
-            map={map}
-            title="GeoAgent（MapLibre GL）"
-            locale={locale}
-            collapsed={false}
-            showCollapseButton={false}
-          defaultBaseUrl={llm.baseUrl}
-          defaultApiKey={llm.apiKey}
-          defaultModel={llm.model}
-          />
-        )}
-      </div>
-      {/* 地图挂载容器。 */}
-      <div ref={mapContainer} className="relative min-w-0 flex-1" />
-    </div>
-  );
+  return <div ref={mapContainer} className="relative min-w-0 flex-1" />;
 }
 
 // 将示例挂载到 #root；外层 ExampleShell 提供页面标题与说明栏。

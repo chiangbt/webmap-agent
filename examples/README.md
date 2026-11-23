@@ -16,11 +16,9 @@ components under `src/demo/components/ui/`). The npm library itself ships the
 headless `GeoAgentCore` plus both the vanilla control and the shadcn/ui React
 panel.
 
-All examples use a side-by-side layout: the shadcn/ui `<GeoAgentPanel>` renders
-directly into a left sidebar (no dock surgery — the panel fills its container),
-and the map fills the remaining space. Leaflet and OpenLayers pass the same
-`mapEngine` option as the vanilla control; the panel attaches the core to the
-map on mount.
+The MapLibre GL basic example mounts a floating `GeoAgentControl` on the map.
+The other examples render `<GeoAgentPanel>` in a left sidebar alongside the map.
+Leaflet and OpenLayers specify their engine through the `mapEngine` option.
 
 All examples follow the language chosen on the examples homepage: the
 homepage's 中文/English dropdown persists the choice in `localStorage`
@@ -29,10 +27,10 @@ homepage's 中文/English dropdown persists the choice in `localStorage`
 
 ## MapLibre GL Example
 
-`GeoAgentPanel` driving a MapLibre map with the default (vanilla-style) tool
-configuration, rendered from a React page entry (`main.tsx`). It enables
-MapLibre JavaScript and layer removal by default while keeping the permission
-checkboxes hidden. The map starts in globe projection at a global initial
+The example mounts `GeoAgentControl` with `map.addControl()` after the map loads.
+The floating panel opens in the top-left corner and can be collapsed to the
+map control button. MapLibre calls the control's cleanup when the map is removed.
+The map starts in globe projection at a global initial
 extent (the whole globe in view on load, north-up), with the
 `@geoql/maplibre-gl-starfield` skybox (an ESO Milky Way panorama, CC BY 4.0)
 underneath the basemap; the GlobeControl / the agent's `set_projection` tool
@@ -122,9 +120,8 @@ Engine-enabled Google Cloud project ID in the GeoAgent panel.
 
 ## MapLibre GL React Example
 
-Same setup as the basic example — it demonstrates that the panel-driven demo
-pages are all React. It uses the same default permission behavior as the basic
-example.
+The React example renders `<GeoAgentPanel map={map} />` in a left sidebar once
+the map is ready. The panel binds itself to the map and fills the sidebar.
 
 ```bash
 pnpm dev
