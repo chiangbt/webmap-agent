@@ -147,7 +147,10 @@ function ArcGISSceneExample() {
         {/* Home 回到初始相机位置；图层面板查看/切换图层
             （内联 marginTop 与上方控件留出 8px 间距）。 */}
         <arcgis-home slot="top-right" style={{ marginTop: 8 }} />
-        <arcgis-layer-list slot="top-right" collapsed={true} style={{ marginTop: 8 }} />
+        {/* Expand 包装：默认只显示一个图标按钮，点击才展开图层面板。 */}
+        <arcgis-expand slot="top-right" expand-tooltip="图层">
+          <arcgis-layer-list />
+        </arcgis-expand>
       </arcgis-scene>
     </div>
   );
