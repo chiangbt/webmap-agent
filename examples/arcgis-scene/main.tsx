@@ -144,6 +144,8 @@ function ArcGISSceneExample() {
         {/* 缩放按钮放在视图 UI 的指定 slot 位置；在 scene 中
             它们按相机远近步进拉近 / 拉远。 */}
         <arcgis-zoom slot="top-right" />
+        {/* Home 回到初始相机位置（与缩放按钮留 8px 间距）。 */}
+        <arcgis-home slot="top-right" style={{ marginTop: 8 }} />
       </arcgis-scene>
     </div>
   );
