@@ -14,6 +14,8 @@ core also attaches to Leaflet, OpenLayers, and ArcGIS Maps SDK maps (MapView / S
 
 ![web-geoagent architecture](docs/architecture.png)
 
+![agent_maplibregl](docs/agent_maplibregl.png)
+
 ## Features
 
 - Collapsible MapLibre control with a floating chat panel

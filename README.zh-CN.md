@@ -13,6 +13,8 @@
 
 ![web-geoagent 架构图](docs/architecture.png)
 
+![agent_maplibregl](docs/agent_maplibregl.png)
+
 ## 功能特性
 
 - 可折叠的 MapLibre 控件，带浮动聊天面板
