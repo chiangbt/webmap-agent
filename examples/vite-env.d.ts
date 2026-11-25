@@ -5,8 +5,7 @@
  * - 引入 vite/client 的环境模块声明，使编辑器能识别通过 Vite 资源管线
  *   导入的图片等资源模块；
  * - 为 @arcgis/map-components 的 web component 声明 JSX 内置元素类型，
- *   使 <arcgis-map> / <arcgis-scene> / <arcgis-zoom> 能在 React 中
- *   以普通 JSX 标签使用。
+ *   使地图、场景及其控件能在 React 中以普通 JSX 标签使用。
  */
 /// <reference types="vite/client" />
 
@@ -42,6 +41,14 @@ declare global {
       'arcgis-home': DetailedHTMLProps<
         HTMLAttributes<HTMLElementTagNameMap['arcgis-home']>,
         HTMLElementTagNameMap['arcgis-home']
+      >;
+      'arcgis-navigation-toggle': DetailedHTMLProps<
+        HTMLAttributes<HTMLElementTagNameMap['arcgis-navigation-toggle']>,
+        HTMLElementTagNameMap['arcgis-navigation-toggle']
+      >;
+      'arcgis-compass': DetailedHTMLProps<
+        HTMLAttributes<HTMLElementTagNameMap['arcgis-compass']>,
+        HTMLElementTagNameMap['arcgis-compass']
       >;
     }
   }

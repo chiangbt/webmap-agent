@@ -12,6 +12,8 @@ import { createRoot } from 'react-dom/client';
 // @arcgis/map-components 的 web components + GeoAgent shim 需要构造的 esri 类。
 // 库本身从不 import @arcgis/*——由宿主一次性组装好 namespace。
 import { defineCustomElements } from '@arcgis/map-components/dist/loader';
+import '@arcgis/map-components/components/arcgis-navigation-toggle';
+import '@arcgis/map-components/components/arcgis-compass';
 import WebTileLayer from '@arcgis/core/layers/WebTileLayer.js';
 import VectorTileLayer from '@arcgis/core/layers/VectorTileLayer.js';
 import FeatureLayer from '@arcgis/core/layers/FeatureLayer.js';
@@ -175,6 +177,8 @@ function ArcGISSceneExample() {
           <arcgis-zoom slot="top-right" />
           {/* Home 回到初始相机位置（与缩放按钮留 8px 间距）。 */}
           <arcgis-home slot="top-right" style={{ marginTop: 8 }} />
+          <arcgis-navigation-toggle slot="top-right" style={{ marginTop: 8 }} />
+          <arcgis-compass slot="top-right" style={{ marginTop: 8 }} />
         </arcgis-scene>
         <div className="absolute bottom-6 right-2 bg-background/90 px-2 py-1 text-xs">
           <a href="https://openfreemap.org/">OpenFreeMap</a>
