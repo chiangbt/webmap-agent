@@ -19,7 +19,7 @@ import { GeoAgentPanel } from '@/react';
 import { ExampleShell } from '@/demo/example-shell';
 import { applyExamplePageLocale, resolveExamplesLocale } from '@/demo/locale';
 import { HOMEPAGE_I18N } from '@/demo/i18n';
-import { readLlmEnvConfig } from '@/demo/env';
+import { readDemoPlaceSearchConfig, readLlmEnvConfig } from '@/demo/env';
 import '@/demo/demo.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import 'maplibre-gl-layer-control/style.css';
@@ -123,6 +123,7 @@ function ReactExample() {
             defaultBaseUrl={llm.baseUrl}
             defaultApiKey={llm.apiKey}
             defaultModel={llm.model}
+            placeSearch={readDemoPlaceSearchConfig()}
           />
         )}
       </div>

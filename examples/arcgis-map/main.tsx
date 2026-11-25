@@ -30,7 +30,7 @@ import { waitForArcGISComponent } from '@/lib/core/engines/arcgis-engine';
 import { ExampleShell } from '@/demo/example-shell';
 import { applyExamplePageLocale, resolveExamplesLocale } from '@/demo/locale';
 import { HOMEPAGE_I18N } from '@/demo/i18n';
-import { readLlmEnvConfig } from '@/demo/env';
+import { readDemoPlaceSearchConfig, readLlmEnvConfig } from '@/demo/env';
 import '@/demo/demo.css';
 import '@arcgis/map-components/dist/arcgis-map-components/arcgis-map-components.css';
 
@@ -140,9 +140,7 @@ function ArcGISMapExample() {
         defaultBaseUrl: llm.baseUrl,
         defaultApiKey: llm.apiKey,
         defaultModel: llm.model,
-        // 地名搜索三级回退（天地图 → ArcGIS geocoder → LLM）；
-        // TIANDITU_SERVER_KEY 来自 .env（vite envPrefix 注入）。
-        placeSearch: { tiandituKey: llm.tiandituKey },
+        placeSearch: readDemoPlaceSearchConfig(),
         // ArcGIS 兼容引擎：MapView（平面 2D）+ shim 需要构造的 esri 类。
         mapEngine: {
           kind: 'arcgis',

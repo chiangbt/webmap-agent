@@ -43,14 +43,15 @@ export interface PlaceSearchResult {
 /** 地名搜索链的配置：提供方端点、key 与代理模板。 */
 export interface PlaceSearchOptions {
   /**
-   * 天地图服务 key（TIANDITU_SERVER_KEY）。未配置时跳过第一级，直接走
-   * ArcGIS geocoder。
+   * 天地图直连 key。配置了代理时，由代理服务器提供服务端 Key。
    */
   tiandituKey?: string;
+  /** 同源代理端点，从其服务器配置读取 Key。 */
+  tiandituProxyUrl?: string;
   /**
    * 天地图地名搜索端点。浏览器直连官方端点可能受 CORS 限制，宿主可传
    * 自建代理；模板中的 `{key}` 会被替换为 tiandituKey。
-   * @default 'https://api.tianditu.gov.cn/placeSearch'
+   * @default 'https://api.tianditu.gov.cn/v2/search'
    */
   tiandituUrl?: string;
   /**
@@ -63,7 +64,7 @@ export interface PlaceSearchOptions {
 }
 
 /** 默认天地图地名搜索端点（官方 REST 服务）。 */
-const DEFAULT_TIANDITU_URL = 'https://api.tianditu.gov.cn/placeSearch';
+export const TIANDITU_SEARCH_URL = 'https://api.tianditu.gov.cn/v2/search';
 /** 默认 ArcGIS World Geocoder 端点（免 key 档位）。 */
 const DEFAULT_ARCGIS_URL =
   'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates';
@@ -86,32 +87,34 @@ async function searchTianditu(
   bounds?: { west: number; south: number; east: number; north: number },
 ): Promise<PlaceCandidate[]> {
   const key = options.tiandituKey ?? '';
-  const url = resolveTemplate(options.tiandituUrl ?? DEFAULT_TIANDITU_URL, key);
+  const url = options.tiandituProxyUrl ?? resolveTemplate(options.tiandituUrl ?? TIANDITU_SEARCH_URL, key);
   // focusRectangle 让结果向当前视口倾斜（官方 postStr 字段）；无视口时省略。
   const postStr: Record<string, unknown> = {
     keyWord: query,
     level: 12,
     queryType: 1,
+    mapBound: '-180,-85,180,85',
     start: 0,
     count: MAX_CANDIDATES,
   };
   if (bounds) {
     postStr.focusRectangle = [bounds.west, bounds.south, bounds.east, bounds.north];
   }
-  const requestUrl =
-    url +
-    '?postStr=' +
-    encodeURIComponent(JSON.stringify(postStr)) +
-    '&type=query&tk=' +
-    encodeURIComponent(key);
-  const text = await fetchBoundedText(requestUrl, {
+  const params = new URLSearchParams({ postStr: JSON.stringify(postStr) });
+  if (!options.tiandituProxyUrl) {
+    params.set('type', 'query');
+    params.set('tk', key);
+  }
+  const text = await fetchBoundedText(`${url}${url.includes('?') ? '&' : '?'}${params}`, {
     timeoutMs: options.timeoutMs ?? 10_000,
     maxBytes: 512 * 1024,
     label: 'Tianditu place search',
   });
   const data = JSON.parse(text) as {
+    error?: string;
     pois?: { name?: unknown; lonlat?: unknown; address?: unknown }[];
   };
+  if (data.error) throw new Error(data.error);
   const pois = Array.isArray(data.pois) ? data.pois : [];
   const candidates: PlaceCandidate[] = [];
   for (const poi of pois.slice(0, MAX_CANDIDATES)) {
@@ -194,7 +197,7 @@ export async function searchPlaceChain(
   const fallbackNotes: string[] = [];
 
   // 第一级：天地图（中文地名最优）。未配置 key 或请求/解析失败时回退。
-  if (options.tiandituKey) {
+  if (options.tiandituProxyUrl || options.tiandituKey) {
     try {
       const candidates = await searchTianditu(trimmed, options, bounds);
       if (candidates.length > 0) {
@@ -202,8 +205,8 @@ export async function searchPlaceChain(
       }
       fallbackNotes.push('Tianditu returned no match.');
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      fallbackNotes.push('Tianditu failed: ' + reason + '.');
+      const reason = error instanceof Error ? error.message.split(' from ')[0] : 'Request failed';
+      fallbackNotes.push('Tianditu failed: ' + reason);
     }
   } else {
     fallbackNotes.push('No Tianditu key configured.');
