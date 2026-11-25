@@ -31,7 +31,7 @@ import { waitForArcGISComponent } from '@/lib/core/engines/arcgis-engine';
 import { ExampleShell } from '@/demo/example-shell';
 import { applyExamplePageLocale, resolveExamplesLocale } from '@/demo/locale';
 import { HOMEPAGE_I18N } from '@/demo/i18n';
-import { readLlmEnvConfig } from '@/demo/env';
+import { readDemoPlaceSearchConfig, readLlmEnvConfig } from '@/demo/env';
 import '@/demo/demo.css';
 import '@arcgis/map-components/dist/arcgis-map-components/arcgis-map-components.css';
 
@@ -69,6 +69,7 @@ function ArcGISSceneExample() {
         defaultBaseUrl: llm.baseUrl,
         defaultApiKey: llm.apiKey,
         defaultModel: llm.model,
+        placeSearch: readDemoPlaceSearchConfig(),
         // viewKind "scene"：shim 按 SceneView 相机模型驱动
         // （zoom 走 scale，bearing 走 camera.heading，pitch 走 tilt）。
         mapEngine: {

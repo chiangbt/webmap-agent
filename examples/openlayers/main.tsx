@@ -27,7 +27,7 @@ import { GeoAgentPanel } from '@/react';
 import { ExampleShell } from '@/demo/example-shell';
 import { applyExamplePageLocale, resolveExamplesLocale } from '@/demo/locale';
 import { HOMEPAGE_I18N } from '@/demo/i18n';
-import { readLlmEnvConfig } from '@/demo/env';
+import { readDemoPlaceSearchConfig, readLlmEnvConfig } from '@/demo/env';
 import '@/demo/demo.css';
 import 'ol/ol.css';
 
@@ -126,6 +126,7 @@ function OpenLayersExample() {
           defaultBaseUrl={llm.baseUrl}
           defaultApiKey={llm.apiKey}
           defaultModel={llm.model}
+          placeSearch={readDemoPlaceSearchConfig()}
             // 告知工具层这是 OpenLayers 地图，并把上面组装的
             // 命名空间交给它们，shim 据此构造图层 / Overlay / 样式。
             mapEngine={{

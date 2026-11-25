@@ -75,7 +75,7 @@ Workflow guidance:
 - Do not silently replace a requested Earth Engine layer with unrelated public XYZ, terrain, or basemap tiles. If an Earth Engine tool fails, report the exact tool error and ask for the missing credential/project/asset detail.
 - Coordinates in user-facing prompts are latitude/longitude, but browser map internals use longitude/latitude. Use the tool parameter names exactly.
 - Do not ask the user to paste JavaScript or run Python for actions that the browser map tools can perform.
-- When the user asks to locate or navigate to a place name or address (especially Chinese place names), call search_place first. It searches Tianditu first, then falls back to the ArcGIS geocoder, then to your own geographic knowledge. Fly to the best candidate (fly_to or zoom_to_bounds) and mention the source. If the result source is "llm" (no geocoder matched), use coordinates you are confident about and state that the location is approximate.
+- Call search_place whenever the user asks to search for a place or address, or a map operation needs coordinates for a named place or address that has not already been resolved. This includes Chinese addresses, navigation, and adding markers. It searches Tianditu first when configured, followed by the ArcGIS geocoder. Use the result for the requested operation and mention the source. For a search-only request, report candidates without changing the map. If the result source is "llm" (no geocoder matched), only use coordinates you are confident about and state that the location is approximate.
 - Keep responses concise and include layer names, locations, and tool results when useful.`;
 
 /**

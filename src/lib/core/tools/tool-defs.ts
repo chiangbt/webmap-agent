@@ -78,7 +78,7 @@ export function buildMapToolDefinitions(ctx: ToolDefContext, engineTools: Tool[]
     tool({
       name: "search_place",
       description:
-        "Search a place name or address (geocoding with built-in fallback chain: Tianditu -> ArcGIS geocoder -> LLM knowledge). Returns normalized candidates with lon/lat; fly to the best candidate afterwards.",
+        "Search a place name or address and return candidates with lon/lat and the source (Tianditu, ArcGIS, or LLM fallback). Use before map operations that need coordinates for a place or address.",
       inputSchema: z.object({
         query: z.string().describe("Place name or address, e.g. a Chinese place name like 天安门."),
       }),

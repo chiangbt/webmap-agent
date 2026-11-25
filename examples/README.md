@@ -23,6 +23,11 @@ Without an engine configuration, `GeoAgentCore` and `GeoAgentPanel` use MapLibre
 TypeScript checks that the map matches the configured engine or supplied core.
 The ArcGIS examples wait for their web component's view before attaching.
 
+All demos use the same Tianditu proxy for place and address searches. Set
+`TIANDITU_SERVER_KEY` in the project root's `.env` for the local Vite server.
+For a static deployment, set `VITE_TIANDITU_SEARCH_URL` to the deployed search
+proxy before building the examples.
+
 All examples follow the language chosen on the examples homepage: the
 homepage's 中文/English dropdown persists the choice in `localStorage`
 (`geoagent.locale`), and each page passes it to the Agent panel as the

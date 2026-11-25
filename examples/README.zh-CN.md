@@ -21,6 +21,10 @@ MapLibre GL 基础示例在地图上挂载浮动的 `GeoAgentControl`。其余�
 TypeScript 会检查地图实例是否与配置的引擎或传入的 Core 匹配。ArcGIS 示例
 在组件的内部视图就绪后再绑定。
 
+所有示例的地名和地址搜索共用天地图代理。本地开发时，在项目根目录的
+`.env` 配置 `TIANDITU_SERVER_KEY`，Vite 从服务端调用天地图。
+部署静态示例站时，构建前将 `VITE_TIANDITU_SEARCH_URL` 指向部署的搜索代理。
+
 所有示例均跟随示例首页选择的语言：首页的 中文/English 下拉框会把选择保存在
 `localStorage`（`geoagent.locale`），每个示例页读取该选择并通过 `locale`
 选项传给 Agent 面板（`src/demo/locale.ts`）。

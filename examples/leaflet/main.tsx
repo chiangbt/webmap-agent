@@ -16,7 +16,7 @@ import { GeoAgentPanel } from '@/react';
 import { ExampleShell } from '@/demo/example-shell';
 import { applyExamplePageLocale, resolveExamplesLocale } from '@/demo/locale';
 import { HOMEPAGE_I18N } from '@/demo/i18n';
-import { readLlmEnvConfig } from '@/demo/env';
+import { readDemoPlaceSearchConfig, readLlmEnvConfig } from '@/demo/env';
 import '@/demo/demo.css';
 import 'leaflet/dist/leaflet.css';
 
@@ -82,6 +82,7 @@ function LeafletExample() {
           defaultBaseUrl={llm.baseUrl}
           defaultApiKey={llm.apiKey}
           defaultModel={llm.model}
+          placeSearch={readDemoPlaceSearchConfig()}
             // 告知工具层这是 Leaflet 地图，并把 L 命名空间交给它们，
             // shim 据此调用 L.marker / L.divIcon 等 Leaflet API。
             mapEngine={{

@@ -18,7 +18,7 @@ import { GeoAgentPanel } from '@/react';
 import { ExampleShell } from '@/demo/example-shell';
 import { applyExamplePageLocale, resolveExamplesLocale } from '@/demo/locale';
 import { HOMEPAGE_I18N } from '@/demo/i18n';
-import { readLlmEnvConfig } from '@/demo/env';
+import { readDemoPlaceSearchConfig, readLlmEnvConfig } from '@/demo/env';
 import '@/demo/demo.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import 'maplibre-gl-layer-control/style.css';
@@ -136,6 +136,7 @@ function EarthEngineExample() {
           defaultBaseUrl={llm.baseUrl}
           defaultApiKey={llm.apiKey}
           defaultModel={llm.model}
+          placeSearch={readDemoPlaceSearchConfig()}
             // 面板内 EE 配置的存储键前缀，与上方 projectValue 的回退链保持一致。
             storagePrefix={STORAGE_PREFIX}
             // 启用 Earth Engine 数据源：首次使用时面板会发起 Google OAuth 授权。
