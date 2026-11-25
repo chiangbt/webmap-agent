@@ -71,8 +71,10 @@ addGeoAgentToArcGISMap(agent, mapEl, { position: 'top-left' });
 ## ArcGIS Scene 示例
 
 `<arcgis-scene>` web component（`ground="world-elevation"` 的 SceneView 球体），
-以巴黎的示例瓦片为初始视角。SDK 的 `VectorTileLayer` 通过 OpenFreeMap 的
-`{z}/{x}/{y}.pbf` 模板加载道路和建筑，叠加在卫星底图上。
+以巴黎的示例瓦片为初始斜视视角。SDK 的 `VectorTileLayer` 通过 OpenFreeMap 的
+`{z}/{x}/{y}.pbf` 模板加载道路。近景建筑从同一模板读取第 14 级瓦片，
+按 `render_min_height` 抬高基底，再拉伸至 `render_height`。缺少有效高度时，
+从基底拉伸 8 米。道路和建筑叠加在卫星底图上。
 GeoAgent 由同一个 `ArcGISTools` 驱动（
 `mapEngine: { kind: "arcgis", viewKind: "scene" }`）。shim 会为场景适配相机
 模型——zoom 走视图 scale、bearing 走 `camera.heading`、pitch 走

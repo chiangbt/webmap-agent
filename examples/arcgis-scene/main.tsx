@@ -22,6 +22,7 @@ import SimpleMarkerSymbol from '@arcgis/core/symbols/SimpleMarkerSymbol.js';
 import TextSymbol from '@arcgis/core/symbols/TextSymbol.js';
 import * as reactiveUtils from '@arcgis/core/core/reactiveUtils.js';
 import PictureMarkerSymbol from '@arcgis/core/symbols/PictureMarkerSymbol.js';
+import { addMvtBuildings } from './mvt-buildings';
 import { GeoAgentCore } from '@/lib/core/GeoAgentCore';
 import { GeoAgentPanel } from '@/react';
 import { waitForArcGISComponent } from '@/lib/core/engines/arcgis-engine';
@@ -40,8 +41,9 @@ const locale = resolveExamplesLocale();
 // 从 .env 读取的部署默认值（LLM_API_URL / LLM_API_KEY / LLM_API_MODEL）。
 const llm = readLlmEnvConfig();
 const mvtUrl = 'https://tiles.openfreemap.org/planet/20261122_124456_pt/{z}/{x}/{y}.pbf';
-// 巴黎，瓦片 14/8299/5634 的中心。
-const initialCamera = { longitude: 2.362060546875, latitude: 48.88639177703194, z: 3500 };
+// 从瓦片 14/8299/5634 的南侧斜看巴黎，便于观察建筑侧面。
+const initialCamera = { longitude: 2.36206, latitude: 48.8808, z: 620 };
+const initialTilt = 58;
 applyExamplePageLocale(locale, {
   en: 'web-geoagent - ArcGIS Scene Example',
   zh: 'web-geoagent - ArcGIS Scene 示例',
@@ -95,6 +97,7 @@ function ArcGISSceneExample() {
     if (!el) return;
     // 卸载标记：防止组件卸载后仍执行 setState。
     let disposed = false;
+    let removeBuildings: (() => void) | undefined;
     const mvtLayer = new VectorTileLayer({
       id: 'openfreemap-mvt',
       title: 'OpenFreeMap MVT',
@@ -105,14 +108,6 @@ function ArcGISSceneExample() {
           openfreemap: { type: 'vector', tiles: [mvtUrl], minzoom: 0, maxzoom: 14 },
         },
         layers: [
-          {
-            id: 'buildings',
-            type: 'fill',
-            source: 'openfreemap',
-            'source-layer': 'building',
-            minzoom: 13,
-            paint: { 'fill-color': '#f4c586', 'fill-opacity': 0.65 },
-          },
           {
             id: 'roads',
             type: 'line',
@@ -136,13 +131,15 @@ function ArcGISSceneExample() {
       view.camera = {
         position: initialCamera,
         heading: 0,
-        tilt: 0,
+        tilt: initialTilt,
       };
+      removeBuildings = addMvtBuildings(view, mvtUrl);
       // 视图就绪，更新 state 以渲染 GeoAgentPanel。
       setMapEl(el);
     });
     return () => {
       disposed = true;
+      removeBuildings?.();
       mvtLayer.destroy();
     };
   }, []);
@@ -170,7 +167,7 @@ function ArcGISSceneExample() {
           ground="world-elevation"
           camera-position={`${initialCamera.longitude}, ${initialCamera.latitude}, ${initialCamera.z}`}
           camera-heading="0"
-          camera-tilt="0"
+          camera-tilt={String(initialTilt)}
           className="h-full w-full"
         >
           {/* 缩放按钮放在视图 UI 的指定 slot 位置；在 scene 中

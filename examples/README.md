@@ -81,9 +81,12 @@ addGeoAgentToArcGISMap(agent, mapEl, { position: 'top-left' });
 ## ArcGIS Scene Example
 
 An `<arcgis-scene>` web component (a SceneView globe with `ground="world-elevation"`)
-starts at the sample tile in Paris. The SDK's `VectorTileLayer` loads roads
-and buildings from the OpenFreeMap `{z}/{x}/{y}.pbf` template and overlays
-them on the satellite basemap. GeoAgent uses the same `ArcGISTools` with
+starts with an oblique view of the sample tile in Paris. The SDK's
+`VectorTileLayer` loads roads from the OpenFreeMap `{z}/{x}/{y}.pbf` template.
+The nearby zoom-14 tiles supply building footprints that extrude from
+`render_min_height` to `render_height`, with an 8-meter fallback extrusion
+when the height is missing or invalid. Both layers overlay the satellite basemap.
+GeoAgent uses the same `ArcGISTools` with
 `mapEngine: { kind: "arcgis", viewKind: "scene" }`. The shim adapts the camera
 model for the scene — zoom goes through the view scale, bearing through
 `camera.heading`, pitch through `camera.tilt`, and marker positioning uses the
