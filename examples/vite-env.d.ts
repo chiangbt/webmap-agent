@@ -39,6 +39,10 @@ declare global {
         HTMLAttributes<HTMLElement>,
         HTMLElement
       >;
+      'arcgis-home': DetailedHTMLProps<
+        HTMLAttributes<HTMLElementTagNameMap['arcgis-home']>,
+        HTMLElementTagNameMap['arcgis-home']
+      >;
     }
   }
 }

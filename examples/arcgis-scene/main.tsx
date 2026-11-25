@@ -5,9 +5,7 @@
  * 与其它示例的差异：
  * - shim 按 SceneView 相机模型驱动视图：zoom 走 scale、bearing 走
  *   camera.heading、pitch 走 tilt（arcgis-map 示例用的是平面 2D MapView）；
- * - 场景为卫星影像（basemap: "satellite"）叠加真实世界高程
- *   （ground: "world-elevation"）的全球 3D 视图；
- * - 不预置示例数据（与 arcgis-map 示例不同），直接从空场景开始对话。
+ * - 全球 3D 视图保留卫星影像和世界高程，并叠加 OpenFreeMap 的 MVT 道路与建筑。
  */
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -15,6 +13,7 @@ import { createRoot } from 'react-dom/client';
 // 库本身从不 import @arcgis/*——由宿主一次性组装好 namespace。
 import { defineCustomElements } from '@arcgis/map-components/dist/loader';
 import WebTileLayer from '@arcgis/core/layers/WebTileLayer.js';
+import VectorTileLayer from '@arcgis/core/layers/VectorTileLayer.js';
 import FeatureLayer from '@arcgis/core/layers/FeatureLayer.js';
 import Graphic from '@arcgis/core/Graphic.js';
 import SimpleFillSymbol from '@arcgis/core/symbols/SimpleFillSymbol.js';
@@ -40,6 +39,9 @@ void defineCustomElements();
 const locale = resolveExamplesLocale();
 // 从 .env 读取的部署默认值（LLM_API_URL / LLM_API_KEY / LLM_API_MODEL）。
 const llm = readLlmEnvConfig();
+const mvtUrl = 'https://tiles.openfreemap.org/planet/20261122_124456_pt/{z}/{x}/{y}.pbf';
+// 巴黎，瓦片 14/8299/5634 的中心。
+const initialCamera = { longitude: 2.362060546875, latitude: 48.88639177703194, z: 3500 };
 applyExamplePageLocale(locale, {
   en: 'web-geoagent - ArcGIS Scene Example',
   zh: 'web-geoagent - ArcGIS Scene 示例',
@@ -93,19 +95,46 @@ function ArcGISSceneExample() {
     if (!el) return;
     // 卸载标记：防止组件卸载后仍执行 setState。
     let disposed = false;
+    const mvtLayer = new VectorTileLayer({
+      id: 'openfreemap-mvt',
+      title: 'OpenFreeMap MVT',
+      copyright: 'OpenFreeMap © OpenMapTiles · © OpenStreetMap contributors',
+      style: {
+        version: 8,
+        sources: {
+          openfreemap: { type: 'vector', tiles: [mvtUrl], minzoom: 0, maxzoom: 14 },
+        },
+        layers: [
+          {
+            id: 'buildings',
+            type: 'fill',
+            source: 'openfreemap',
+            'source-layer': 'building',
+            minzoom: 13,
+            paint: { 'fill-color': '#f4c586', 'fill-opacity': 0.65 },
+          },
+          {
+            id: 'roads',
+            type: 'line',
+            source: 'openfreemap',
+            'source-layer': 'transportation',
+            minzoom: 10,
+            paint: { 'line-color': '#ffe9aa', 'line-width': 1.5 },
+          },
+        ],
+      },
+    });
     // 组件的 SceneView 要等 web component 加载完成后才存在。注意：这些
     // web component 没有 when() 方法——元素上继承的是原生
     // EventTarget.prototype.when(type)，需要传事件名。
-    void waitForArcGISComponent(el).then((view) => {
+    void waitForArcGISComponent(el).then(() => {
       if (disposed) {
         return;
       }
-      // 全球初始范围：加载时整个地球都在视野内（下方 JSX 属性已声明该
-      // 意图；显式赋值 camera 可保证跨 SDK 版本的起始视角一致）。
+      const view = el.view;
+      view.map?.add(mvtLayer);
       view.camera = {
-        // 相机位于 (10, 12) 上空约 2 万千米处，heading 与 tilt 均为 0，
-        // 即垂直俯视地球的全球视角。
-        position: { longitude: 10, latitude: 12, z: 20000000 },
+        position: initialCamera,
         heading: 0,
         tilt: 0,
       };
@@ -114,6 +143,7 @@ function ArcGISSceneExample() {
     });
     return () => {
       disposed = true;
+      mvtLayer.destroy();
     };
   }, []);
 
@@ -132,15 +162,13 @@ function ArcGISSceneExample() {
           />
         )}
       </div>
-      {/* 全球 3D 场景：卫星影像叠加真实世界高程。agent 的相机类工具
-          （fly_to、zoom_to_bounds、标记、截图）全部经由 shim 驱动这个
-          SceneView；初始相机 (10, 12) 上空 2 万千米，heading / tilt 均为 0。 */}
+      {/* 全球 3D 场景，初始视角和 Home 均定位到示例瓦片。 */}
       <div className="relative min-w-0 flex-1">
         <arcgis-scene
           ref={sceneElement}
           basemap="satellite"
           ground="world-elevation"
-          camera-position="10, 12, 20000000"
+          camera-position={`${initialCamera.longitude}, ${initialCamera.latitude}, ${initialCamera.z}`}
           camera-heading="0"
           camera-tilt="0"
           className="h-full w-full"
@@ -151,6 +179,13 @@ function ArcGISSceneExample() {
           {/* Home 回到初始相机位置（与缩放按钮留 8px 间距）。 */}
           <arcgis-home slot="top-right" style={{ marginTop: 8 }} />
         </arcgis-scene>
+        <div className="absolute bottom-6 right-2 bg-background/90 px-2 py-1 text-xs">
+          <a href="https://openfreemap.org/">OpenFreeMap</a>
+          {' © '}
+          <a href="https://www.openmaptiles.org/">OpenMapTiles</a>
+          {' · © '}
+          <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>
+        </div>
       </div>
     </div>
   );
