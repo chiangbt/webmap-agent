@@ -22,6 +22,7 @@ import type {
   GeoAgentConversationEntry,
   GeoAgentControlOptions,
   GeoAgentNoteState,
+  GeoAgentPlan,
   GeoAgentProviderId,
   GeoAgentState,
   GeoAgentStatusState,
@@ -645,6 +646,54 @@ export function GeoAgentPanel({
           </Label>
         </div>
       )}
+
+      {/* 任务计划进度：agent 经 create_plan / update_plan_step 维护，
+          经 state.data.plan 推送；无计划时整块不渲染。 */}
+      {(() => {
+        const plan = (state.data as { plan?: GeoAgentPlan | null } | undefined)?.plan;
+        if (!plan || plan.steps.length === 0) return null;
+        const done = plan.steps.filter((step) => step.status === 'done').length;
+        return (
+          <div data-testid="geoagent-plan" className="shrink-0 border-b px-3 py-2">
+            <div className="text-muted-foreground mb-1 flex items-center justify-between text-xs font-semibold">
+              <span>{core.translate('planLabel')}</span>
+              <span>{core.translate('planProgress', { done, total: plan.steps.length })}</span>
+            </div>
+            <ol className="grid gap-1">
+              {plan.steps.map((step) => (
+                <li
+                  key={step.id}
+                  data-testid={`geoagent-plan-step-${step.id}`}
+                  data-status={step.status}
+                  className="flex items-start gap-2 text-[13px]"
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      'mt-1.5 size-2 shrink-0 rounded-full',
+                      step.status === 'done' && 'bg-primary',
+                      step.status === 'in_progress' && 'animate-pulse bg-blue-500',
+                      step.status === 'failed' && 'bg-destructive',
+                      step.status === 'pending' && 'bg-muted-foreground/40',
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      'break-words',
+                      step.status === 'done' && 'text-muted-foreground line-through',
+                    )}
+                  >
+                    {step.title}
+                    {step.note && (
+                      <span className="text-muted-foreground"> — {step.note}</span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        );
+      })()}
 
       {/* 对话日志 */}
       <div

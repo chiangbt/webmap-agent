@@ -95,6 +95,8 @@ export const zhCN: Record<GeoAgentMessageKey, string> = {
   noteModelsLoaded: '已从端点加载 {count} 个模型。',
   noteModelsLoadFailed: '模型列表加载失败：{error}',
   noteModelsEmpty: '端点未返回任何模型。',
+  planLabel: '任务计划',
+  planProgress: '已完成 {done}/{total} 步',
 
   errorApiKeyRequired: '必须提供 {keyLabel}。',
   errorModelIdRequired: '必须提供模型 ID。',

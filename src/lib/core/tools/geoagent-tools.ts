@@ -41,6 +41,7 @@ import {
   type ToolDefContext,
 } from "./tool-defs";
 import { searchPlaceChain, type PlaceSearchOptions } from "../geocoding/place-search";
+import type { GeoAgentPlan } from "../types";
 
 /** 通用 JSON 对象类型：键为 string、值为任意 unknown 的宽松记录。 */
 export type JsonObject = Record<string, unknown>;
@@ -772,6 +773,8 @@ export abstract class GeoAgentTools {
   private readonly allowDestructiveTools: () => boolean;
   /** 向宿主 UI 发布状态数据的回调。 */
   private readonly onStateDataChange?: (data: Record<string, unknown>) => void;
+  /** 当前多步任务的执行计划；null 表示尚未创建（clear_plan 后同样为 null）。 */
+  private plan: GeoAgentPlan | null = null;
   /** agent 管理的 overlay 注册表：名称 → 记账记录（图层/来源/marker 等）。 */
   protected readonly overlays = new globalThis.Map<string, Overlay>();
   // 命令串行队列：runCommand 链式追加，保证并行工具调用逐条执行。
@@ -992,7 +995,15 @@ export abstract class GeoAgentTools {
    * 命令分发主流程：先确保引擎 namespace 就绪、等地图空闲，再查命令表分发；
    * 未匹配的命令交给 executeEngineCommand 处理引擎专属逻辑。
    */
+  /** 任务计划命令名集合：纯状态命令，不依赖引擎 namespace 与地图空闲。 */
+  private static readonly PLAN_COMMANDS = new Set(["create_plan", "update_plan_step", "clear_plan"]);
+
   private async executeCommand(command: string, args: JsonObject = {}): Promise<unknown> {
+    // 任务计划命令是纯状态操作：不等引擎 namespace 与地图空闲，直接分发，
+    // 让模型在地图仍在加载时也能先拆解任务计划。
+    if (GeoAgentTools.PLAN_COMMANDS.has(command)) {
+      return this.planCommands()[command](args);
+    }
     // namespace 惰性解析 + 等待地图空闲，保证后续 addSource/addLayer 落在可用状态上。
     await this.awaitCommand(this.ensureEngineNamespace());
     await this.waitForMapIdle();
@@ -1007,6 +1018,7 @@ export abstract class GeoAgentTools {
       ...this.geeCommands(),
       ...this.scriptCommands(),
       ...this.placeSearchCommands(),
+      ...this.planCommands(),
     };
     const handler = this.commandTable[command];
     if (handler) {
@@ -1016,6 +1028,78 @@ export abstract class GeoAgentTools {
     // 其余命令全部是引擎专属的：MapLibre/Mapbox 上执行 WebGL 专属命令，
     // 2D 引擎上抛出明确的能力错误。
     return this.executeEngineCommand(command, args);
+  }
+
+  /**
+   * 任务计划命令：多步任务的计划创建与步骤推进。纯状态操作，不触碰地图；
+   * 每次变更经 onStateDataChange 把计划快照写进 state.data.plan，供面板与
+   * 宿主实时渲染进度。
+   */
+  private planCommands(): Record<string, (args: JsonObject) => Promise<unknown>> {
+    /** 计划步骤数上限。 */
+    const MAX_PLAN_STEPS = 12;
+    return {
+      create_plan: async (args) => {
+        const rawSteps = Array.isArray(args.steps) ? args.steps : [];
+        const titles = rawSteps
+          .map((step) => (typeof step === "string" ? step.trim() : ""))
+          .filter((title) => title.length > 0)
+          .slice(0, MAX_PLAN_STEPS);
+        if (titles.length === 0) {
+          throw new Error("create_plan requires a non-empty steps array of short step titles.");
+        }
+        this.plan = {
+          steps: titles.map((title, index) => ({
+            id: index + 1,
+            title: title.slice(0, 120),
+            status: "pending" as const,
+          })),
+          updatedAt: Date.now(),
+        };
+        this.publishPlan();
+        return this.planSnapshot();
+      },
+      update_plan_step: async (args) => {
+        if (!this.plan) {
+          throw new Error("No plan is active; call create_plan first.");
+        }
+        const index = typeof args.index === "number" ? Math.round(args.index) : NaN;
+        const step = this.plan.steps.find((candidate) => candidate.id === index);
+        if (!step) {
+          const valid = this.plan.steps.map((candidate) => candidate.id).join(", ");
+          throw new Error(`update_plan_step: unknown step index ${String(args.index)}; valid ids are ${valid}.`);
+        }
+        const status = typeof args.status === "string" ? args.status : "";
+        if (status !== "pending" && status !== "in_progress" && status !== "done" && status !== "failed") {
+          throw new Error("update_plan_step: status must be one of pending | in_progress | done | failed.");
+        }
+        step.status = status;
+        const note = typeof args.note === "string" ? args.note.trim().slice(0, 200) : "";
+        if (note) {
+          step.note = note;
+        } else {
+          delete step.note;
+        }
+        this.plan.updatedAt = Date.now();
+        this.publishPlan();
+        return this.planSnapshot();
+      },
+      clear_plan: async () => {
+        this.plan = null;
+        this.publishPlan();
+        return { cleared: true };
+      },
+    };
+  }
+
+  /** 当前计划的深拷贝快照（无计划时为 null）。 */
+  private planSnapshot(): JsonObject | null {
+    return this.plan ? (JSON.parse(JSON.stringify(this.plan)) as JsonObject) : null;
+  }
+
+  /** 把最新计划快照推给宿主状态（state.data.plan）。 */
+  private publishPlan(): void {
+    this.onStateDataChange?.({ plan: this.planSnapshot() });
   }
 
   /** 地图状态与查询命令：图层清单、全图状态、来源/渲染要素查询。 */

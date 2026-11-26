@@ -104,6 +104,8 @@ export const en = {
   noteModelsLoaded: 'Loaded {count} models from the endpoint.',
   noteModelsLoadFailed: 'Could not load models: {error}',
   noteModelsEmpty: 'The endpoint returned no models.',
+  planLabel: 'Plan',
+  planProgress: '{done}/{total} steps',
 
   // 智能体创建错误。
   errorApiKeyRequired: '{keyLabel} is required.',

@@ -520,6 +520,39 @@ export function buildMapToolDefinitions(ctx: ToolDefContext, engineTools: Tool[]
         return ctx.runCommand("clear_layers");
       },
     }),
+    /**
+     * create_plan — 为多步任务创建执行计划。用户请求需要三个及以上独立操作
+     * （检索→加载→渲染→统计等）时先调用它拆解步骤，再用 update_plan_step
+     * 随执行推进各步骤状态；简单的一步请求不要建计划。
+     */
+    tool({
+      name: "create_plan",
+      description:
+        "Create a step-by-step plan for a multi-step task (3+ distinct operations). Call update_plan_step as you progress; do not create a plan for simple single-step requests.",
+      inputSchema: z.object({
+        steps: z
+          .array(z.string().min(1))
+          .min(1)
+          .max(12)
+          .describe("Ordered short step titles, at most 12 items."),
+      }),
+      callback: (input) => ctx.runCommand("create_plan", input),
+    }),
+    /**
+     * update_plan_step — 按 1 起步的步骤编号推进计划状态，可附简短备注
+     * （如产出的图层名或失败原因）。全部步骤 done/failed 后应在回答中总结。
+     */
+    tool({
+      name: "update_plan_step",
+      description:
+        "Update one plan step by its 1-based index: set status to in_progress when starting, done or failed when finished, with an optional short note.",
+      inputSchema: z.object({
+        index: z.number().int().min(1).describe("1-based step index from create_plan."),
+        status: z.enum(["pending", "in_progress", "done", "failed"]),
+        note: z.string().optional().describe("Optional short note, e.g. the produced layer name or failure reason."),
+      }),
+      callback: (input) => ctx.runCommand("update_plan_step", input),
+    }),
     // 引擎专属工具由子类提供：MapLibre/Mapbox 上是 WebGL 专属批次，
     // 2D shim 引擎上为空。
     ...engineTools,

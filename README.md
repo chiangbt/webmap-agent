@@ -27,6 +27,9 @@ core also attaches to Leaflet, OpenLayers, and ArcGIS Maps SDK maps (MapView / S
 - Optional MapLibre JavaScript execution tool, disabled by default
 - Destructive layer removal tools gated behind a separate toggle
 - Copy the visible conversation log as Markdown
+- Multi-step task plans: the agent can create a step-by-step plan (`create_plan`) and update each step's status (`update_plan_step`); the panel renders live progress
+- Optional conversation persistence (`persistConversation`): chat entries survive page reloads via localStorage (no credentials are stored)
+- "Load models" button fetches the model list from the configured OpenAI/Anthropic-compatible endpoint (`/models` or `/v1/models`), with a dropdown in the React panel and combobox suggestions in the vanilla control
 - Headless `GeoAgentCore`, a shadcn/ui-styled React `GeoAgentPanel`, plus the classic React wrapper and state hook
 - Engine-specific tool classes: a shared `GeoAgentTools` base with `MapLibreAgentTools`, `LeafletAgentTools`, `OpenLayersAgentTools`, and `ArcGISTools` subclasses — each exposes only the Strands tools its engine can actually run, and `createGeoAgentTools` picks the right subclass from `mapEngine`
 
@@ -240,7 +243,8 @@ provides a language dropdown that persists the choice in `localStorage`
 | `locale`                       | `'en' \| 'zh-CN'`                                              | `'en'`                |
 | `defaultProvider`              | `GeoAgentProviderId`                                           | `'openai-responses'`  |
 | `defaultModel`                 | `string \| Partial<Record<GeoAgentProviderId, string>>`        | provider default      |
-| `storagePrefix`                | `string`                                                       | `'web-geoagent'` |
+| `storagePrefix`                | `string`  
+| `persistConversation`          | `boolean`                                                      | `false`             |                                                     | `'web-geoagent'` |
 | `apiKeys`                      | `Partial<Record<GeoAgentProviderId, string>>`                  | `undefined`           |
 | `allowCodeExecutionDefault`    | `boolean`                                                      | `true`                |
 | `allowDestructiveToolsDefault` | `boolean`                                                      | `true`                |

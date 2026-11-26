@@ -96,6 +96,8 @@ export const zhTW: Record<GeoAgentMessageKey, string> = {
   noteModelsLoaded: '已從端點載入 {count} 個模型。',
   noteModelsLoadFailed: '模型清單載入失敗：{error}',
   noteModelsEmpty: '端點未回傳任何模型。',
+  planLabel: '任務計劃',
+  planProgress: '已完成 {done}/{total} 步',
 
   errorApiKeyRequired: '必須提供 {keyLabel}。',
   errorModelIdRequired: '必須提供模型 ID。',

@@ -26,6 +26,9 @@
 - 可选的 MapLibre JavaScript 执行工具，默认关闭
 - 破坏性图层删除工具由独立开关控制
 - 可将可见的对话日志复制为 Markdown
+- 多步任务计划：代理可先 `create_plan` 拆解步骤、再 `update_plan_step` 逐个推进状态，面板实时渲染进度
+- 可选的会话持久化（`persistConversation`）：会话条目写入 localStorage，刷新页面后恢复（不存任何凭据）
+- 「加载模型」按钮从已配置的 OpenAI/Anthropic 兼容端点拉取模型列表（`/models` 或 `/v1/models`）；React 面板提供下拉选择，原生控件填充建议 combobox
 - 提供无头 `GeoAgentCore`、shadcn/ui 风格的 React `GeoAgentPanel`，以及经典的 React 包装组件与状态 hook
 - 按引擎划分的工具类层次：共享基类 `GeoAgentTools` 之下有 `MapLibreAgentTools`、`LeafletAgentTools`、`OpenLayersAgentTools`、`ArcGISTools` 四个子类——每个子类只暴露该引擎真正能执行的 Strands 工具，`createGeoAgentTools` 会根据 `mapEngine` 选择正确的子类
 
@@ -226,7 +229,8 @@ LLM_API_MODEL=your-model-id
 | `locale`                       | `'en' \| 'zh-CN'`                                              | `'en'`              |
 | `defaultProvider`              | `GeoAgentProviderId`                                           | `'openai-responses'`|
 | `defaultModel`                 | `string \| Partial<Record<GeoAgentProviderId, string>>`        | provider 默认值     |
-| `storagePrefix`                | `string`                                                       | `'web-geoagent'`|
+| `storagePrefix`                | `string`  
+| `persistConversation`          | `boolean`                                                      | `false`             |                                                     | `'web-geoagent'`|
 | `apiKeys`                      | `Partial<Record<GeoAgentProviderId, string>>`                  | `undefined`         |
 | `allowCodeExecutionDefault`    | `boolean`                                                      | `true`              |
 | `allowDestructiveToolsDefault` | `boolean`                                                      | `true`              |

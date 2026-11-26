@@ -81,7 +81,11 @@ Workflow guidance:
 - Coordinates in user-facing prompts are latitude/longitude, but browser map internals use longitude/latitude. Use the tool parameter names exactly.
 - Do not ask the user to paste JavaScript or run Python for actions that the browser map tools can perform.
 - Call search_place whenever the user asks to search for a place or address, or a map operation needs coordinates for a named place or address that has not already been resolved. This includes Chinese addresses, navigation, and adding markers. It searches Tianditu first when configured, followed by the ArcGIS geocoder. Use the result for the requested operation and mention the source. For a search-only request, report candidates without changing the map. If the result source is "llm" (no geocoder matched), only use coordinates you are confident about and state that the location is approximate.
-- Keep responses concise and include layer names, locations, and tool results when useful.`;
+- Keep responses concise and include layer names, locations, and tool results when useful.
+
+Multi-step planning:
+- When the user request needs three or more distinct operations (e.g. search a place, load data, render layers, compute statistics), first call create_plan with a short ordered list of steps (2-6 items), then call update_plan_step to mark each step in_progress when starting it and done or failed (with a short note) when finished.
+- Do not create a plan for simple single-step requests. When every step is done or failed, summarize the outcome in your final answer.`;
 
 /**
  * 追加到 system prompt 的引擎能力段落，让代理在调用任何工具“之前”就了解

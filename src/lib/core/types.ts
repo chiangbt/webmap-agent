@@ -221,6 +221,27 @@ export interface GeoAgentControlOptions {
   mapEngine?: GeoAgentMapEngine;
 }
 
+/** 任务计划中的单个步骤状态。 */
+export type GeoAgentPlanStepStatus = 'pending' | 'in_progress' | 'done' | 'failed';
+
+/** 任务计划中的一个步骤（agent 经 create_plan / update_plan_step 维护）。 */
+export interface GeoAgentPlanStep {
+  /** 1 起步的稳定步骤编号。 */
+  id: number;
+  /** 短步骤标题（创建时截断到 120 字符）。 */
+  title: string;
+  status: GeoAgentPlanStepStatus;
+  /** 可选的简短备注（如产出的图层名、失败原因）。 */
+  note?: string;
+}
+
+/** 多步任务的执行计划快照（经 state.data.plan 暴露给宿主与面板）。 */
+export interface GeoAgentPlan {
+  steps: GeoAgentPlanStep[];
+  /** 最近一次变更的时间戳（epoch 毫秒）。 */
+  updatedAt: number;
+}
+
 /** 控件的完整运行时状态快照（面板尺寸、provider、模型、权限开关等）。 */
 export interface GeoAgentState {
   collapsed: boolean;
