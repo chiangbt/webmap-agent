@@ -148,6 +148,9 @@ export function GeoAgentPanel({
   // 模型列表：点击「加载模型」后从兼容端点拉取，成功后展示下拉选择。
   const [models, setModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  // 任务计划区块展开状态：默认收起；有步骤进行中时自动展开一次，
+  // 之后尊重用户手动收起（绝不自动收起）。
+  const [planOpen, setPlanOpen] = useState(false);
   // 未完成配置时默认展开设置区，方便用户先填 key。
   const [settingsOpen, setSettingsOpen] = useState(() => !core.isConfigured());
   // Earth Engine 区块：缺少凭据（OAuth Client ID / access token 都没有）或
@@ -177,6 +180,9 @@ export function GeoAgentPanel({
   const busy = state.busy;
   // Earth Engine 设置区是否渲染：仅当配置了 earthEngine 且未被显式禁用时显示。
   const earthEngineEnabled = !!core.options.earthEngine && core.options.earthEngine.enabled !== false;
+  // 任务计划快照（agent 经 create_plan / update_plan_step 经 state.data.plan 推送）。
+  const plan = (state.data as { plan?: GeoAgentPlan | null } | undefined)?.plan;
+  const planHasActive = !!plan?.steps.some((step) => step.status === 'in_progress');
 
   // Core 对更新条目生成新引用；完整快照保留同一帧所有条目的变化。
   const applyConversation = useCallback(
@@ -299,6 +305,16 @@ export function GeoAgentPanel({
     }
     wasConfiguredRef.current = configured;
   }, [state, configured, core]);
+
+  // 有步骤进入 in_progress 时自动展开计划区块一次：用 ref 记录上一帧的
+  // 活跃状态，只在边沿触发；用户随后手动收起不会再被顶开。
+  const planHadActiveRef = useRef(false);
+  useEffect(() => {
+    if (planHasActive && !planHadActiveRef.current) {
+      setPlanOpen(true);
+    }
+    planHadActiveRef.current = planHasActive;
+  }, [planHasActive]);
 
   /** 提交提示词：空文本或 agent 忙碌时忽略；发出后清空输入框。 */
   const submitPrompt = (): void => {
@@ -647,19 +663,33 @@ export function GeoAgentPanel({
         </div>
       )}
 
-      {/* 任务计划进度：agent 经 create_plan / update_plan_step 维护，
-          经 state.data.plan 推送；无计划时整块不渲染。 */}
-      {(() => {
-        const plan = (state.data as { plan?: GeoAgentPlan | null } | undefined)?.plan;
-        if (!plan || plan.steps.length === 0) return null;
-        const done = plan.steps.filter((step) => step.status === 'done').length;
-        return (
-          <div data-testid="geoagent-plan" className="shrink-0 border-b px-3 py-2">
-            <div className="text-muted-foreground mb-1 flex items-center justify-between text-xs font-semibold">
-              <span>{core.translate('planLabel')}</span>
-              <span>{core.translate('planProgress', { done, total: plan.steps.length })}</span>
-            </div>
-            <ol className="grid gap-1">
+      {/* 任务计划进度：agent 经 create_plan / update_plan_step 维护，经
+          state.data.plan 推送。默认收起，点标题展开/收起；有步骤进行中时
+          自动展开一次。无计划时整块不渲染。 */}
+      {plan && plan.steps.length > 0 && (
+        <Collapsible
+          open={planOpen}
+          onOpenChange={setPlanOpen}
+          className="shrink-0 border-b"
+          data-testid="geoagent-plan"
+        >
+          <CollapsibleTrigger
+            className="hover:bg-accent/60 flex w-full items-center gap-1 px-3 py-2 text-xs font-semibold"
+            data-testid="geoagent-plan-toggle"
+          >
+            <ChevronDownIcon
+              className={cn('size-3.5 transition-transform', !planOpen && '-rotate-90')}
+            />
+            <span>{core.translate('planLabel')}</span>
+            <span className="text-muted-foreground ml-auto font-normal">
+              {core.translate('planProgress', {
+                done: plan.steps.filter((step) => step.status === 'done').length,
+                total: plan.steps.length,
+              })}
+            </span>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <ol className="grid gap-1 px-3 pt-0.5 pb-3">
               {plan.steps.map((step) => (
                 <li
                   key={step.id}
@@ -691,9 +721,9 @@ export function GeoAgentPanel({
                 </li>
               ))}
             </ol>
-          </div>
-        );
-      })()}
+          </CollapsibleContent>
+        </Collapsible>
+      )}
 
       {/* 对话日志 */}
       <div

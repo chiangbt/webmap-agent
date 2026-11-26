@@ -361,3 +361,59 @@ it('ignores events from the previous core after replacement', async () => {
   expect(view.container.textContent).not.toContain('STALE');
   view.unmount(); first.dispose(); second.dispose();
 });
+
+describe('GeoAgentPanel plan collapse', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
+  function setup() {
+    const container = document.createElement('div');
+    container.style.width = '800px';
+    container.style.height = '600px';
+    document.body.appendChild(container);
+    const map = { getContainer: () => container, getStyle: () => ({ layers: [] }), on: vi.fn(), off: vi.fn() } as never;
+    // 传入受控 core 时 collapsed prop 不生效（options 只在自建 core 时捕获），
+    // 直接构造展开状态的核心。
+    const core = new GeoAgentCore({ collapsed: false });
+    render(<GeoAgentPanel core={core} map={map} />);
+    return {
+      core,
+      run: (command: string, args?: unknown) => act(async () => { await core.getTools()!.runCommand(command, args); }),
+      cleanup: () => { container.remove(); },
+    };
+  }
+
+  it('hides the plan block when no plan exists', () => {
+    const { cleanup } = setup();
+    expect(screen.queryByTestId('geoagent-plan')).toBeNull();
+    cleanup();
+  });
+
+  it('defaults to collapsed after create_plan and toggles on title click', async () => {
+    const { run, cleanup } = setup();
+    await run('create_plan', { steps: ['first', 'second'] });
+    expect(screen.getByTestId('geoagent-plan')).toBeTruthy();
+    // 默认收起：标题行（含进度）可见，步骤列表不可见。
+    expect(screen.getByTestId('geoagent-plan-toggle').textContent).toContain('0/2');
+    expect(screen.queryByTestId('geoagent-plan-step-1')).toBeNull();
+    fireEvent.click(screen.getByTestId('geoagent-plan-toggle'));
+    expect(screen.getByTestId('geoagent-plan-step-1')).toBeTruthy();
+    // 再点一次收起。
+    fireEvent.click(screen.getByTestId('geoagent-plan-toggle'));
+    expect(screen.queryByTestId('geoagent-plan-step-1')).toBeNull();
+    cleanup();
+  });
+
+  it('auto-expands once when a step moves to in_progress', async () => {
+    const { run, cleanup } = setup();
+    await run('create_plan', { steps: ['first', 'second'] });
+    expect(screen.queryByTestId('geoagent-plan-step-1')).toBeNull();
+    await run('update_plan_step', { index: 1, status: 'in_progress' });
+    expect(screen.getByTestId('geoagent-plan-step-1')).toBeTruthy();
+    // 用户手动收起后不再被顶开（活跃状态未发生新的边沿）。
+    fireEvent.click(screen.getByTestId('geoagent-plan-toggle'));
+    expect(screen.queryByTestId('geoagent-plan-step-1')).toBeNull();
+    cleanup();
+  });
+});
