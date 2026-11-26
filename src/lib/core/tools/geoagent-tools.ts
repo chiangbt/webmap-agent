@@ -281,6 +281,22 @@ export interface GeoAgentArcGISEngine {
 export type GeoAgentMapEngine =
   GeoAgentStyleSpecEngine | GeoAgentLeafletEngine | GeoAgentOpenLayersEngine | GeoAgentArcGISEngine;
 
+/**
+ * 归一化工具入参里的 GeoJSON：模型经常把 GeoJSON 对象序列化成 JSON 字符串
+ * 传入（模型侧的常见行为），这里直接解析兼容；不是合法 JSON 字符串时给出
+ * 可指导的报错，而不是让下层校验报一句含糊的 "expected an object"。
+ */
+function normalizeGeoJsonArg(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error(
+      "Invalid GeoJSON: data was a string but not valid JSON. Pass a GeoJSON Feature, FeatureCollection, or Geometry object, or the exact JSON text of one.",
+    );
+  }
+}
+
 /** 一个由 agent 管理的地图叠加项（overlay）；各引擎共享的记账记录。 */
 export interface Overlay {
   /** overlay 类别：geojson 数据、raster 瓦片、底图、marker、原生 source/layer、GEE 影像。 */
@@ -2336,7 +2352,7 @@ export abstract class GeoAgentTools {
     const sourceId = this.uniqueSourceId(`${slug(overlay.name)}-source`);
     const style = overlay.style ?? {};
     const paint = geojsonLayerPaint(style);
-    let sourceData = overlay.data;
+    let sourceData = normalizeGeoJsonArg(overlay.data);
     if (!sourceData && overlay.url) {
       // 失败要暴露而不是吞掉：这里取不到数据，意味着 MapLibre 自己去取同一个
       // URL 也会失败，图层将渲染为空而工具结果却声称成功。

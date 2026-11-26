@@ -203,7 +203,9 @@ export function buildMapToolDefinitions(ctx: ToolDefContext, engineTools: Tool[]
       name: "add_geojson_data",
       description: "Add an in-memory GeoJSON object to the browser map.",
       inputSchema: z.object({
-        data: z.any().describe("GeoJSON Feature, FeatureCollection, or Geometry object."),
+        data: z.any().describe(
+          "GeoJSON Feature, FeatureCollection, or Geometry object. A JSON-encoded string of one is also accepted.",
+        ),
         name: z.string().describe("Layer name."),
         style: optionalStyleSchema,
       }),

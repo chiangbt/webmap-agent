@@ -101,6 +101,19 @@ describe('buffer_layer (built-in spatial analysis)', () => {
     expect(serialized).toContain('aoi-buffer-fill');
   });
 
+  it('accepts GeoJSON passed as a JSON-encoded string and rejects broken JSON', async () => {
+    const tools = makeTools();
+    // 模型高频行为：把 GeoJSON 序列化成 JSON 字符串传入。
+    const result = await tools.runCommand('add_geojson_data', {
+      name: 'aoi-string',
+      data: JSON.stringify(SQUARE),
+    });
+    expect(String(result)).toContain('aoi-string');
+    await expect(
+      tools.runCommand('add_geojson_data', { name: 'broken', data: '{not json' }),
+    ).rejects.toThrow(/not valid JSON/);
+  });
+
   it('rejects unknown layers, non-geojson overlays and invalid radii', async () => {
     const tools = makeTools();
     await expect(
