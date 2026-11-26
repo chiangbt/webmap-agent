@@ -171,6 +171,23 @@ pnpm dev
 
 Open <http://localhost:5173/examples/openlayers/>.
 
+## OpenLayers Buffer Analysis Example
+
+A complete `customTools` recipe: the page keeps an OpenLayers `Draw`
+(Polygon) interaction and stores the drawn feature as WGS84 GeoJSON; a custom
+`buffer_drawn_feature({ radiusKm })` tool (registered through the
+`customTools` option) buffers that feature with `@turf/buffer`, renders the
+result on a page-owned vector layer, fits the view, and returns
+`{ success, radiusKm, areaKm2, geometryType }` to the agent. The agent-side
+workflow is taught through `customSystemPrompt`. This is the recommended
+pattern for domain-specific analysis tools that stay engine-agnostic.
+
+```bash
+pnpm dev
+```
+
+Open <http://localhost:5173/examples/openlayers-buffer/>.
+
 ## Build
 
 ```bash

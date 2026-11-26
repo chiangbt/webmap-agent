@@ -22,6 +22,8 @@ export const HOMEPAGE_I18N: Record<
     leafletDesc: string;
     openlayersTitle: string;
     openlayersDesc: string;
+    bufferTitle: string;
+    bufferDesc: string;
     arcgisMapTitle: string;
     arcgisMapDesc: string;
     arcgisSceneTitle: string;
@@ -48,6 +50,9 @@ export const HOMEPAGE_I18N: Record<
     openlayersTitle: 'OpenLayers Example',
     openlayersDesc:
       'Run the same GeoAgent tools on a plain OpenLayers map via the compatibility engine.',
+    bufferTitle: 'OpenLayers Buffer Example',
+    bufferDesc:
+      'Draw a polygon, then let the agent run buffer analysis through a custom tool built with customTools and @turf/buffer.',
     arcgisMapTitle: 'ArcGIS Map Example',
     arcgisMapDesc:
       'Drive an @arcgis/map-components <arcgis-map> (MapView, 2D) with the ArcGIS compatibility engine; demo GeoJSON is seeded through the agent tools.',
@@ -74,6 +79,8 @@ export const HOMEPAGE_I18N: Record<
     leafletDesc: '通过兼容引擎在 Leaflet 地图上运行相同的 GeoAgent 工具。',
     openlayersTitle: 'OpenLayers 示例',
     openlayersDesc: '通过兼容引擎在 OpenLayers 地图上运行相同的 GeoAgent 工具。',
+    bufferTitle: 'OpenLayers 缓冲区分析示例',
+    bufferDesc: '在地图上绘制多边形，agent 经 customTools 自定义工具（@turf/buffer）完成缓冲区分析。',
     arcgisMapTitle: 'ArcGIS Map 示例',
     arcgisMapDesc: '用 ArcGIS 兼容引擎驱动 @arcgis/map-components 的 <arcgis-map>（MapView，2D），演示数据经 agent 工具预置。',
     arcgisSceneTitle: 'ArcGIS Scene 示例',
@@ -98,6 +105,8 @@ export const HOMEPAGE_I18N: Record<
     leafletDesc: '透過相容引擎在 Leaflet 地圖上執行相同的 GeoAgent 工具。',
     openlayersTitle: 'OpenLayers 範例',
     openlayersDesc: '透過相容引擎在 OpenLayers 地圖上執行相同的 GeoAgent 工具。',
+    bufferTitle: 'OpenLayers 緩衝區分析範例',
+    bufferDesc: '在地圖上繪製多邊形，agent 經 customTools 自訂工具（@turf/buffer）完成緩衝區分析。',
     arcgisMapTitle: 'ArcGIS Map 範例',
     arcgisMapDesc:
       '用 ArcGIS 相容引擎驅動 @arcgis/map-components 的 <arcgis-map>（MapView，2D），示範資料經 agent 工具預置。',

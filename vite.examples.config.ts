@@ -21,6 +21,7 @@ export default defineConfig({
         react: resolve(__dirname, 'examples/react/index.html'),
         leaflet: resolve(__dirname, 'examples/leaflet/index.html'),
         openlayers: resolve(__dirname, 'examples/openlayers/index.html'),
+        openlayersBuffer: resolve(__dirname, 'examples/openlayers-buffer/index.html'),
         arcgisMap: resolve(__dirname, 'examples/arcgis-map/index.html'),
         arcgisScene: resolve(__dirname, 'examples/arcgis-scene/index.html'),
       },

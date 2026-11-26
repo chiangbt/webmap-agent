@@ -67,6 +67,12 @@ const EXAMPLES: ExampleLink[] = [
     tags: ['OpenLayers', 'mapEngine'],
   },
   {
+    href: './examples/openlayers-buffer/index.html',
+    titleKey: 'bufferTitle',
+    descKey: 'bufferDesc',
+    tags: ['OpenLayers', 'customTools'],
+  },
+  {
     href: './examples/arcgis-map/index.html',
     titleKey: 'arcgisMapTitle',
     descKey: 'arcgisMapDesc',

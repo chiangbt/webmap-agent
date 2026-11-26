@@ -156,6 +156,22 @@ pnpm dev
 
 打开 <http://localhost:5173/examples/openlayers/>。
 
+## OpenLayers 缓冲区分析示例
+
+完整的 `customTools` 配方：页面用 OpenLayers 的 `Draw`（Polygon）交互收集
+用户绘制的多边形（WGS84 GeoJSON）；经 `customTools` 注册的自定义工具
+`buffer_drawn_feature({ radiusKm })` 用 `@turf/buffer` 对该要素做缓冲区
+分析，把结果渲染到页面自己的矢量图层并适配视野，向 agent 返回
+`{ success, radiusKm, areaKm2, geometryType }`。agent 侧的使用时机与方式
+由 `customSystemPrompt` 教给模型。这是与引擎无关的领域分析工具的推荐
+接入模式。
+
+```bash
+pnpm dev
+```
+
+打开 <http://localhost:5173/examples/openlayers-buffer/>。
+
 ## 构建
 
 ```bash
