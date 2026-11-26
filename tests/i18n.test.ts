@@ -30,7 +30,7 @@ describe("i18n messages", () => {
       "正在執行 add_marker",
     );
     expect(t("zh-TW", "logReady", { engine: "MapLibre" })).toBe(
-      "瀏覽器端 Strands 智慧代理已就緒（MapLibre）。",
+      "GeoAgent已就緒（MapLibre）。",
     );
     expect(t("en", "noteUsingLatestModel", { model: "gpt-test" })).toBe(
       "Using latest model: gpt-test.",

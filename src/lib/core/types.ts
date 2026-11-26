@@ -121,6 +121,14 @@ export interface GeoAgentControlOptions {
   storagePrefix?: string;
 
   /**
+   * 是否把会话条目持久化到 localStorage（跨页面刷新恢复对话）。
+   * 持久化内容仅含展示条目（角色与文本，上限 200 条），不含 API key
+   * 等敏感配置。默认关闭，宿主显式开启。
+   * @default false
+   */
+  persistConversation?: boolean;
+
+  /**
    * 宿主应用传入的初始 API key。已保存的 sessionStorage 值优先；
    * 除非用户编辑 API key 输入框，这些值不会写入 storage。
    */

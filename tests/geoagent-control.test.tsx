@@ -1656,7 +1656,7 @@ describe("GeoAgentControl locale", () => {
       map.mapContainer.querySelector<HTMLElement>(
         ".geoagent-entry .geoagent-text",
       )?.textContent,
-    ).toBe("浏览器端 Strands 智能体已就绪（MapLibre）。");
+    ).toBe("GeoAgent已就绪（MapLibre）。");
 
     expect(
       map.mapContainer.querySelector<HTMLButtonElement>(".geoagent-send")

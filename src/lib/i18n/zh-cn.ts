@@ -90,6 +90,11 @@ export const zhCN: Record<GeoAgentMessageKey, string> = {
   noteApiKeySaved: 'API 密钥已保存。',
   noteEnterCustomModelId: '请输入该自定义端点的模型 ID。',
   noteUsingLatestModel: '使用最新模型：{model}。',
+  loadModelsButton: '加载模型',
+  noteModelsNeedConfig: '请先填写 API 密钥与 API 基础地址，再加载模型列表。',
+  noteModelsLoaded: '已从端点加载 {count} 个模型。',
+  noteModelsLoadFailed: '模型列表加载失败：{error}',
+  noteModelsEmpty: '端点未返回任何模型。',
 
   errorApiKeyRequired: '必须提供 {keyLabel}。',
   errorModelIdRequired: '必须提供模型 ID。',

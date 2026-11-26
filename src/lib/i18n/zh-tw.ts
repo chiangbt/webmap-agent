@@ -91,6 +91,11 @@ export const zhTW: Record<GeoAgentMessageKey, string> = {
   noteApiKeySaved: 'API 金鑰已儲存。',
   noteEnterCustomModelId: '請輸入該自訂端點的模型 ID。',
   noteUsingLatestModel: '使用最新模型：{model}。',
+  loadModelsButton: '載入模型',
+  noteModelsNeedConfig: '請先填寫 API 金鑰與 API 基礎位址，再載入模型清單。',
+  noteModelsLoaded: '已從端點載入 {count} 個模型。',
+  noteModelsLoadFailed: '模型清單載入失敗：{error}',
+  noteModelsEmpty: '端點未回傳任何模型。',
 
   errorApiKeyRequired: '必須提供 {keyLabel}。',
   errorModelIdRequired: '必須提供模型 ID。',

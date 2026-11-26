@@ -99,6 +99,11 @@ export const en = {
   noteApiKeySaved: 'API key saved.',
   noteEnterCustomModelId: 'Enter the model ID for this custom endpoint.',
   noteUsingLatestModel: 'Using latest model: {model}.',
+  loadModelsButton: 'Load models',
+  noteModelsNeedConfig: 'Add your API key and API base URL to load models.',
+  noteModelsLoaded: 'Loaded {count} models from the endpoint.',
+  noteModelsLoadFailed: 'Could not load models: {error}',
+  noteModelsEmpty: 'The endpoint returned no models.',
 
   // 智能体创建错误。
   errorApiKeyRequired: '{keyLabel} is required.',

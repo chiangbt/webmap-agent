@@ -620,9 +620,12 @@ export class GeoAgentControl implements IControl {
       this.updateControls();
       this.openModelSuggestions();
     });
-    ui.modelIdInput.addEventListener('focus', () =>
-      this.openModelSuggestions(false),
-    );
+    ui.modelIdInput.addEventListener('focus', () => {
+      // 聚焦时顺带异步拉取端点模型列表（成功后就地刷新建议下拉；
+      // 失败静默，不影响手填模型 ID 的主流程）。
+      this.refreshRemoteModels();
+      this.openModelSuggestions(false);
+    });
     ui.modelIdInput.addEventListener('keydown', (event) =>
       this.handleModelKeydown(event),
     );
@@ -1028,6 +1031,23 @@ export class GeoAgentControl implements IControl {
   /** 清空本地模型建议列表并收起下拉。 */
   private resetModelOptions(): void {
     this.populateModelOptions([]);
+  }
+
+  /**
+   * 从端点异步拉取模型列表并填充建议下拉；失败静默——输入框仍可手填，
+   * 不因端点不支持 /models 而打断输入体验。
+   */
+  private refreshRemoteModels(): void {
+    void this.core
+      .fetchAvailableModels()
+      .then((models) => {
+        if (models.length > 0) {
+          this.populateModelOptions(models);
+        }
+      })
+      .catch(() => {
+        // 保持现有建议列表不变。
+      });
   }
 
   /** 填充本地模型建议：去重、去空并截断到 MAX_SUGGESTIONS，必要时刷新下拉。 */

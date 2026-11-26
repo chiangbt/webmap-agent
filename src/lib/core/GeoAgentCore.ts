@@ -11,6 +11,7 @@ import {
   type Tool,
 } from '@strands-agents/sdk';
 import { t, type GeoAgentMessageKey } from '../i18n';
+import { fetchBoundedText } from '../utils/request';
 import { resolveMapContainer } from './map-container';
 import { validateMapBinding, type GeoAgentMapFor, type GeoAgentMapKind, type GeoAgentOptionsFor } from './map-binding';
 import { DEFAULT_BASEMAPS, type GeoAgentTools } from './tools/geoagent-tools';
@@ -32,6 +33,10 @@ import type {
 const DEFAULT_PROVIDER: GeoAgentProviderId = 'openai-compatible';
 /** sessionStorage 键的默认前缀。 */
 const DEFAULT_STORAGE_PREFIX = 'web-geoagent';
+/** 会话持久化的容量上限（条目数），超出时丢弃最旧的条目。 */
+const PERSISTED_CONVERSATION_LIMIT = 200;
+/** 会话持久化写入的防抖间隔（毫秒），合并流式输出期间的密集更新。 */
+const PERSIST_DEBOUNCE_MS = 300;
 
 /**
  * 两个内置 provider 的基础配置（不含 storageKey——它依赖运行时的
@@ -181,6 +186,33 @@ function storageRemove(key: string): void {
     globalThis.sessionStorage?.removeItem(key);
   } catch {
     // 忽略隐私模式等受限浏览器环境下的 storage 写入失败。
+  }
+}
+
+/** 从 localStorage 读取值；不可用（如隐私模式）或键不存在时返回 null。 */
+function localGet(key: string): string | null {
+  try {
+    return globalThis.localStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** 向 localStorage 写入值；失败静默忽略（隐私模式、配额超限等）。 */
+function localSet(key: string, value: string): void {
+  try {
+    globalThis.localStorage?.setItem(key, value);
+  } catch {
+    // 忽略受限浏览器环境下的写入失败。
+  }
+}
+
+/** 从 localStorage 移除值；失败静默忽略。 */
+function localRemove(key: string): void {
+  try {
+    globalThis.localStorage?.removeItem(key);
+  } catch {
+    // 忽略受限浏览器环境下的移除失败。
   }
 }
 
@@ -366,6 +398,8 @@ export class GeoAgentCore<K extends GeoAgentMapKind = 'maplibre'> {
   };
   /** 当前配置提示内容。 */
   private note: GeoAgentNoteState = { text: '', kind: null };
+  /** 会话持久化的防抖定时器；null 表示没有排队中的写入。 */
+  private conversationPersistTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * 构造无头引擎：归一化选项（填默认值）并初始化 provider/model/baseUrl 等
@@ -392,6 +426,7 @@ export class GeoAgentCore<K extends GeoAgentMapKind = 'maplibre'> {
       className: options.className ?? '',
       defaultProvider: options.defaultProvider ?? DEFAULT_PROVIDER,
       storagePrefix: options.storagePrefix ?? DEFAULT_STORAGE_PREFIX,
+      persistConversation: options.persistConversation ?? false,
       // 部署级兜底值（如宿主应用从 .env 注入）。
       defaultApiKey: options.defaultApiKey ?? '',
       defaultBaseUrl: options.defaultBaseUrl ?? '',
@@ -427,6 +462,8 @@ export class GeoAgentCore<K extends GeoAgentMapKind = 'maplibre'> {
       allowDestructiveTools: this.options.allowDestructiveToolsDefault,
       data: {},
     };
+    // 选项开启持久化时，从 localStorage 恢复上次会话条目。
+    this.restorePersistedConversation();
   }
 
   // ---------------------------------------------------------------- 生命周期
@@ -515,6 +552,12 @@ export class GeoAgentCore<K extends GeoAgentMapKind = 'maplibre'> {
     if (this.statusCopyTimer !== null) {
       clearTimeout(this.statusCopyTimer);
       this.statusCopyTimer = null;
+    }
+    // 会话持久化的待写队列：销毁前立即落盘，避免丢最后一次变更。
+    if (this.conversationPersistTimer !== null) {
+      clearTimeout(this.conversationPersistTimer);
+      this.conversationPersistTimer = null;
+      this.persistConversationNow();
     }
     this.promptHistory = [];
     this.promptHistoryIndex = -1;
@@ -934,6 +977,55 @@ export class GeoAgentCore<K extends GeoAgentMapKind = 'maplibre'> {
     return true;
   }
 
+  /**
+   * 从当前 provider 的兼容端点拉取可用模型 ID 列表。
+   * OpenAI 兼容端点走 `GET {base}/models`（Bearer 鉴权）；
+   * Anthropic 兼容端点走 `GET {base}/v1/models`（x-api-key 鉴权）。
+   * 请求带 15 秒超时与 2 MiB 响应上限；缺少 key 或 base URL、请求失败或
+   * 响应不符合约定结构时，抛出本地化错误信息供面板直接展示。
+   */
+  async fetchAvailableModels(): Promise<string[]> {
+    const providerId = this.state.providerId;
+    const apiKey = this.committedApiKey.trim();
+    const baseUrl = this.normalizeBaseUrl(this.state.baseUrl);
+    if (!apiKey || !baseUrl) {
+      throw new Error(this.translate('noteModelsNeedConfig'));
+    }
+    const url =
+      providerId === 'anthropic-compatible'
+        ? `${baseUrl}/v1/models`
+        : `${baseUrl}/models`;
+    const headers: Record<string, string> =
+      providerId === 'anthropic-compatible'
+        ? { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }
+        : { Authorization: `Bearer ${apiKey}` };
+    let parsed: unknown;
+    try {
+      const text = await fetchBoundedText(url, {
+        headers,
+        timeoutMs: 15_000,
+        maxBytes: 2 * 1024 * 1024,
+        label: 'model list',
+      });
+      parsed = JSON.parse(text);
+    } catch (error) {
+      throw new Error(
+        this.translate('noteModelsLoadFailed', {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+    const rows = (parsed as { data?: unknown })?.data;
+    if (!Array.isArray(rows)) {
+      throw new Error(this.translate('noteModelsEmpty'));
+    }
+    const ids = rows
+      .map((row) => (row && typeof row === 'object' ? (row as { id?: unknown }).id : undefined))
+      .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+      .map((id) => id.trim());
+    return [...new Set(ids)].sort((a, b) => a.localeCompare(b));
+  }
+
   // ------------------------------------------------------------ Earth Engine
 
   /**
@@ -1181,6 +1273,70 @@ export class GeoAgentCore<K extends GeoAgentMapKind = 'maplibre'> {
 
   // ------------------------------------------------------------ 会话
 
+  /** 会话条目在 localStorage 中的键。 */
+  private conversationStorageKey(): string {
+    return `${this.options.storagePrefix}.conversation`;
+  }
+
+  /**
+   * 从 localStorage 恢复持久化的会话条目（仅在 persistConversation 开启时）。
+   * 恢复时逐条校验条目形状，跳过损坏的数据，并把模块级条目计数器推进到
+   * 已恢复的最大编号之后，保证新条目 id 不与恢复条目冲突。
+   */
+  private restorePersistedConversation(): void {
+    if (!this.options.persistConversation) return;
+    const raw = localGet(this.conversationStorageKey());
+    if (!raw) return;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      const list = (parsed as { entries?: unknown })?.entries;
+      if (!Array.isArray(list)) return;
+      const restored: GeoAgentConversationEntry[] = [];
+      for (const item of list) {
+        const record = item as Partial<GeoAgentConversationEntry> | null;
+        const role = record?.role;
+        if (
+          !record ||
+          typeof record.id !== 'string' ||
+          typeof record.content !== 'string' ||
+          (role !== 'system' && role !== 'user' && role !== 'assistant' && role !== 'tool' && role !== 'error')
+        ) {
+          continue;
+        }
+        restored.push(
+          record.markdown === true
+            ? { id: record.id, role, content: record.content, markdown: true }
+            : { id: record.id, role, content: record.content },
+        );
+      }
+      if (!restored.length) return;
+      for (const entry of restored) {
+        const match = /^geoagent-entry-(\d+)$/.exec(entry.id);
+        if (match) conversationEntryCount = Math.max(conversationEntryCount, Number(match[1]));
+      }
+      this.entries = restored;
+    } catch {
+      // JSON 损坏时忽略持久化数据，从空白会话开始。
+    }
+  }
+
+  /** 立即把当前会话条目写入 localStorage（persistConversation 开启时）。 */
+  private persistConversationNow(): void {
+    if (!this.options.persistConversation) return;
+    const entries = this.entries.slice(-PERSISTED_CONVERSATION_LIMIT);
+    localSet(this.conversationStorageKey(), JSON.stringify({ version: 1, entries }));
+  }
+
+  /** 防抖调度一次会话持久化写入，合并流式输出期间的密集更新。 */
+  private schedulePersistConversation(): void {
+    if (!this.options.persistConversation) return;
+    if (this.conversationPersistTimer !== null) clearTimeout(this.conversationPersistTimer);
+    this.conversationPersistTimer = setTimeout(() => {
+      this.conversationPersistTimer = null;
+      this.persistConversationNow();
+    }, PERSIST_DEBOUNCE_MS);
+  }
+
   /** 返回独立数组，条目为只读冻结对象；未变更条目保持引用稳定以便 UI memo。 */
   getConversation(): GeoAgentConversationEntry[] {
     return [...this.entries];
@@ -1199,6 +1355,7 @@ export class GeoAgentCore<K extends GeoAgentMapKind = 'maplibre'> {
     Object.freeze(entry);
     this.entries.push(entry);
     this.emitConversation({ type: 'append', entry });
+    this.schedulePersistConversation();
     return entry;
   }
 
@@ -1210,6 +1367,7 @@ export class GeoAgentCore<K extends GeoAgentMapKind = 'maplibre'> {
     const entry = Object.freeze({ ...this.entries[index], content });
     this.entries[index] = entry;
     this.emitConversation({ type: 'update', entry });
+    this.schedulePersistConversation();
   }
 
   /** 清空会话、失效 agent，并记录“已清空”的系统日志；busy 期间拒绝清空。 */
@@ -1223,6 +1381,14 @@ export class GeoAgentCore<K extends GeoAgentMapKind = 'maplibre'> {
     // agent 的消息历史与会话展示是两份状态，清空展示后同样要重建 agent，
     // 避免模型继续引用已被清空的历史。
     this.invalidateAgent();
+    // 持久化开启时同步移除存储的会话，避免下次加载恢复已清空的内容。
+    if (this.options.persistConversation) {
+      if (this.conversationPersistTimer !== null) {
+        clearTimeout(this.conversationPersistTimer);
+        this.conversationPersistTimer = null;
+      }
+      localRemove(this.conversationStorageKey());
+    }
     this.emitConversation({ type: 'reset' });
     this.appendEntry('system', this.translate('logChatCleared'));
   }

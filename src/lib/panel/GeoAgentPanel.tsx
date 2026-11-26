@@ -7,7 +7,14 @@ import {
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { ChevronDownIcon, CopyIcon, SendIcon, SquareIcon, XIcon } from 'lucide-react';
+import {
+  ChevronDownIcon,
+  CopyIcon,
+  RefreshCwIcon,
+  SendIcon,
+  SquareIcon,
+  XIcon,
+} from 'lucide-react';
 import { GeoAgentCore } from '../core/GeoAgentCore';
 import type { GeoAgentMapFor, GeoAgentMapKind, GeoAgentOptionsFor } from '../core/map-binding';
 import type {
@@ -137,6 +144,9 @@ export function GeoAgentPanel({
   const [note, setNote] = useState<GeoAgentNoteState>(() => core.getNote());
   const [apiKey, setApiKey] = useState(() => core.getCommittedApiKey());
   const [prompt, setPrompt] = useState('');
+  // 模型列表：点击「加载模型」后从兼容端点拉取，成功后展示下拉选择。
+  const [models, setModels] = useState<string[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   // 未完成配置时默认展开设置区，方便用户先填 key。
   const [settingsOpen, setSettingsOpen] = useState(() => !core.isConfigured());
   // Earth Engine 区块：缺少凭据（OAuth Client ID / access token 都没有）或
@@ -301,6 +311,29 @@ export function GeoAgentPanel({
   };
 
   /**
+   * 从端点拉取模型列表：成功后展示下拉选择；端点未返回模型时提示，
+   * 请求失败时直接展示 core 抛出的本地化错误信息。
+   */
+  const loadModels = async (): Promise<void> => {
+    if (modelsLoading || busy) return;
+    setModelsLoading(true);
+    try {
+      const list = await core.fetchAvailableModels();
+      setModels(list);
+      setNote(
+        list.length === 0
+          ? { text: core.translate('noteModelsEmpty'), kind: 'info' }
+          : { text: core.translate('noteModelsLoaded', { count: list.length }), kind: 'success' },
+      );
+    } catch (error) {
+      setModels([]);
+      setNote({ text: error instanceof Error ? error.message : String(error), kind: 'error' });
+    } finally {
+      setModelsLoading(false);
+    }
+  };
+
+  /**
    * 提示词输入框键盘处理：
    * - Ctrl+Enter 插入换行；裸 Enter 发送；上下方向键在历史记录间回溯。
    * - isComposing 检查避免中文等 IME 组合输入被误当作回车提交。
@@ -414,6 +447,8 @@ export function GeoAgentPanel({
                   // 切换提供商后重新读取该提供商已提交的 key 回填输入框。
                   core.switchProvider(value as GeoAgentProviderId);
                   setApiKey(core.getCommittedApiKey());
+                  // 切换提供商后旧端点的模型列表不再适用。
+                  setModels([]);
                 }}
               >
                 <SelectTrigger data-testid="geoagent-provider" className="w-full">
@@ -495,7 +530,34 @@ export function GeoAgentPanel({
                 >
                   {core.translate('useLatestButton')}
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  data-testid="geoagent-fetch-models"
+                  disabled={busy || modelsLoading}
+                  title={core.translate('loadModelsButton')}
+                  onClick={() => void loadModels()}
+                >
+                  <RefreshCwIcon className={cn(modelsLoading && 'animate-spin')} />
+                  {core.translate('loadModelsButton')}
+                </Button>
               </div>
+              {/* 加载成功后展示模型下拉，选中即写入模型输入框并持久化。 */}
+              {models.length > 0 && (
+                <Select onValueChange={(value) => core.setModelId(value)}>
+                  <SelectTrigger data-testid="geoagent-model-list" className="w-full">
+                    <SelectValue placeholder={core.translate('loadModelsButton')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {models.map((model) => (
+                      <SelectItem key={model} value={model}>
+                        {model}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             {/* 配置提示/成功/错误消息（aria-live 保证屏幕阅读器可感知）。 */}

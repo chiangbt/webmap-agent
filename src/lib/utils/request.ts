@@ -6,7 +6,12 @@ export interface RequestLimits {
 
 export async function fetchBoundedText(
   url: string,
-  options: RequestLimits & { signal?: AbortSignal; label?: string } = {},
+  options: RequestLimits & {
+    signal?: AbortSignal;
+    label?: string;
+    /** Optional request headers (e.g. auth headers for API endpoints). */
+    headers?: Record<string, string>;
+  } = {},
 ): Promise<string> {
   const timeoutMs = options.timeoutMs ?? 30_000;
   const maxBytes = options.maxBytes ?? 10 * 1024 * 1024;
@@ -31,7 +36,7 @@ export async function fetchBoundedText(
   const wait = <T>(promise: Promise<T>) => Promise.race([promise, aborted]);
   try {
     controller.signal.throwIfAborted();
-    const response = await wait(fetch(url, { signal: controller.signal }));
+    const response = await wait(fetch(url, { signal: controller.signal, headers: options.headers }));
     body = response.body;
     if (!response.ok) throw new Error(`Could not fetch ${options.label ?? 'resource'} (${response.status}) from ${url}`);
     const length = Number(response.headers.get('content-length'));
