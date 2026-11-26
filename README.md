@@ -27,6 +27,7 @@ core also attaches to Leaflet, OpenLayers, and ArcGIS Maps SDK maps (MapView / S
 - Optional MapLibre JavaScript execution tool, disabled by default
 - Destructive layer removal tools gated behind a separate toggle
 - Copy the visible conversation log as Markdown
+- Built-in buffer analysis (`buffer_layer`): buffer a user-added GeoJSON layer by a radius and get the result layer plus its area, on every map engine (@turf/buffer loaded lazily)
 - Multi-step task plans: the agent can create a step-by-step plan (`create_plan`) and update each step's status (`update_plan_step`); the panel renders live progress
 - Optional conversation persistence (`persistConversation`): chat entries survive page reloads via localStorage (no credentials are stored)
 - "Load models" button fetches the model list from the configured OpenAI/Anthropic-compatible endpoint (`/models` or `/v1/models`), with a dropdown in the React panel and combobox suggestions in the vanilla control

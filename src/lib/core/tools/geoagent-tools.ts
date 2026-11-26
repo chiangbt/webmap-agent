@@ -1019,6 +1019,7 @@ export abstract class GeoAgentTools {
       ...this.scriptCommands(),
       ...this.placeSearchCommands(),
       ...this.planCommands(),
+      ...this.spatialAnalysisCommands(),
     };
     const handler = this.commandTable[command];
     if (handler) {
@@ -1100,6 +1101,53 @@ export abstract class GeoAgentTools {
   /** 把最新计划快照推给宿主状态（state.data.plan）。 */
   private publishPlan(): void {
     this.onStateDataChange?.({ plan: this.planSnapshot() });
+  }
+
+  /** 空间分析命令：对用户添加的 GeoJSON 图层做缓冲区分析（引擎无关）。 */
+  private spatialAnalysisCommands(): Record<string, (args: JsonObject) => Promise<unknown>> {
+    return {
+      buffer_layer: async (args) => {
+        const name = stringArg(args, "name");
+        const key = this.overlayKey(name);
+        const overlay = key ? this.overlays.get(key) : undefined;
+        if (!overlay || overlay.kind !== "geojson" || !overlay.data) {
+          throw new Error(
+            `User-added GeoJSON layer not found: ${name}. Call list_layers first and pick a geojson layer.`,
+          );
+        }
+        const radiusKm = typeof args.radiusKm === "number" ? args.radiusKm : NaN;
+        if (!Number.isFinite(radiusKm) || radiusKm <= 0 || radiusKm > 1000) {
+          throw new Error("buffer_layer: radiusKm must be a positive number (max 1000).");
+        }
+        const resultName = stringArg(args, "resultName", `${overlay.name}-buffer`);
+        // turf 惰性加载：仅在实际执行缓冲区分析时才拉取依赖，不进主包。
+        const [{ default: turfBuffer }, { default: turfArea }] = await Promise.all([
+          import("@turf/buffer"),
+          import("@turf/area"),
+        ]);
+        const buffered = turfBuffer(overlay.data as never, radiusKm, {
+          units: "kilometers",
+        }) as { type: string; features?: unknown[] };
+        const featureCount = buffered.type === "FeatureCollection" ? (buffered.features?.length ?? 0) : 1;
+        if (featureCount === 0) {
+          throw new Error(`Buffering layer ${overlay.name} produced no features.`);
+        }
+        const areaKm2 = turfArea(buffered as never) / 1e6;
+        // 复用 add_geojson_data 的完整管线：校验、图层物化、记账、适配视野。
+        await this.addGeoJsonOverlay({
+          name: resultName,
+          data: buffered as never,
+          zoomTo: true,
+        });
+        return {
+          success: true,
+          name: resultName,
+          radiusKm,
+          featureCount,
+          areaKm2: Number(areaKm2.toFixed(2)),
+        };
+      },
+    };
   }
 
   /** 地图状态与查询命令：图层清单、全图状态、来源/渲染要素查询。 */

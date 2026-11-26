@@ -26,6 +26,7 @@
 - 可选的 MapLibre JavaScript 执行工具，默认关闭
 - 破坏性图层删除工具由独立开关控制
 - 可将可见的对话日志复制为 Markdown
+- 内置缓冲区分析（`buffer_layer`）：对用户添加的 GeoJSON 图层按半径做缓冲，生成结果图层并返回面积，所有地图引擎可用（@turf/buffer 惰性加载，不进主包）
 - 多步任务计划：代理可先 `create_plan` 拆解步骤、再 `update_plan_step` 逐个推进状态，面板实时渲染进度
 - 可选的会话持久化（`persistConversation`）：会话条目写入 localStorage，刷新页面后恢复（不存任何凭据）
 - 「加载模型」按钮从已配置的 OpenAI/Anthropic 兼容端点拉取模型列表（`/models` 或 `/v1/models`）；React 面板提供下拉选择，原生控件填充建议 combobox

@@ -521,6 +521,22 @@ export function buildMapToolDefinitions(ctx: ToolDefContext, engineTools: Tool[]
       },
     }),
     /**
+     * buffer_layer — 对一个用户添加的 GeoJSON 图层做缓冲区分析（所有引擎
+     * 可用）。结果渲染为新图层并适配视野，返回半径、要素数与面积；分析前
+     * 先用 list_layers 确认图层名。
+     */
+    tool({
+      name: "buffer_layer",
+      description:
+        "Buffer all features of a user-added GeoJSON layer by a radius in kilometers, add the result as a new layer, fit the view to it, and return its metrics (feature count, area in km2). Works on every map engine.",
+      inputSchema: z.object({
+        name: z.string().describe("User-added GeoJSON layer name (see list_layers)."),
+        radiusKm: z.number().positive().max(1000).describe("Buffer radius in kilometers."),
+        resultName: z.string().optional().describe("Name for the result layer (default: <name>-buffer)."),
+      }),
+      callback: (input) => ctx.runCommand("buffer_layer", input),
+    }),
+    /**
      * create_plan — 为多步任务创建执行计划。用户请求需要三个及以上独立操作
      * （检索→加载→渲染→统计等）时先调用它拆解步骤，再用 update_plan_step
      * 随执行推进各步骤状态；简单的一步请求不要建计划。
